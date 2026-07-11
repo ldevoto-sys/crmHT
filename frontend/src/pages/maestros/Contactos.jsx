@@ -7,10 +7,10 @@ const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '
 
 export default function Contactos() {
   const { user } = useAuth();
+  const puedeEditar = ['administrador', 'callcenter', 'vendedor'].includes(user?.rol);
   const [contactos, setContactos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [q, setQ] = useState('');
-  const [soloRevisar, setSoloRevisar] = useState(false);
   const [form, setForm] = useState(vacio);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -18,16 +18,33 @@ export default function Contactos() {
   const [msg, setMsg] = useState('');
   const [candidatos, setCandidatos] = useState([]);
   const [empresaSugerida, setEmpresaSugerida] = useState(null);
+  // Selección múltiple
+  const [sel, setSel] = useState(() => new Set());
+  const [bulkEmpresa, setBulkEmpresa] = useState('');
 
   const cargar = async () => {
     const params = {};
     if (q) params.q = q;
-    if (soloRevisar) params.revisar = '1';
     const { data } = await api.get('/contactos', { params });
     setContactos(data);
+    setSel(new Set());
   };
-  useEffect(() => { cargar(); }, [soloRevisar]);
+  useEffect(() => { cargar(); }, []);
   useEffect(() => { api.get('/empresas').then(r => setEmpresas(r.data)).catch(() => {}); }, []);
+
+  const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const todosSel = contactos.length > 0 && contactos.every(c => sel.has(c.id));
+  const toggleTodos = () => setSel(todosSel ? new Set() : new Set(contactos.map(c => c.id)));
+
+  const bulk = async (accion, extra = {}) => {
+    setError(''); setMsg('');
+    try {
+      const { data } = await api.post('/contactos/bulk-accion', { ids: [...sel], accion, ...extra });
+      setMsg(`${data.message} (${data.afectados}).`);
+      setBulkEmpresa('');
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'Error en la acción en lote.'); }
+  };
 
   const abrirNuevo = () => { setForm(vacio); setEditId(null); setCandidatos([]); setEmpresaSugerida(null); setError(''); setMsg(''); setShowForm(true); };
   const abrirEditar = async c => {
@@ -79,23 +96,39 @@ export default function Contactos() {
       </div>
 
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <div className="mb-4 flex items-center gap-3 flex-wrap">
-        <form onSubmit={e => { e.preventDefault(); cargar(); }} className="flex gap-2">
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, email o teléfono…"
-            className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-          <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
-        </form>
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox" checked={soloRevisar} onChange={e => setSoloRevisar(e.target.checked)} />
-          Solo marcados para revisar
-        </label>
-      </div>
+      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex gap-2">
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, email o teléfono…"
+          className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
+      </form>
+
+      {/* Barra de acciones en lote */}
+      {puedeEditar && sel.size > 0 && (
+        <div className="mb-3 p-3 bg-ht-navy/5 border border-ht-navy/20 rounded flex items-center gap-3 flex-wrap">
+          <span className="text-sm font-medium text-ht-navy">{sel.size} seleccionado(s)</span>
+          <div className="flex items-center gap-2">
+            <select value={bulkEmpresa} onChange={e => setBulkEmpresa(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Asignar a empresa…</option>
+              {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
+            </select>
+            <button disabled={!bulkEmpresa} onClick={() => bulk('asignar_empresa', { empresa_id: Number(bulkEmpresa) })}
+              className="text-sm px-3 py-1.5 rounded bg-ht-navy text-white hover:bg-ht-navy/90 disabled:opacity-50">Asignar</button>
+          </div>
+          <button onClick={() => bulk('marcar_revisado')} className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Marcar revisado</button>
+          <button onClick={() => { if (window.confirm(`¿Desactivar ${sel.size} contacto(s)?`)) bulk('desactivar'); }}
+            className="text-sm px-3 py-1.5 rounded border border-red-300 text-red-600 hover:bg-red-50">Desactivar</button>
+          <button onClick={() => setSel(new Set())} className="text-sm text-gray-500 hover:underline ml-auto">Limpiar selección</button>
+        </div>
+      )}
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
+              {puedeEditar && <th className="px-4 py-2 w-8"><input type="checkbox" checked={todosSel} onChange={toggleTodos} /></th>}
               <th className="text-left px-4 py-2 font-medium">Nombre</th>
               <th className="text-left px-4 py-2 font-medium">Empresa</th>
               <th className="text-left px-4 py-2 font-medium">Email</th>
@@ -105,7 +138,8 @@ export default function Contactos() {
           </thead>
           <tbody>
             {contactos.map(c => (
-              <tr key={c.id} className="border-t border-gray-100">
+              <tr key={c.id} className={`border-t border-gray-100 ${sel.has(c.id) ? 'bg-ht-accent/5' : ''}`}>
+                {puedeEditar && <td className="px-4 py-2"><input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} /></td>}
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   {c.nombre} {c.apellido}
                   {c.revisar_duplicado && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-ht-accent/20 text-ht-navy">revisar</span>}
@@ -118,7 +152,7 @@ export default function Contactos() {
                 </td>
               </tr>
             ))}
-            {contactos.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
+            {contactos.length === 0 && <tr><td colSpan={puedeEditar ? 6 : 5} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
           </tbody>
         </table>
       </div>
