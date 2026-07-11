@@ -230,6 +230,35 @@ router.post('/importar/confirmar', authorize('administrador', 'callcenter'), upl
   }
 });
 
+// POST /api/contactos/bulk-accion — acción en lote sobre contactos seleccionados
+// body: { ids:[...], accion:'asignar_empresa'|'desactivar'|'marcar_revisado', empresa_id? }
+router.post('/bulk-accion', authorize(...PUEDE_EDITAR), async (req, res) => {
+  try {
+    const { ids, accion, empresa_id } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'Sin contactos seleccionados' });
+
+    if (accion === 'asignar_empresa') {
+      if (!empresa_id) return res.status(400).json({ error: 'empresa_id requerido' });
+      const emp = await db.get('SELECT id FROM empresas WHERE id = $1', [empresa_id]);
+      if (!emp) return res.status(400).json({ error: 'Empresa inexistente' });
+      const r = await db.run('UPDATE contactos SET empresa_id = $1 WHERE id = ANY($2)', [empresa_id, ids]);
+      return res.json({ message: 'Empresa asignada', afectados: r.rowCount });
+    }
+    if (accion === 'desactivar') {
+      const r = await db.run('UPDATE contactos SET activo = false WHERE id = ANY($1)', [ids]);
+      return res.json({ message: 'Contactos desactivados', afectados: r.rowCount });
+    }
+    if (accion === 'marcar_revisado') {
+      const r = await db.run('UPDATE contactos SET revisar_duplicado = false WHERE id = ANY($1)', [ids]);
+      return res.json({ message: 'Marcados como revisados', afectados: r.rowCount });
+    }
+    return res.status(400).json({ error: 'Acción no reconocida' });
+  } catch (err) {
+    console.error('[contactos/bulk-accion]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // GET /api/contactos/:id
 router.get('/:id', async (req, res) => {
   try {
