@@ -8,6 +8,15 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
+import Empresas from './pages/maestros/Empresas';
+import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
+import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
+import Contactos from './pages/maestros/Contactos';
+import ImportarContactos from './pages/maestros/ImportarContactos';
+import Duplicados from './pages/maestros/Duplicados';
+import Productos from './pages/maestros/Productos';
+import DetalleProducto from './pages/maestros/DetalleProducto';
+import ImportarProductos from './pages/maestros/ImportarProductos';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -29,12 +38,23 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
 
             {/* Etapa 1 — Maestros */}
-            <Route path="empresas" element={<Placeholder title="Empresas" />} />
-            <Route path="contactos" element={<Placeholder title="Contactos" />} />
-            <Route path="duplicados" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><Placeholder title="Duplicados" /></ProtectedRoute>
+            <Route path="empresas" element={<Empresas />} />
+            <Route path="empresas/importar" element={
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarEmpresas /></ProtectedRoute>
             } />
-            <Route path="productos" element={<Placeholder title="Productos" />} />
+            <Route path="empresas/:id" element={<DetalleEmpresa />} />
+            <Route path="contactos" element={<Contactos />} />
+            <Route path="contactos/importar" element={
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarContactos /></ProtectedRoute>
+            } />
+            <Route path="duplicados" element={
+              <ProtectedRoute roles={['administrador', 'callcenter']}><Duplicados /></ProtectedRoute>
+            } />
+            <Route path="productos" element={<Productos />} />
+            <Route path="productos/importar" element={
+              <ProtectedRoute roles={['administrador']}><ImportarProductos /></ProtectedRoute>
+            } />
+            <Route path="productos/:id" element={<DetalleProducto />} />
 
             {/* Etapa 2 — Cotizador y pipeline */}
             <Route path="pipeline" element={<Placeholder title="Pipeline" />} />

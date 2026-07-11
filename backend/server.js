@@ -27,6 +27,9 @@ app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 // Rutas API
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
+app.use('/api/empresas', require('./routes/empresas'));
+app.use('/api/contactos', require('./routes/contactos'));
+app.use('/api/productos', require('./routes/productos'));
 
 // Producción: servir el frontend compilado.
 if (process.env.NODE_ENV === 'production') {

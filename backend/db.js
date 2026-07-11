@@ -67,6 +67,86 @@ async function initDb() {
     )
   `);
 
+  // === Etapa 1 — Maestros ===
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS empresas (
+      id SERIAL PRIMARY KEY,
+      razon_social TEXT NOT NULL,
+      rut TEXT UNIQUE,
+      dominio_correo TEXT,
+      giro TEXT, direccion TEXT, comuna TEXT, ciudad TEXT,
+      telefono_e164 TEXT,
+      vendedor_id INTEGER REFERENCES users(id),
+      hubspot_id TEXT,
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS contactos (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      apellido TEXT,
+      telefono_e164 TEXT UNIQUE,
+      email TEXT,
+      empresa_id INTEGER REFERENCES empresas(id),
+      rut_comprador TEXT,
+      cargo TEXT,
+      origen TEXT NOT NULL DEFAULT 'manual'
+        CHECK (origen IN ('manual','whatsapp','web','migracion_hubspot','importacion_csv')),
+      revisar_duplicado BOOLEAN DEFAULT false,
+      hubspot_id TEXT,
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS productos (
+      id SERIAL PRIMARY KEY,
+      sku TEXT UNIQUE,
+      nombre TEXT NOT NULL,
+      descripcion TEXT,
+      marca TEXT,
+      categoria TEXT,
+      imagen_path TEXT,
+      url_imagen TEXT,
+      ficha_tecnica_url TEXT,
+      precio_lista NUMERIC(12,2),
+      atributos JSONB DEFAULT '{}'::jsonb,
+      stock_gestionado_por_proveedor BOOLEAN DEFAULT false,
+      proveedor TEXT,
+      hubspot_id TEXT,
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  // Columnas agregadas después de la definición inicial (idempotente).
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS marca TEXT`);
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS url_imagen TEXT`);
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS atributos JSONB DEFAULT '{}'::jsonb`);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS stock_proveedor (
+      id SERIAL PRIMARY KEY,
+      producto_id INTEGER NOT NULL REFERENCES productos(id),
+      stock INTEGER,
+      precio NUMERIC(12,2),
+      fecha_carga TIMESTAMP DEFAULT now(),
+      archivo_origen TEXT,
+      cargado_por_id INTEGER REFERENCES users(id)
+    )
+  `);
+
+  // Índices para dedup y búsquedas frecuentes.
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_contactos_email ON contactos (lower(email))`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_contactos_telefono ON contactos (telefono_e164)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_contactos_empresa ON contactos (empresa_id)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_empresas_dominio ON empresas (lower(dominio_correo))`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_stock_proveedor_producto ON stock_proveedor (producto_id, fecha_carga DESC)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');
