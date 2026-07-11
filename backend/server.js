@@ -31,6 +31,7 @@ app.use('/api/empresas', require('./routes/empresas'));
 app.use('/api/contactos', require('./routes/contactos'));
 app.use('/api/productos', require('./routes/productos'));
 app.use('/api/negocios', require('./routes/negocios'));
+app.use('/api/cotizaciones', require('./routes/cotizaciones'));
 app.use('/api/config', require('./routes/config'));
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).

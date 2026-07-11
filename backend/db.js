@@ -237,6 +237,77 @@ async function initDb() {
     console.log('[DB] Causas de no cierre creadas.');
   }
 
+  // === Etapa 2B — Cotizaciones ===
+
+  // Correlativo global por año: COT-AAAA-NNNNN.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_correlativo (
+      anio INTEGER PRIMARY KEY,
+      ultimo INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizaciones (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      numero TEXT NOT NULL,
+      version INTEGER NOT NULL DEFAULT 1,
+      estado TEXT NOT NULL DEFAULT 'borrador'
+        CHECK (estado IN ('borrador','enviada','vista','aceptada','rechazada','vencida','reemplazada')),
+      subtotal NUMERIC(12,2) DEFAULT 0,
+      descuento_pct NUMERIC(5,2) DEFAULT 0,
+      total NUMERIC(12,2) DEFAULT 0,
+      descuento_aprobado_por_id INTEGER REFERENCES users(id),
+      descuento_solicitado BOOLEAN DEFAULT false,
+      validez_dias INTEGER DEFAULT 15,
+      condiciones TEXT,
+      token_publico TEXT UNIQUE,
+      pdf_path TEXT,
+      fecha_envio TIMESTAMP,
+      creado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now(),
+      UNIQUE (negocio_id, numero, version)
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_items (
+      id SERIAL PRIMARY KEY,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+      producto_id INTEGER REFERENCES productos(id),
+      descripcion TEXT,
+      cantidad NUMERIC(10,2) NOT NULL DEFAULT 1,
+      precio_unitario NUMERIC(12,2) NOT NULL,
+      total_linea NUMERIC(12,2) NOT NULL
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_envios (
+      id SERIAL PRIMARY KEY,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id),
+      canal TEXT NOT NULL CHECK (canal IN ('correo','whatsapp')),
+      destinatario TEXT NOT NULL,
+      graph_message_id TEXT,
+      graph_conversation_id TEXT,
+      wa_message_id TEXT,
+      enviado_por_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_vistas (
+      id SERIAL PRIMARY KEY,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id),
+      ip TEXT, user_agent TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_cotizaciones_negocio ON cotizaciones (negocio_id, version DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_cotizacion_items_cot ON cotizacion_items (cotizacion_id)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');
