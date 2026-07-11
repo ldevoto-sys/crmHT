@@ -147,6 +147,65 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_empresas_dominio ON empresas (lower(dominio_correo))`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_stock_proveedor_producto ON stock_proveedor (producto_id, fecha_carga DESC)`);
 
+  // === Etapa 2 — Pipeline de negocios ===
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS causas_no_cierre (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE,
+      activo BOOLEAN DEFAULT true
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS negocios (
+      id SERIAL PRIMARY KEY,
+      empresa_id INTEGER REFERENCES empresas(id),
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      vendedor_id INTEGER NOT NULL REFERENCES users(id),
+      titulo TEXT NOT NULL,
+      etapa TEXT NOT NULL DEFAULT 'lead'
+        CHECK (etapa IN ('lead','calificado','cotizado','negociacion','ganado','perdido')),
+      monto_estimado NUMERIC(12,2),
+      causa_no_cierre_id INTEGER REFERENCES causas_no_cierre(id),
+      causa_no_cierre_detalle TEXT,
+      fecha_cierre TIMESTAMP,
+      ultima_actividad TIMESTAMP DEFAULT now(),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Línea de tiempo unificada. cotizacion_id sin FK todavía (la tabla llega en 2B).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS timeline (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      negocio_id INTEGER REFERENCES negocios(id),
+      cotizacion_id INTEGER,
+      tipo TEXT NOT NULL CHECK (tipo IN (
+        'wa_mensaje','correo_enviado','correo_respuesta','cotizacion_enviada',
+        'cotizacion_vista','seguimiento_auto','seguimiento_manual','nota','tarea',
+        'llamada','cambio_etapa','asignacion','encuesta_respondida'
+      )),
+      descripcion TEXT NOT NULL,
+      usuario_id INTEGER REFERENCES users(id),
+      referencia_id INTEGER,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_negocios_vendedor ON negocios (vendedor_id, etapa)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_negocio ON timeline (negocio_id, created_at DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_contacto ON timeline (contacto_id, created_at DESC)`);
+
+  // Seed: causas de no cierre por defecto (§6).
+  const causaExiste = await db.get('SELECT id FROM causas_no_cierre LIMIT 1');
+  if (!causaExiste) {
+    const causas = ['Precio', 'Plazo de entrega', 'Sin stock', 'Compró a competencia', 'Proyecto cancelado', 'Sin respuesta', 'Otro'];
+    for (const c of causas) await db.run('INSERT INTO causas_no_cierre (nombre) VALUES ($1)', [c]);
+    console.log('[DB] Causas de no cierre creadas.');
+  }
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

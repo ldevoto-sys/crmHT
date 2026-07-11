@@ -17,6 +17,8 @@ import Duplicados from './pages/maestros/Duplicados';
 import Productos from './pages/maestros/Productos';
 import DetalleProducto from './pages/maestros/DetalleProducto';
 import ImportarProductos from './pages/maestros/ImportarProductos';
+import Pipeline from './pages/ventas/Pipeline';
+import DetalleNegocio from './pages/ventas/DetalleNegocio';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -57,7 +59,8 @@ export default function App() {
             <Route path="productos/:id" element={<DetalleProducto />} />
 
             {/* Etapa 2 — Cotizador y pipeline */}
-            <Route path="pipeline" element={<Placeholder title="Pipeline" />} />
+            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="negocios/:id" element={<DetalleNegocio />} />
             <Route path="cotizaciones" element={<Placeholder title="Cotizaciones" />} />
 
             {/* Etapa 3 — Tareas y reportes */}
