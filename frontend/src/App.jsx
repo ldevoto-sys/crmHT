@@ -9,6 +9,7 @@ import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
 import Empresas from './pages/maestros/Empresas';
+import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
 import Contactos from './pages/maestros/Contactos';
 import ImportarContactos from './pages/maestros/ImportarContactos';
@@ -38,6 +39,9 @@ export default function App() {
 
             {/* Etapa 1 — Maestros */}
             <Route path="empresas" element={<Empresas />} />
+            <Route path="empresas/importar" element={
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarEmpresas /></ProtectedRoute>
+            } />
             <Route path="empresas/:id" element={<DetalleEmpresa />} />
             <Route path="contactos" element={<Contactos />} />
             <Route path="contactos/importar" element={
