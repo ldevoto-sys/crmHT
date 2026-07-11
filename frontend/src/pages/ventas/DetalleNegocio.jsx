@@ -15,8 +15,12 @@ export default function DetalleNegocio() {
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
 
+  const [cots, setCots] = useState([]);
   const cargar = async () => {
-    try { const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? ''); }
+    try {
+      const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
+      setCots((await api.get('/cotizaciones', { params: { negocio_id: id } })).data);
+    }
     catch { setError('No se pudo cargar el negocio.'); }
   };
   useEffect(() => { cargar(); }, [id]);
@@ -60,6 +64,26 @@ export default function DetalleNegocio() {
               {n.etapa_tipo === 'perdida' && <Dato label="Causa no cierre" val={n.causa_nombre} />}
               {n.fecha_cierre && <Dato label="Cierre" val={fecha(n.fecha_cierre)} />}
             </dl>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-ht-navy">Cotizaciones</h2>
+              {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-navy text-white px-3 py-1.5 rounded hover:bg-ht-navy/90">+ Cotizar</Link>}
+            </div>
+            {cots.length === 0 ? <p className="text-sm text-gray-400">Sin cotizaciones.</p> : (
+              <table className="w-full text-sm">
+                <tbody>
+                  {cots.map(c => (
+                    <tr key={c.id} className="border-t border-gray-100">
+                      <td className="py-1.5"><Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{c.numero} v{c.version}</Link></td>
+                      <td className="py-1.5 capitalize text-gray-500">{c.estado}</td>
+                      <td className="py-1.5 text-right text-ht-navy">{money(c.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-5">

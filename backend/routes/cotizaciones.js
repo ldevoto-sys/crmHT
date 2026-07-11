@@ -3,6 +3,8 @@ const router = express.Router();
 const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
+const { fetchCompleta } = require('../services/cotizacion_data');
+const { generarCotizacionPDF } = require('../services/pdf');
 
 router.use(authenticate);
 
@@ -86,6 +88,20 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error('[cotizaciones/GET /:id]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/cotizaciones/:id/pdf — descarga PDF (usuario autenticado)
+router.get('/:id/pdf', async (req, res) => {
+  try {
+    const data = await fetchCompleta({ id: req.params.id });
+    if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${data.cot.numero}-v${data.cot.version}.pdf"`);
+    generarCotizacionPDF(data, res);
+  } catch (err) {
+    console.error('[cotizaciones/:id/pdf]', err);
+    res.status(500).json({ error: 'Error al generar PDF' });
   }
 });
 

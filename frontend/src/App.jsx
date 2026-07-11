@@ -20,6 +20,10 @@ import DetalleProducto from './pages/maestros/DetalleProducto';
 import ImportarProductos from './pages/maestros/ImportarProductos';
 import Pipeline from './pages/ventas/Pipeline';
 import DetalleNegocio from './pages/ventas/DetalleNegocio';
+import Cotizaciones from './pages/ventas/Cotizaciones';
+import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
+import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
+import CotizacionPublica from './pages/publico/CotizacionPublica';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -30,6 +34,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
+          <Route path="/c/:token" element={<CotizacionPublica />} />
           <Route path="/cambiar-password" element={
             <ProtectedRoute><CambiarPassword /></ProtectedRoute>
           } />
@@ -62,7 +67,11 @@ export default function App() {
             {/* Etapa 2 — Cotizador y pipeline */}
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="negocios/:id" element={<DetalleNegocio />} />
-            <Route path="cotizaciones" element={<Placeholder title="Cotizaciones" />} />
+            <Route path="negocios/:negocioId/cotizar" element={
+              <ProtectedRoute roles={['administrador', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+            } />
+            <Route path="cotizaciones" element={<Cotizaciones />} />
+            <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={<Placeholder title="Mis Tareas" />} />
