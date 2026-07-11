@@ -31,11 +31,13 @@ app.use('/api/empresas', require('./routes/empresas'));
 app.use('/api/contactos', require('./routes/contactos'));
 app.use('/api/productos', require('./routes/productos'));
 
-// Producción: servir el frontend compilado.
-if (process.env.NODE_ENV === 'production') {
-  const frontendDist = path.join(__dirname, '../frontend/dist');
+// Servir el frontend compilado si existe (Railway lo construye en el deploy).
+// No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
+const frontendDist = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
   app.use(express.static(frontendDist));
   app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'No encontrado' });
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }
