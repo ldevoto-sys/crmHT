@@ -4,6 +4,9 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { validarRut } = require('../utils/validaciones');
 const { normalizarTelefono, buscarDuplicados, sugerirEmpresaPorEmail } = require('../services/dedup');
+const { uploadCSV } = require('../middleware/upload');
+const { parseCSV } = require('../utils/csv');
+const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
 
 const PUEDE_EDITAR = ['administrador', 'callcenter', 'vendedor'];
 
@@ -91,6 +94,139 @@ router.post('/verificar', async (req, res) => {
   } catch (err) {
     console.error('[contactos/POST /verificar]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// --- Importador CSV de contactos ---
+
+// GET /api/contactos/importar/plantilla — descarga la plantilla de columnas.
+router.get('/importar/plantilla', (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_contactos.csv"');
+  res.send('﻿' + PLANTILLA_HEADERS.join(',') + '\n');
+});
+
+// Clasifica cada válido como nuevo/actualizar para la previsualización.
+async function clasificar(validos) {
+  const tels = validos.map(v => v.contacto.telefono_e164).filter(Boolean);
+  const emails = validos.map(v => v.contacto.email).filter(Boolean).map(e => e.toLowerCase());
+  let telsExist = new Set(), emailsExist = new Set();
+  if (tels.length) {
+    const r = await db.all('SELECT telefono_e164 FROM contactos WHERE telefono_e164 = ANY($1)', [tels]);
+    telsExist = new Set(r.map(x => x.telefono_e164));
+  }
+  if (emails.length) {
+    const r = await db.all('SELECT DISTINCT lower(email) AS email FROM contactos WHERE activo = true AND lower(email) = ANY($1)', [emails]);
+    emailsExist = new Set(r.map(x => x.email));
+  }
+  let nuevos = 0, actualizar = 0;
+  for (const v of validos) {
+    const t = v.contacto.telefono_e164;
+    const e = v.contacto.email ? v.contacto.email.toLowerCase() : null;
+    if ((t && telsExist.has(t)) || (!t && e && emailsExist.has(e))) actualizar++;
+    else nuevos++;
+  }
+  return { nuevos, actualizar };
+}
+
+// POST /api/contactos/importar/preview
+router.post('/importar/preview', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+    const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+    const { validos, rechazos } = mapearContactos(rows);
+    const { nuevos, actualizar } = await clasificar(validos);
+    const conAdvertencia = validos.filter(v => v.advertencias.length > 0).length;
+    res.json({
+      resumen: {
+        total_filas_validas: validos.length,
+        nuevos, actualizar,
+        con_advertencia: conAdvertencia,
+        rechazos: rechazos.length,
+      },
+      muestra: validos.slice(0, 20).map(v => ({
+        nombre: v.contacto.nombre, apellido: v.contacto.apellido || '',
+        email: v.contacto.email || '', telefono: v.contacto.telefono_e164 || '',
+        empresa: v.contacto.empresa_nombre || v.contacto.empresa_rut || '',
+        advertencias: v.advertencias,
+      })),
+      rechazos: rechazos.slice(0, 200),
+    });
+  } catch (err) {
+    console.error('[contactos/importar/preview]', err);
+    res.status(500).json({ error: 'Error al procesar el archivo: ' + err.message });
+  }
+});
+
+// POST /api/contactos/importar/confirmar
+router.post('/importar/confirmar', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+  const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+  const { validos } = mapearContactos(rows);
+  const client = await db.pool.connect();
+  const empresaCache = new Map();
+  let empresasCreadas = 0;
+
+  async function resolverEmpresa({ empresa_rut, empresa_nombre }) {
+    if (!empresa_rut && !empresa_nombre) return null;
+    const key = (empresa_rut || '') + '|' + (empresa_nombre || '').toLowerCase();
+    if (empresaCache.has(key)) return empresaCache.get(key);
+    let emp = null;
+    if (empresa_rut) emp = (await client.query('SELECT id FROM empresas WHERE rut = $1', [empresa_rut])).rows[0];
+    if (!emp && empresa_nombre) emp = (await client.query('SELECT id FROM empresas WHERE lower(razon_social) = lower($1) AND activo = true LIMIT 1', [empresa_nombre])).rows[0];
+    if (!emp) {
+      emp = (await client.query('INSERT INTO empresas (razon_social, rut) VALUES ($1,$2) RETURNING id', [empresa_nombre || empresa_rut, empresa_rut || null])).rows[0];
+      empresasCreadas++;
+    }
+    empresaCache.set(key, emp.id);
+    return emp.id;
+  }
+
+  try {
+    await client.query('BEGIN');
+    let insertados = 0, actualizados = 0;
+
+    for (const { contacto: c } of validos) {
+      const empresaId = await resolverEmpresa(c);
+      let existente = null;
+      if (c.telefono_e164) {
+        existente = (await client.query('SELECT id FROM contactos WHERE telefono_e164 = $1', [c.telefono_e164])).rows[0];
+      } else if (c.email) {
+        const matches = (await client.query('SELECT id FROM contactos WHERE lower(email) = lower($1) AND activo = true', [c.email])).rows;
+        if (matches.length === 1) existente = matches[0];
+      }
+
+      if (existente) {
+        await client.query(
+          `UPDATE contactos SET apellido=COALESCE(apellido,$2), email=COALESCE(email,$3),
+                  rut_comprador=COALESCE(rut_comprador,$4), cargo=COALESCE(cargo,$5),
+                  empresa_id=COALESCE(empresa_id,$6) WHERE id=$1`,
+          [existente.id, c.apellido || null, c.email || null, c.rut_comprador || null, c.cargo || null, empresaId]
+        );
+        actualizados++;
+      } else {
+        // Sin teléfono, si el email ya existe en otros → marcar revisar.
+        let revisar = false;
+        if (!c.telefono_e164 && c.email) {
+          const n = (await client.query('SELECT count(*)::int AS n FROM contactos WHERE lower(email)=lower($1) AND activo=true', [c.email])).rows[0].n;
+          revisar = n > 0;
+        }
+        await client.query(
+          `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'importacion_csv',$8)`,
+          [c.nombre, c.apellido || null, c.email || null, c.telefono_e164, empresaId, c.rut_comprador || null, c.cargo || null, revisar]
+        );
+        insertados++;
+      }
+    }
+    await client.query('COMMIT');
+    res.json({ message: 'Importación completada', insertados, actualizados, empresas_referenciadas: empresasCreadas });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[contactos/importar/confirmar]', err);
+    res.status(500).json({ error: 'Error al importar: ' + err.message });
+  } finally {
+    client.release();
   }
 });
 

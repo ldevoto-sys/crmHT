@@ -11,6 +11,7 @@ import Usuarios from './pages/admin/Usuarios';
 import Empresas from './pages/maestros/Empresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
 import Contactos from './pages/maestros/Contactos';
+import ImportarContactos from './pages/maestros/ImportarContactos';
 import Duplicados from './pages/maestros/Duplicados';
 import Productos from './pages/maestros/Productos';
 import DetalleProducto from './pages/maestros/DetalleProducto';
@@ -39,6 +40,9 @@ export default function App() {
             <Route path="empresas" element={<Empresas />} />
             <Route path="empresas/:id" element={<DetalleEmpresa />} />
             <Route path="contactos" element={<Contactos />} />
+            <Route path="contactos/importar" element={
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarContactos /></ProtectedRoute>
+            } />
             <Route path="duplicados" element={
               <ProtectedRoute roles={['administrador', 'callcenter']}><Duplicados /></ProtectedRoute>
             } />

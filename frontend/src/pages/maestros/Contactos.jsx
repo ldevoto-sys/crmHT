@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 
 const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '', rut_comprador: '', cargo: '' };
 
 export default function Contactos() {
+  const { user } = useAuth();
   const [contactos, setContactos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [q, setQ] = useState('');
@@ -65,7 +68,14 @@ export default function Contactos() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Contactos</h1>
-        <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo contacto</button>
+        <div className="flex gap-2">
+          {(user?.rol === 'administrador' || user?.rol === 'callcenter') && (
+            <Link to="/contactos/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+              Importar CSV
+            </Link>
+          )}
+          <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo contacto</button>
+        </div>
       </div>
 
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
