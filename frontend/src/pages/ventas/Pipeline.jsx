@@ -2,23 +2,15 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
 
-const COLUMNAS = [
-  { key: 'lead', label: 'Lead' },
-  { key: 'calificado', label: 'Calificado' },
-  { key: 'cotizado', label: 'Cotizado' },
-  { key: 'negociacion', label: 'Negociación' },
-  { key: 'ganado', label: 'Ganado' },
-  { key: 'perdido', label: 'Perdido' },
-];
-
-const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
+const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
 
 export default function Pipeline() {
   const [negocios, setNegocios] = useState([]);
+  const [etapas, setEtapas] = useState([]);
   const [causas, setCausas] = useState([]);
   const [error, setError] = useState('');
-  const [drag, setDrag] = useState(null);           // negocio en arrastre
-  const [modalPerdido, setModalPerdido] = useState(null); // {negocio}
+  const [drag, setDrag] = useState(null);
+  const [modalPerdido, setModalPerdido] = useState(null); // {negocio, etapa}
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
   const [showNuevo, setShowNuevo] = useState(false);
 
@@ -27,30 +19,31 @@ export default function Pipeline() {
     catch { setError('No se pudieron cargar los negocios.'); }
   };
   useEffect(() => { cargar(); }, []);
-  useEffect(() => { api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {}); }, []);
+  useEffect(() => {
+    api.get('/config/pipeline-etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
+    api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+  }, []);
 
   const mover = async (negocio, etapa, extra = {}) => {
-    if (negocio.etapa === etapa) return;
-    try {
-      await api.put(`/negocios/${negocio.id}/etapa`, { etapa, ...extra });
-      cargar();
-    } catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la etapa.'); }
+    if (negocio.etapa_id === etapa.id) return;
+    try { await api.put(`/negocios/${negocio.id}/etapa`, { etapa_id: etapa.id, ...extra }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la etapa.'); }
   };
 
   const onDrop = (etapa) => {
     if (!drag) return;
     const negocio = drag; setDrag(null);
-    if (etapa === 'perdido') { setModalPerdido(negocio); setCausaSel(''); setDetalle(''); }
+    if (etapa.tipo === 'perdida') { setModalPerdido({ negocio, etapa }); setCausaSel(''); setDetalle(''); }
     else mover(negocio, etapa);
   };
 
   const confirmarPerdido = async () => {
     if (!causaSel) return;
-    await mover(modalPerdido, 'perdido', { causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle });
+    await mover(modalPerdido.negocio, modalPerdido.etapa, { causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle });
     setModalPerdido(null);
   };
 
-  const porEtapa = etapa => negocios.filter(n => n.etapa === etapa);
+  const porEtapa = id => negocios.filter(n => n.etapa_id === id);
 
   return (
     <div>
@@ -61,19 +54,22 @@ export default function Pipeline() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
       <div className="flex gap-3 overflow-x-auto pb-4">
-        {COLUMNAS.map(col => {
-          const items = porEtapa(col.key);
+        {etapas.map(et => {
+          const items = porEtapa(et.id);
           const total = items.reduce((s, n) => s + (Number(n.monto_estimado) || 0), 0);
+          const ponderado = items.reduce((s, n) => s + (Number(n.monto_estimado) || 0) * ((n.probabilidad_cierre ?? et.probabilidad_cierre) / 100), 0);
           return (
-            <div key={col.key}
+            <div key={et.id}
               onDragOver={e => e.preventDefault()}
-              onDrop={() => onDrop(col.key)}
+              onDrop={() => onDrop(et)}
               className="flex-shrink-0 w-64 bg-slate-100 rounded-lg p-2">
-              <div className="flex items-center justify-between px-1 mb-2">
-                <span className="text-sm font-semibold text-ht-navy">{col.label}</span>
-                <span className="text-xs text-gray-500">{items.length}</span>
+              <div className="flex items-center justify-between px-1 mb-1">
+                <span className="text-sm font-semibold text-ht-navy">{et.nombre}</span>
+                <span className="text-xs text-gray-500">{items.length} · {et.probabilidad_cierre}%</span>
               </div>
-              <div className="text-xs text-gray-500 px-1 mb-2">{money(total)}</div>
+              <div className="text-xs text-gray-500 px-1 mb-2">
+                {money(total)}{et.tipo === 'abierta' && ponderado > 0 && <span className="text-ht-accent"> · pond. {money(Math.round(ponderado))}</span>}
+              </div>
               <div className="space-y-2 min-h-[40px]">
                 {items.map(n => (
                   <div key={n.id} draggable onDragStart={() => setDrag(n)}
@@ -83,13 +79,14 @@ export default function Pipeline() {
                     {n.empresa_nombre && <div className="text-xs text-gray-400">{n.empresa_nombre}</div>}
                     <div className="flex items-center justify-between mt-2">
                       <span className="text-xs font-medium text-ht-navy">{money(n.monto_estimado)}</span>
-                      {!['ganado', 'perdido'].includes(n.etapa) && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>
-                          {n.dias_sin_actividad}d
-                        </span>
+                      <span className="text-[11px] text-gray-400">{n.probabilidad_cierre ?? et.probabilidad_cierre}%</span>
+                    </div>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[11px] text-gray-400">{n.vendedor_nombre}</span>
+                      {et.tipo === 'abierta' && (
+                        <span className={`text-[11px] px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{n.dias_sin_actividad}d</span>
                       )}
                     </div>
-                    <div className="text-[11px] text-gray-400 mt-1">{n.vendedor_nombre}</div>
                   </div>
                 ))}
               </div>
@@ -100,15 +97,15 @@ export default function Pipeline() {
 
       {modalPerdido && (
         <Modal onClose={() => setModalPerdido(null)}>
-          <h2 className="font-semibold text-ht-navy text-lg mb-3">Marcar como perdido</h2>
+          <h2 className="font-semibold text-ht-navy text-lg mb-3">Marcar como {modalPerdido.etapa.nombre}</h2>
           <p className="text-sm text-gray-500 mb-3">La causa de no cierre es obligatoria.</p>
           <select value={causaSel} onChange={e => setCausaSel(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent">
             <option value="">— Selecciona causa —</option>
             {causas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
-          <textarea value={detalle} onChange={e => setDetalle(e.target.value)} placeholder="Detalle (opcional)"
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" rows={2} />
+          <textarea value={detalle} onChange={e => setDetalle(e.target.value)} placeholder="Detalle (opcional)" rows={2}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           <div className="flex gap-2">
             <button onClick={confirmarPerdido} disabled={!causaSel}
               className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">Confirmar</button>

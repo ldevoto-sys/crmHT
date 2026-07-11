@@ -8,6 +8,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
+import ConfigPipeline from './pages/admin/ConfigPipeline';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
@@ -76,6 +77,9 @@ export default function App() {
             {/* Administración */}
             <Route path="usuarios" element={
               <ProtectedRoute roles={['administrador']}><Usuarios /></ProtectedRoute>
+            } />
+            <Route path="config/pipeline" element={
+              <ProtectedRoute roles={['administrador']}><ConfigPipeline /></ProtectedRoute>
             } />
           </Route>
 

@@ -147,7 +147,21 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_empresas_dominio ON empresas (lower(dominio_correo))`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_stock_proveedor_producto ON stock_proveedor (producto_id, fecha_carga DESC)`);
 
-  // === Etapa 2 — Pipeline de negocios ===
+  // === Etapa 2 — Pipeline de negocios (etapas configurables, v1.4) ===
+
+  // Etapas configurables del pipeline. tipo: 'abierta' | 'ganada' | 'perdida'.
+  // Las terminales (ganada/perdida) están protegidas: no se borran.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS pipeline_etapas (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      orden INTEGER NOT NULL DEFAULT 0,
+      probabilidad_cierre INTEGER NOT NULL DEFAULT 0 CHECK (probabilidad_cierre BETWEEN 0 AND 100),
+      tipo TEXT NOT NULL DEFAULT 'abierta' CHECK (tipo IN ('abierta','ganada','perdida')),
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS causas_no_cierre (
@@ -164,8 +178,8 @@ async function initDb() {
       contacto_id INTEGER NOT NULL REFERENCES contactos(id),
       vendedor_id INTEGER NOT NULL REFERENCES users(id),
       titulo TEXT NOT NULL,
-      etapa TEXT NOT NULL DEFAULT 'lead'
-        CHECK (etapa IN ('lead','calificado','cotizado','negociacion','ganado','perdido')),
+      etapa_id INTEGER REFERENCES pipeline_etapas(id),
+      probabilidad_cierre INTEGER CHECK (probabilidad_cierre BETWEEN 0 AND 100),
       monto_estimado NUMERIC(12,2),
       causa_no_cierre_id INTEGER REFERENCES causas_no_cierre(id),
       causa_no_cierre_detalle TEXT,
@@ -194,9 +208,26 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
-  await db.run(`CREATE INDEX IF NOT EXISTS idx_negocios_vendedor ON negocios (vendedor_id, etapa)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_negocios_vendedor ON negocios (vendedor_id, etapa_id)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_negocio ON timeline (negocio_id, created_at DESC)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_contacto ON timeline (contacto_id, created_at DESC)`);
+
+  // Seed: etapas del pipeline por defecto (configurables luego por el admin).
+  const etapaExiste = await db.get('SELECT id FROM pipeline_etapas LIMIT 1');
+  if (!etapaExiste) {
+    const etapas = [
+      ['Lead', 1, 10, 'abierta'],
+      ['Calificado', 2, 25, 'abierta'],
+      ['Cotizado', 3, 50, 'abierta'],
+      ['Negociación', 4, 75, 'abierta'],
+      ['Ganado', 5, 100, 'ganada'],
+      ['Perdido', 6, 0, 'perdida'],
+    ];
+    for (const [nombre, orden, prob, tipo] of etapas) {
+      await db.run('INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo) VALUES ($1,$2,$3,$4)', [nombre, orden, prob, tipo]);
+    }
+    console.log('[DB] Etapas de pipeline creadas.');
+  }
 
   // Seed: causas de no cierre por defecto (§6).
   const causaExiste = await db.get('SELECT id FROM causas_no_cierre LIMIT 1');
