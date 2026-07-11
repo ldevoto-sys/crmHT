@@ -109,10 +109,13 @@ async function initDb() {
       sku TEXT UNIQUE,
       nombre TEXT NOT NULL,
       descripcion TEXT,
+      marca TEXT,
       categoria TEXT,
       imagen_path TEXT,
+      url_imagen TEXT,
       ficha_tecnica_url TEXT,
       precio_lista NUMERIC(12,2),
+      atributos JSONB DEFAULT '{}'::jsonb,
       stock_gestionado_por_proveedor BOOLEAN DEFAULT false,
       proveedor TEXT,
       hubspot_id TEXT,
@@ -120,6 +123,10 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Columnas agregadas después de la definición inicial (idempotente).
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS marca TEXT`);
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS url_imagen TEXT`);
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS atributos JSONB DEFAULT '{}'::jsonb`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS stock_proveedor (

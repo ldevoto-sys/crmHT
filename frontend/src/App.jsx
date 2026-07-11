@@ -12,6 +12,9 @@ import Empresas from './pages/maestros/Empresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
 import Contactos from './pages/maestros/Contactos';
 import Duplicados from './pages/maestros/Duplicados';
+import Productos from './pages/maestros/Productos';
+import DetalleProducto from './pages/maestros/DetalleProducto';
+import ImportarProductos from './pages/maestros/ImportarProductos';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -39,7 +42,11 @@ export default function App() {
             <Route path="duplicados" element={
               <ProtectedRoute roles={['administrador', 'callcenter']}><Duplicados /></ProtectedRoute>
             } />
-            <Route path="productos" element={<Placeholder title="Productos" />} />
+            <Route path="productos" element={<Productos />} />
+            <Route path="productos/importar" element={
+              <ProtectedRoute roles={['administrador']}><ImportarProductos /></ProtectedRoute>
+            } />
+            <Route path="productos/:id" element={<DetalleProducto />} />
 
             {/* Etapa 2 — Cotizador y pipeline */}
             <Route path="pipeline" element={<Placeholder title="Pipeline" />} />

@@ -1,0 +1,117 @@
+// Mapea filas del Catálogo Técnico (CSV con cabeceras en minúsculas, ya parseado)
+// a productos normalizados. Núcleo + atributos JSONB (HT-AP-03 v1.3).
+// Cabecera (lowercase) → campo núcleo. Se aceptan alias.
+const MAPA_NUCLEO = {
+  'código': 'sku', 'codigo': 'sku', 'sku': 'sku',
+  'nombre producto': 'nombre', 'nombre': 'nombre',
+  'marca': 'marca',
+  'tipo': 'categoria', 'categoría': 'categoria', 'categoria': 'categoria',
+  'precio neto ($)': 'precio_lista', 'precio neto': 'precio_lista', 'precio': 'precio_lista',
+  'url imagen': 'url_imagen', 'imagen': 'url_imagen',
+  'url ficha pdf': 'ficha_tecnica_url', 'url ficha': 'ficha_tecnica_url', 'ficha': 'ficha_tecnica_url',
+};
+
+// Cabeceras que van a atributos con una clave "limpia".
+const MAPA_ATRIBUTOS = {
+  'hp': 'hp', 'voltaje': 'voltaje',
+  'caudal máx (l/min)': 'caudal_max_lmin', 'caudal máx': 'caudal_max_lmin', 'caudal': 'caudal_max_lmin',
+  'altura máx (m)': 'altura_max_m', 'altura máx': 'altura_max_m', 'altura': 'altura_max_m',
+  'conexión': 'conexion', 'conexion': 'conexion',
+  'diámetro pozo (pulg)': 'diametro_pozo_pulg', 'diámetro pozo': 'diametro_pozo_pulg',
+  'fuente curva': 'fuente_curva', 'verificado': 'verificado',
+  'sustitutos': 'sustitutos', 'notas': 'notas',
+  'en sitio web': 'en_sitio_web', 'stock (sitio)': 'stock_sitio',
+  'serie': 'serie', 'modelo': 'modelo',
+};
+
+// Cabeceras de stock del proveedor (futuras en el mismo Excel).
+const HEADERS_STOCK = new Set(['stock proveedor', 'stock (proveedor)', 'stock prov', 'stock_proveedor']);
+
+const NUCLEO_CONOCIDO = new Set(Object.keys(MAPA_NUCLEO));
+const ATRIB_CONOCIDO = new Set(Object.keys(MAPA_ATRIBUTOS));
+
+// Precio chileno: "314.071" o "$314071" → 314071. Sin decimales (CLP).
+function parsePrecio(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const limpio = String(v).replace(/[^\d]/g, '');
+  if (!limpio) return null;
+  return parseInt(limpio, 10);
+}
+
+function parseIntSafe(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseInt(String(v).replace(/[^\d-]/g, ''), 10);
+  return Number.isNaN(n) ? null : n;
+}
+
+// Convierte una fila (objeto {header: valor}) en {producto, stock, errores}.
+function mapearFila(row) {
+  const producto = { atributos: {} };
+  const curva = [];
+  let stockProveedor = null;
+
+  for (const [header, valorRaw] of Object.entries(row)) {
+    const h = header.trim().toLowerCase();
+    const valor = (valorRaw ?? '').toString().trim();
+
+    if (NUCLEO_CONOCIDO.has(h)) {
+      const campo = MAPA_NUCLEO[h];
+      if (campo === 'precio_lista') producto.precio_lista = parsePrecio(valor);
+      else producto[campo] = valor || null;
+    } else if (ATRIB_CONOCIDO.has(h)) {
+      if (valor) producto.atributos[MAPA_ATRIBUTOS[h]] = valor;
+    } else if (/^q[1-6]$/.test(h) || /^h[1-6]$/.test(h)) {
+      // Puntos de curva Q/H: se agrupan aparte.
+      // (se procesan luego con los pares q/h)
+    } else if (HEADERS_STOCK.has(h)) {
+      stockProveedor = parseIntSafe(valor);
+    } else if (valor) {
+      // Columna desconocida: se conserva en atributos por su nombre.
+      producto.atributos[h] = valor;
+    }
+  }
+
+  // Armar curva Q/H a partir de q1..q6 / h1..h6.
+  for (let n = 1; n <= 6; n++) {
+    const q = row[`q${n}`];
+    const hh = row[`h${n}`];
+    if ((q ?? '') !== '' || (hh ?? '') !== '') {
+      const qn = q === '' || q === undefined ? null : Number(String(q).replace(',', '.'));
+      const hn = hh === '' || hh === undefined ? null : Number(String(hh).replace(',', '.'));
+      if (qn !== null || hn !== null) curva.push({ q: qn, h: hn });
+    }
+  }
+  if (curva.length) producto.atributos.curva = curva;
+
+  // Validación.
+  const errores = [];
+  if (!producto.sku) errores.push('falta Código/SKU');
+  if (!producto.nombre) errores.push('falta Nombre');
+
+  return { producto, stockProveedor, errores };
+}
+
+// Procesa todas las filas → {validos:[{producto,stockProveedor}], rechazos:[{fila,sku,motivo}]}
+function mapearProductos(rows) {
+  const validos = [];
+  const rechazos = [];
+  const skusVistos = new Set();
+
+  rows.forEach((row, idx) => {
+    const { producto, stockProveedor, errores } = mapearFila(row);
+    if (errores.length) {
+      rechazos.push({ fila: idx + 2, sku: producto.sku || '', motivo: errores.join('; ') });
+      return;
+    }
+    if (skusVistos.has(producto.sku)) {
+      rechazos.push({ fila: idx + 2, sku: producto.sku, motivo: 'Código duplicado dentro del archivo' });
+      return;
+    }
+    skusVistos.add(producto.sku);
+    validos.push({ producto, stockProveedor });
+  });
+
+  return { validos, rechazos };
+}
+
+module.exports = { mapearProductos, mapearFila, parsePrecio };
