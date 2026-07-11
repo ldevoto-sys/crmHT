@@ -4,9 +4,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Colores de marca autorizados (HT-AP-03 §4 / manual de marca).
-        'ht-navy': '#112548', // Pantone 281 CVC — botones primarios, headers, títulos
-        'ht-cyan': '#34B3DE', // Pantone 306 C  — badges, acentos, highlights
+        // Colores de marca (HT-AP-03 §4 + Anexo "Sistema de acentos por app").
+        'ht-navy': '#112548',   // Pantone 281 CVC — común a todas las apps HT
+        'ht-accent': '#E8833A', // Naranja HT — acento propio del CRM (HT-AP-03)
       },
     },
   },

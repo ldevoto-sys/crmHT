@@ -44,7 +44,7 @@ export default function ResetPassword() {
         {done ? (
           <div className="text-sm text-gray-600">
             <p>Contraseña restablecida. Te redirigimos al inicio de sesión…</p>
-            <Link to="/login" className="mt-4 block text-ht-cyan hover:underline text-sm">Ir al inicio</Link>
+            <Link to="/login" className="mt-4 block text-ht-accent hover:underline text-sm">Ir al inicio</Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -58,7 +58,7 @@ export default function ResetPassword() {
                 required
                 value={next}
                 onChange={e => setNext(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent"
               />
               <ul className="mt-2 space-y-1">
                 {checks.map(c => (
@@ -75,7 +75,7 @@ export default function ResetPassword() {
                 required
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent"
               />
               {confirm && next !== confirm && (
                 <p className="text-xs text-red-500 mt-1">Las contraseñas no coinciden</p>
@@ -86,7 +86,7 @@ export default function ResetPassword() {
               {loading ? 'Guardando...' : 'Restablecer contraseña'}
             </button>
             <div className="text-center">
-              <Link to="/login" className="text-sm text-ht-cyan hover:underline">Volver al inicio</Link>
+              <Link to="/login" className="text-sm text-ht-accent hover:underline">Volver al inicio</Link>
             </div>
           </form>
         )}

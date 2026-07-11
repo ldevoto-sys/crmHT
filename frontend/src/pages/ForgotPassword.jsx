@@ -34,7 +34,7 @@ export default function ForgotPassword() {
         {sent ? (
           <div className="text-sm text-gray-600">
             <p>Si el correo está registrado, recibirás un mensaje con instrucciones.</p>
-            <Link to="/login" className="mt-4 block text-ht-cyan hover:underline text-sm">Volver al inicio</Link>
+            <Link to="/login" className="mt-4 block text-ht-accent hover:underline text-sm">Volver al inicio</Link>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -46,7 +46,7 @@ export default function ForgotPassword() {
                 value={email}
                 onChange={e => { setEmail(e.target.value); if (emailError) setEmailError(''); }}
                 onBlur={handleEmailBlur}
-                className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan ${emailError ? 'border-red-400' : 'border-gray-300'}`}
+                className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent ${emailError ? 'border-red-400' : 'border-gray-300'}`}
                 placeholder="usuario@hidrotecnica.cl"
               />
               {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
@@ -56,7 +56,7 @@ export default function ForgotPassword() {
               {loading ? 'Enviando...' : 'Enviar instrucciones'}
             </button>
             <div className="text-center">
-              <Link to="/login" className="text-sm text-ht-cyan hover:underline">Volver al inicio</Link>
+              <Link to="/login" className="text-sm text-ht-accent hover:underline">Volver al inicio</Link>
             </div>
           </form>
         )}

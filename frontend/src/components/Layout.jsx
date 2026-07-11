@@ -59,7 +59,7 @@ export default function Layout() {
       <aside className="w-60 flex-shrink-0 bg-ht-navy flex flex-col">
         <div className="px-5 py-4 border-b border-white/10">
           <span className="text-white font-bold text-base">HidroTecnica</span>
-          <span className="text-ht-cyan font-semibold text-sm ml-1">| CRM</span>
+          <span className="text-ht-accent font-semibold text-sm ml-1">| CRM</span>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           {menu.map(item => (
@@ -70,7 +70,7 @@ export default function Layout() {
               className={({ isActive }) =>
                 `block px-5 py-2.5 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-ht-cyan text-white'
+                    ? 'bg-ht-accent text-ht-navy'
                     : 'text-white/80 hover:text-white hover:bg-white/10'
                 }`
               }

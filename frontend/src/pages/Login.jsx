@@ -55,7 +55,7 @@ export default function Login() {
         <div className="flex justify-center mb-3">
           <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-14 object-contain" />
         </div>
-        <p className="text-center text-ht-cyan font-medium mb-6">CRM Comercial</p>
+        <p className="text-center text-ht-accent font-medium mb-6">CRM Comercial</p>
 
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
@@ -72,7 +72,7 @@ export default function Login() {
               value={email}
               onChange={e => { setEmail(e.target.value); if (emailError) setEmailError(''); }}
               onBlur={handleEmailBlur}
-              className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan ${emailError ? 'border-red-400' : 'border-gray-300'}`}
+              className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent ${emailError ? 'border-red-400' : 'border-gray-300'}`}
               placeholder="usuario@hidrotecnica.cl"
             />
             {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
@@ -85,7 +85,7 @@ export default function Login() {
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan"
+                className="w-full border border-gray-300 rounded px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent"
               />
               <button
                 type="button"
@@ -108,7 +108,7 @@ export default function Login() {
         </form>
 
         <div className="mt-4 text-center">
-          <Link to="/forgot-password" className="text-sm text-ht-cyan hover:underline">
+          <Link to="/forgot-password" className="text-sm text-ht-accent hover:underline">
             ¿Olvidaste tu contraseña?
           </Link>
         </div>
