@@ -35,7 +35,7 @@ function PwdField({ label, value, onChange, id }) {
           required
           value={value}
           onChange={onChange}
-          className="w-full border border-gray-300 rounded px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan"
+          className="w-full border border-gray-300 rounded px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent"
         />
         <button
           type="button"

@@ -76,22 +76,22 @@ export default function Usuarios() {
           <div>
             <label className="block text-sm text-gray-700 mb-1">Nombre</label>
             <input required value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan" />
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">RUT <span className="text-gray-400">(opcional)</span></label>
             <input value={form.rut} onChange={e => setForm({ ...form, rut: e.target.value })} placeholder="12.345.678-9"
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan" />
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">Email</label>
             <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="usuario@hidrotecnica.cl"
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-cyan" />
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">Rol</label>
             <select value={form.rol} onChange={e => setForm({ ...form, rol: e.target.value })}
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-ht-cyan">
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm capitalize focus:outline-none focus:ring-2 focus:ring-ht-accent">
               {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
@@ -135,12 +135,12 @@ export default function Usuarios() {
                   <td className="px-4 py-2 text-gray-600">{u.email}</td>
                   <td className="px-4 py-2 capitalize">{u.rol}</td>
                   <td className="px-4 py-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${u.activo ? 'bg-ht-cyan/15 text-ht-navy' : 'bg-gray-100 text-gray-400'}`}>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${u.activo ? 'bg-ht-accent/15 text-ht-navy' : 'bg-gray-100 text-gray-400'}`}>
                       {u.activo ? 'Activo' : 'Inactivo'}
                     </span>
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
-                    <button onClick={() => editar(u)} className="text-ht-cyan hover:underline mr-3">Editar</button>
+                    <button onClick={() => editar(u)} className="text-ht-accent hover:underline mr-3">Editar</button>
                     {u.activo && <button onClick={() => desactivar(u)} className="text-red-500 hover:underline">Desactivar</button>}
                   </td>
                 </tr>
