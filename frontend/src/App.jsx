@@ -8,6 +8,10 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
+import Empresas from './pages/maestros/Empresas';
+import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
+import Contactos from './pages/maestros/Contactos';
+import Duplicados from './pages/maestros/Duplicados';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -29,10 +33,11 @@ export default function App() {
             <Route path="dashboard" element={<Dashboard />} />
 
             {/* Etapa 1 — Maestros */}
-            <Route path="empresas" element={<Placeholder title="Empresas" />} />
-            <Route path="contactos" element={<Placeholder title="Contactos" />} />
+            <Route path="empresas" element={<Empresas />} />
+            <Route path="empresas/:id" element={<DetalleEmpresa />} />
+            <Route path="contactos" element={<Contactos />} />
             <Route path="duplicados" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><Placeholder title="Duplicados" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'callcenter']}><Duplicados /></ProtectedRoute>
             } />
             <Route path="productos" element={<Placeholder title="Productos" />} />
 
