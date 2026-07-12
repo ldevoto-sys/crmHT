@@ -307,6 +307,30 @@ async function initDb() {
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_cotizaciones_negocio ON cotizaciones (negocio_id, version DESC)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_cotizacion_items_cot ON cotizacion_items (cotizacion_id)`);
+  // IVA en la cotización (default 19%, configurable por cotización; 0 = exento).
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS iva_pct NUMERIC(5,2) DEFAULT 19`);
+
+  // Datos del emisor y banco para el documento de cotización (fila única id=1).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_empresa (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      razon_social TEXT, rut TEXT, direccion TEXT, comuna TEXT, ciudad TEXT,
+      telefono TEXT, whatsapp TEXT, email_ventas TEXT, email_cobranzas TEXT,
+      sitio_web TEXT, banco TEXT, cuenta_tipo TEXT, cuenta_numero TEXT,
+      CONSTRAINT config_empresa_unica CHECK (id = 1)
+    )
+  `);
+  const cfgExiste = await db.get('SELECT id FROM config_empresa WHERE id = 1');
+  if (!cfgExiste) {
+    await db.run(
+      `INSERT INTO config_empresa (id, razon_social, rut, direccion, comuna, ciudad, telefono, whatsapp, email_ventas, email_cobranzas, sitio_web, banco, cuenta_tipo, cuenta_numero)
+       VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      ['HidroTécnica SpA', '80.463.600-5', 'Manuel Tocornal 1906', 'Santiago', 'Santiago',
+       '(56 2) 2327 6000', '+56 9 8106 2974', 'ventas@hidrotecnica.cl', 'cobranzas@hidrotecnica.cl',
+       'www.hidrotecnica.cl', 'Banco de Chile', 'Cuenta Corriente', '1510143209']
+    );
+    console.log('[DB] Config de empresa (emisor) creada.');
+  }
 
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.

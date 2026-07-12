@@ -19,11 +19,12 @@ function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || negocio.vendedor_id === user.id);
 }
 
-// Calcula subtotal/total a partir de items y descuento.
-function calcular(items, descuento_pct) {
-  const subtotal = items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0);
-  const total = Math.round(subtotal * (1 - (Number(descuento_pct) || 0) / 100));
-  return { subtotal: Math.round(subtotal), total };
+// Calcula subtotal (neto), y total con descuento e IVA.
+function calcular(items, descuento_pct, iva_pct) {
+  const subtotal = Math.round(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0));
+  const neto = subtotal * (1 - (Number(descuento_pct) || 0) / 100);
+  const total = Math.round(neto * (1 + (Number(iva_pct) || 0) / 100));
+  return { subtotal, total };
 }
 
 // Correlativo COT-AAAA-NNNNN, seguro ante concurrencia (dentro de la transacción).
@@ -107,25 +108,26 @@ router.get('/:id/pdf', async (req, res) => {
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
 router.post('/', authorize('administrador', 'vendedor'), async (req, res) => {
-  const { negocio_id, items, descuento_pct = 0, validez_dias = 15, condiciones } = req.body;
+  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
   if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
+  if (iva_pct < 0 || iva_pct > 100) return res.status(400).json({ error: 'IVA inválido' });
 
   const negocio = await db.get('SELECT * FROM negocios WHERE id = $1', [negocio_id]);
   if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede cotizar' });
 
-  const { subtotal, total } = calcular(items, descuento_pct);
+  const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
     const numero = await proximoNumero(client);
     const token = crypto.randomBytes(16).toString('hex');
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
-       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [negocio_id, numero, subtotal, descuento_pct, total, validez_dias, condiciones || null, token, req.user.id]
+      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
+       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, token, req.user.id]
     );
     const cotId = r.rows[0].id;
     for (const it of items) {
@@ -162,9 +164,9 @@ router.post('/:id/nueva-version', authorize('administrador', 'vendedor'), async 
     await client.query(`UPDATE cotizaciones SET estado='reemplazada' WHERE negocio_id=$1 AND numero=$2 AND estado NOT IN ('aceptada','rechazada')`, [base.negocio_id, base.numero]);
     const token = crypto.randomBytes(16).toString('hex');
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
-       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.total, base.validez_dias, base.condiciones, token, req.user.id]
+      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
+       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.iva_pct, base.total, base.validez_dias, base.condiciones, token, req.user.id]
     );
     const nuevaId = r.rows[0].id;
     await client.query(

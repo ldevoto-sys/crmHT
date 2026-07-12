@@ -10,6 +10,7 @@ export default function NuevaCotizacion() {
   const [negocio, setNegocio] = useState(null);
   const [items, setItems] = useState([]);
   const [descuento, setDescuento] = useState(0);
+  const [iva, setIva] = useState(19);
   const [validez, setValidez] = useState(15);
   const [condiciones, setCondiciones] = useState('');
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
@@ -31,14 +32,17 @@ export default function NuevaCotizacion() {
   const quitar = i => setItems(is => is.filter((_, idx) => idx !== i));
 
   const subtotal = items.reduce((s, it) => s + Number(it.cantidad || 0) * Number(it.precio_unitario || 0), 0);
-  const total = Math.round(subtotal * (1 - (Number(descuento) || 0) / 100));
+  const descMonto = Math.round(subtotal * (Number(descuento) || 0) / 100);
+  const neto = subtotal - descMonto;
+  const ivaMonto = Math.round(neto * (Number(iva) || 0) / 100);
+  const total = neto + ivaMonto;
 
   const guardar = async () => {
     setError('');
     if (items.length === 0) { setError('Agrega al menos un ítem.'); return; }
     try {
       const { data } = await api.post('/cotizaciones', {
-        negocio_id: Number(negocioId), descuento_pct: Number(descuento) || 0,
+        negocio_id: Number(negocioId), descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
         validez_dias: Number(validez) || 15, condiciones,
         items: items.map(it => ({ producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad), precio_unitario: Number(it.precio_unitario) })),
       });
@@ -117,6 +121,11 @@ export default function NuevaCotizacion() {
             {Number(descuento) > 10 && <span className="text-xs text-amber-600">requiere aprobación admin</span>}
           </div>
           <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-700 w-32">IVA (%)</label>
+            <input type="number" min="0" max="100" value={iva} onChange={e => setIva(e.target.value)}
+              className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div className="flex items-center gap-3">
             <label className="text-sm text-gray-700 w-32">Validez (días)</label>
             <input type="number" value={validez} onChange={e => setValidez(e.target.value)}
               className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
@@ -129,8 +138,9 @@ export default function NuevaCotizacion() {
         </div>
 
         <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal</span><span>{money(subtotal)}</span></div>
-          {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{money(subtotal - total)}</span></div>}
+          <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal neto</span><span>{money(subtotal)}</span></div>
+          {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{money(descMonto)}</span></div>}
+          {Number(iva) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
           <div className="flex justify-between text-lg font-bold text-ht-navy border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{money(total)}</span></div>
           <button onClick={guardar} className="w-full mt-4 bg-ht-navy text-white py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Crear cotización</button>
         </div>

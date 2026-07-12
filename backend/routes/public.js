@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
-const { fetchCompleta } = require('../services/cotizacion_data');
+const { fetchCompleta, esImagenPublica } = require('../services/cotizacion_data');
 const { generarCotizacionPDF } = require('../services/pdf');
 
 // Rutas SIN autenticación (link enviado al cliente). HT-AP-03 §7.5.
@@ -21,15 +21,17 @@ router.get('/cotizacion/:token', async (req, res) => {
     const data = await fetchCompleta({ token: req.params.token });
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
     await registrarVista(data.cot, req);
-    const { cot, items, cliente, vendedor } = data;
+    const { cot, items, cliente, vendedor, emisor } = data;
     res.json({
       numero: cot.numero, version: cot.version, created_at: cot.created_at,
       validez_dias: cot.validez_dias, condiciones: cot.condiciones,
-      subtotal: cot.subtotal, descuento_pct: cot.descuento_pct, total: cot.total,
-      estado: cot.estado, cliente, vendedor,
+      subtotal: cot.subtotal, descuento_pct: cot.descuento_pct, iva_pct: cot.iva_pct, total: cot.total,
+      estado: cot.estado, cliente, vendedor, emisor,
       items: items.map(it => ({
-        descripcion: it.descripcion || it.producto_nombre, cantidad: it.cantidad,
-        precio_unitario: it.precio_unitario, total_linea: it.total_linea,
+        descripcion: it.descripcion || it.producto_nombre, marca: it.marca,
+        cantidad: it.cantidad, precio_unitario: it.precio_unitario, total_linea: it.total_linea,
+        imagen: esImagenPublica(it.url_imagen) ? it.url_imagen : null,
+        ficha: esImagenPublica(it.ficha_tecnica_url) ? it.ficha_tecnica_url : null,
       })),
     });
   } catch (err) {

@@ -81,9 +81,20 @@ export default function DetalleCotizacion() {
             </tbody>
           </table>
           <div className="mt-3 border-t border-gray-200 pt-3 text-sm">
-            <div className="flex justify-between text-gray-600"><span>Subtotal</span><span>{money(cot.subtotal)}</span></div>
-            {Number(cot.descuento_pct) > 0 && <div className="flex justify-between text-gray-600"><span>Descuento ({Number(cot.descuento_pct)}%)</span><span>−{money(cot.subtotal - cot.total)}</span></div>}
-            <div className="flex justify-between font-bold text-ht-navy text-lg mt-1"><span>Total</span><span>{money(cot.total)}</span></div>
+            {(() => {
+              const desc = Number(cot.descuento_pct) || 0, iva = Number(cot.iva_pct) || 0;
+              const descMonto = Math.round(Number(cot.subtotal) * desc / 100);
+              const neto = Number(cot.subtotal) - descMonto;
+              const ivaMonto = Math.round(neto * iva / 100);
+              return (
+                <>
+                  <div className="flex justify-between text-gray-600"><span>Subtotal neto</span><span>{money(cot.subtotal)}</span></div>
+                  {desc > 0 && <div className="flex justify-between text-gray-600"><span>Descuento ({desc}%)</span><span>−{money(descMonto)}</span></div>}
+                  {iva > 0 && <div className="flex justify-between text-gray-600"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
+                  <div className="flex justify-between font-bold text-ht-navy text-lg mt-1"><span>Total</span><span>{money(cot.total)}</span></div>
+                </>
+              );
+            })()}
           </div>
           {cot.condiciones && <p className="mt-4 text-xs text-gray-500 whitespace-pre-wrap">{cot.condiciones}</p>}
         </div>
