@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
+import NotasYTareas from '../../components/NotasYTareas';
+import SeguimientoNegocio from '../../components/SeguimientoNegocio';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
@@ -16,10 +18,12 @@ export default function DetalleNegocio() {
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
 
   const [cots, setCots] = useState([]);
+  const [encuesta, setEncuesta] = useState(null);
   const cargar = async () => {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
       setCots((await api.get('/cotizaciones', { params: { negocio_id: id } })).data);
+      if (data.etapa_tipo === 'ganada') setEncuesta((await api.get(`/negocios/${id}/encuesta`)).data);
     }
     catch { setError('No se pudo cargar el negocio.'); }
   };
@@ -85,6 +89,29 @@ export default function DetalleNegocio() {
               </table>
             )}
           </div>
+
+          {n.etapa_tipo === 'ganada' && encuesta && (
+            <div className="bg-white border border-gray-200 rounded-lg p-5">
+              <h2 className="font-semibold text-ht-navy mb-3">Encuesta de satisfacción</h2>
+              {encuesta.respondida_en ? (
+                <div className="text-sm">
+                  <div className="text-ht-navy font-medium mb-1">Puntaje: {encuesta.puntaje}/10</div>
+                  {encuesta.comentario && <div className="text-gray-600">"{encuesta.comentario}"</div>}
+                  <div className="text-xs text-gray-400 mt-1">Respondida el {fecha(encuesta.respondida_en)}</div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Aún sin respuesta. Comparte este link con el cliente:{' '}
+                  <span className="text-ht-navy break-all">{window.location.origin}/encuesta/{encuesta.token_publico}</span>
+                  {encuesta.recordatorio_enviado_en && <span className="block text-xs text-gray-400 mt-1">Recordatorio enviado el {fecha(encuesta.recordatorio_enviado_en)}</span>}
+                </p>
+              )}
+            </div>
+          )}
+
+          <SeguimientoNegocio negocioId={Number(id)} puedeEditar={n.puede_editar} />
+
+          <NotasYTareas negocioId={Number(id)} vendedorId={n.vendedor_id} />
 
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <h2 className="font-semibold text-ht-navy mb-3">Línea de tiempo</h2>

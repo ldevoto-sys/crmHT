@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
@@ -98,6 +99,9 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null]
     );
     const negocio = r.rows[0];
+    if (etapaInicial) {
+      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaInicial.id]);
+    }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
       descripcion: 'Negocio creado', usuario_id: req.user.id,
@@ -161,13 +165,271 @@ router.put('/:id/etapa', async (req, res) => {
        etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
        cierra ? new Date().toISOString() : null, req.params.id]
     );
+    if (etapa.id !== negocio.etapa_id) {
+      await db.run(
+        'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
+        [req.params.id]
+      );
+      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [req.params.id, etapa.id]);
+    }
     await timeline.registrar({
       contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
       tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: req.user.id,
     });
+
+    if (cierra) {
+      // Un negocio cerrado no sigue en seguimiento automático.
+      await db.run(
+        `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now()
+         WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
+        [req.params.id]
+      );
+    }
+
+    if (etapa.tipo === 'ganada') {
+      const token = crypto.randomBytes(16).toString('hex');
+      const r = await db.run(
+        `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2)
+         ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
+        [req.params.id, token]
+      );
+      if (r.rows[0]) {
+        await db.run(
+          `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+           VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
+          [
+            'Enviar encuesta de satisfacción al cliente',
+            `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
+            negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, req.params.id,
+          ]
+        );
+      }
+    }
+
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
     console.error('[negocios/PUT /:id/etapa]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// === Etapa 3B — Motor de secuencias de seguimiento ===
+
+async function cargarNegocioConSecuencia(id) {
+  return db.get(
+    `SELECT n.*, pe.tipo AS etapa_tipo FROM negocios n
+     LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [id]);
+}
+
+// GET /api/negocios/:id/secuencia — estado actual + pasos + historial
+router.get('/:id/secuencia', async (req, res) => {
+  try {
+    const ns = await db.get(
+      `SELECT ns.*, s.nombre AS secuencia_nombre FROM negocio_secuencias ns
+       JOIN secuencias s ON s.id = ns.secuencia_id
+       WHERE ns.negocio_id = $1 ORDER BY ns.created_at DESC LIMIT 1`,
+      [req.params.id]
+    );
+    if (!ns) return res.json(null);
+    const pasos = await db.all('SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 ORDER BY orden', [ns.secuencia_id]);
+    const ejecuciones = await db.all(
+      `SELECT se.*, sp.orden, sp.canal FROM secuencia_ejecuciones se
+       JOIN secuencia_pasos sp ON sp.id = se.paso_id
+       WHERE se.negocio_secuencia_id = $1 ORDER BY se.ejecutado_en DESC`,
+      [ns.id]
+    );
+    res.json({ ...ns, pasos, ejecuciones });
+  } catch (err) {
+    console.error('[negocios/GET /:id/secuencia]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/negocios/:id/secuencia {secuencia_id} — inicia una secuencia
+router.post('/:id/secuencia', async (req, res) => {
+  try {
+    const negocio = await cargarNegocioConSecuencia(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+    if (negocio.etapa_tipo === 'ganada' || negocio.etapa_tipo === 'perdida') {
+      return res.status(400).json({ error: 'No se puede iniciar una secuencia en un negocio cerrado' });
+    }
+
+    const { secuencia_id } = req.body;
+    const secuencia = await db.get('SELECT * FROM secuencias WHERE id = $1 AND activo = true', [secuencia_id]);
+    if (!secuencia) return res.status(400).json({ error: 'Secuencia inválida o inactiva' });
+
+    const existente = await db.get(
+      `SELECT id FROM negocio_secuencias WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
+      [req.params.id]
+    );
+    if (existente) return res.status(409).json({ error: 'Este negocio ya tiene una secuencia activa o pausada' });
+
+    const primerPaso = await db.get('SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 AND orden = 1', [secuencia_id]);
+    if (!primerPaso) return res.status(400).json({ error: 'La secuencia no tiene pasos configurados' });
+
+    const proxima = new Date(Date.now() + primerPaso.dias_espera * 86400000);
+    const r = await db.run(
+      `INSERT INTO negocio_secuencias (negocio_id, secuencia_id, proxima_ejecucion, iniciado_por_id)
+       VALUES ($1,$2,$3,$4) RETURNING id`,
+      [req.params.id, secuencia_id, proxima, req.user.id]
+    );
+    await timeline.registrar({
+      negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+      tipo: 'seguimiento_auto', descripcion: `Secuencia "${secuencia.nombre}" iniciada`, usuario_id: req.user.id,
+      referencia_id: r.rows[0].id,
+    });
+    res.status(201).json({ id: r.rows[0].id });
+  } catch (err) {
+    console.error('[negocios/POST /:id/secuencia]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+async function transicionSecuencia(req, res, { desde, hasta, campos = {}, tipoTimeline, descripcion }) {
+  const negocio = await cargarNegocioConSecuencia(req.params.id);
+  if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+  if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+
+  const ns = await db.get(
+    `SELECT * FROM negocio_secuencias WHERE negocio_id = $1 AND estado = ANY($2) ORDER BY created_at DESC LIMIT 1`,
+    [req.params.id, desde]
+  );
+  if (!ns) return res.status(404).json({ error: `No hay una secuencia en estado ${desde.join('/')} para este negocio` });
+
+  const sets = ['estado=$1', 'updated_at=now()'];
+  const params = [hasta];
+  let i = 2;
+  for (const [col, val] of Object.entries(campos)) { sets.push(`${col}=$${i++}`); params.push(val); }
+  params.push(ns.id);
+  await db.run(`UPDATE negocio_secuencias SET ${sets.join(', ')} WHERE id=$${i}`, params);
+
+  await timeline.registrar({
+    negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+    tipo: tipoTimeline, descripcion, usuario_id: req.user.id, referencia_id: ns.id,
+  });
+  return ns;
+}
+
+// POST /api/negocios/:id/secuencia/pausar {motivo}
+router.post('/:id/secuencia/pausar', async (req, res) => {
+  try {
+    const ns = await transicionSecuencia(req, res, {
+      desde: ['activa'], hasta: 'pausada',
+      campos: { pausada_motivo: req.body.motivo || 'Pausada manualmente' },
+      tipoTimeline: 'seguimiento_manual', descripcion: `Secuencia pausada: ${req.body.motivo || 'sin motivo indicado'}`,
+    });
+    if (!ns || res.headersSent) return;
+    res.json({ message: 'Secuencia pausada' });
+  } catch (err) {
+    console.error('[negocios/secuencia/pausar]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/negocios/:id/secuencia/reactivar — recalcula el reloj desde ahora
+router.post('/:id/secuencia/reactivar', async (req, res) => {
+  try {
+    const negocio = await cargarNegocioConSecuencia(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+
+    const ns = await db.get(`SELECT * FROM negocio_secuencias WHERE negocio_id = $1 AND estado = 'pausada'`, [req.params.id]);
+    if (!ns) return res.status(404).json({ error: 'No hay una secuencia pausada para este negocio' });
+
+    const siguiente = await db.get('SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 AND orden = $2', [ns.secuencia_id, ns.paso_actual + 1]);
+    const proxima = siguiente ? new Date(Date.now() + siguiente.dias_espera * 86400000) : null;
+    await db.run(`UPDATE negocio_secuencias SET estado='activa', proxima_ejecucion=$1, pausada_motivo=NULL, updated_at=now() WHERE id=$2`, [proxima, ns.id]);
+
+    await timeline.registrar({
+      negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+      tipo: 'seguimiento_manual', descripcion: 'Secuencia reactivada', usuario_id: req.user.id, referencia_id: ns.id,
+    });
+    res.json({ message: 'Secuencia reactivada' });
+  } catch (err) {
+    console.error('[negocios/secuencia/reactivar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/negocios/:id/secuencia/marcar-respondido — pausa por respuesta del cliente
+// (a mano por ahora; se puede invocar desde un webhook de Graph/WhatsApp cuando existan).
+router.post('/:id/secuencia/marcar-respondido', async (req, res) => {
+  try {
+    const ns = await transicionSecuencia(req, res, {
+      desde: ['activa', 'pausada'], hasta: 'pausada',
+      campos: { pausada_motivo: 'Cliente respondió' },
+      tipoTimeline: 'seguimiento_manual', descripcion: 'Cliente respondió: secuencia pausada',
+    });
+    if (!ns || res.headersSent) return;
+    res.json({ message: 'Secuencia pausada por respuesta del cliente' });
+  } catch (err) {
+    console.error('[negocios/secuencia/marcar-respondido]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/negocios/:id/secuencia/cancelar
+router.post('/:id/secuencia/cancelar', async (req, res) => {
+  try {
+    const ns = await transicionSecuencia(req, res, {
+      desde: ['activa', 'pausada'], hasta: 'cancelada',
+      campos: { proxima_ejecucion: null },
+      tipoTimeline: 'seguimiento_manual', descripcion: 'Secuencia cancelada',
+    });
+    if (!ns || res.headersSent) return;
+    res.json({ message: 'Secuencia cancelada' });
+  } catch (err) {
+    console.error('[negocios/secuencia/cancelar]', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/negocios/:id/seguimiento-manual {descripcion} — registra seguimiento manual
+// y, si hay una secuencia activa, resetea el reloj del próximo paso desde ahora.
+router.post('/:id/seguimiento-manual', async (req, res) => {
+  try {
+    const { descripcion } = req.body;
+    if (!descripcion || !descripcion.trim()) return res.status(400).json({ error: 'Descripción requerida' });
+
+    const negocio = await cargarNegocioConSecuencia(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+
+    await db.run('UPDATE negocios SET ultima_actividad = now() WHERE id = $1', [req.params.id]);
+
+    const ns = await db.get(`SELECT * FROM negocio_secuencias WHERE negocio_id = $1 AND estado = 'activa'`, [req.params.id]);
+    if (ns) {
+      const actual = await db.get('SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 AND orden = $2', [ns.secuencia_id, ns.paso_actual + 1]);
+      if (actual) {
+        const proxima = new Date(Date.now() + actual.dias_espera * 86400000);
+        await db.run('UPDATE negocio_secuencias SET proxima_ejecucion=$1, updated_at=now() WHERE id=$2', [proxima, ns.id]);
+      }
+    }
+
+    await timeline.registrar({
+      negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+      tipo: 'seguimiento_manual', descripcion: descripcion.trim(), usuario_id: req.user.id,
+    });
+    res.status(201).json({ message: 'Seguimiento registrado' });
+  } catch (err) {
+    console.error('[negocios/seguimiento-manual]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/negocios/:id/encuesta — estado de la encuesta post-cierre (si existe)
+router.get('/:id/encuesta', async (req, res) => {
+  try {
+    const encuesta = await db.get(
+      `SELECT en.*, er.puntaje, er.comentario FROM encuestas en
+       LEFT JOIN encuesta_respuestas er ON er.encuesta_id = en.id
+       WHERE en.negocio_id = $1`,
+      [req.params.id]
+    );
+    res.json(encuesta || null);
+  } catch (err) {
+    console.error('[negocios/GET /:id/encuesta]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

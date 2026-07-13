@@ -8,6 +8,7 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Cotizaciones', to: '/cotizaciones' },
+    { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
@@ -20,6 +21,7 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Cotizaciones', to: '/cotizaciones' },
+    { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
@@ -37,10 +39,12 @@ const menuByRole = {
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
+    { label: 'Reportes', to: '/reportes' },
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Cola de asignación', to: '/cola' },
+    { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
@@ -59,12 +63,14 @@ const configByRole = {
   administrador: [
     { label: 'Config pipeline', to: '/config/pipeline' },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
     { label: 'Datos de empresa', to: '/config/empresa' },
     { label: 'Usuarios', to: '/usuarios' },
   ],
   jefe_comercial: [
     { label: 'Config pipeline', to: '/config/pipeline' },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
     { label: 'Datos de empresa', to: '/config/empresa' },
   ],
 };

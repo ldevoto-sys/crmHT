@@ -383,6 +383,147 @@ async function initDb() {
   if (!rrExiste) await db.run('INSERT INTO round_robin_estado (id, ultimo_vendedor_id) VALUES (1, NULL)');
   await db.run(`CREATE INDEX IF NOT EXISTS idx_leads_estado ON leads (estado, created_at DESC)`);
 
+  // === Etapa 3A — Notas y tareas ===
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS notas (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      negocio_id INTEGER REFERENCES negocios(id),
+      texto TEXT NOT NULL,
+      usuario_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS tareas (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      negocio_id INTEGER REFERENCES negocios(id),
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      fecha_vencimiento TIMESTAMP,
+      asignado_a_id INTEGER NOT NULL REFERENCES users(id),
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','cumplida','cancelada')),
+      creado_por_id INTEGER NOT NULL REFERENCES users(id),
+      cumplida_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_notas_negocio ON notas (negocio_id, created_at DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_notas_contacto ON notas (contacto_id, created_at DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_asignado ON tareas (asignado_a_id, estado, fecha_vencimiento)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_negocio ON tareas (negocio_id, created_at DESC)`);
+
+  // Historial de etapas por negocio (para reportería de tiempos por etapa, Etapa 3E).
+  // Se completa hacia adelante desde que existe esta tabla; los negocios creados
+  // antes no tienen su primer tramo registrado.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS negocio_etapa_historial (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      etapa_id INTEGER REFERENCES pipeline_etapas(id),
+      entro_en TIMESTAMP NOT NULL DEFAULT now(),
+      salio_en TIMESTAMP
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_etapa_historial_negocio ON negocio_etapa_historial (negocio_id, entro_en)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_etapa_historial_etapa ON negocio_etapa_historial (etapa_id, salio_en)`);
+
+  // === Etapa 3B — Motor de secuencias de seguimiento ===
+  // Nota: mientras Graph (correo) y WhatsApp (Etapa 4) no estén conectados,
+  // cada paso que vence genera una TAREA para que el vendedor lo ejecute a
+  // mano, en vez de enviar automáticamente. El motor y el enganche manual
+  // (pausar/reactivar/marcar respondido/seguimiento manual) sí quedan
+  // operativos ahora; el envío automático se conecta cuando el canal exista.
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencias (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      descripcion TEXT,
+      activo BOOLEAN DEFAULT true,
+      creado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencia_pasos (
+      id SERIAL PRIMARY KEY,
+      secuencia_id INTEGER NOT NULL REFERENCES secuencias(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL,
+      dias_espera INTEGER NOT NULL DEFAULT 1 CHECK (dias_espera >= 0),
+      canal TEXT NOT NULL CHECK (canal IN ('correo','whatsapp','llamada','tarea')),
+      asunto TEXT,
+      mensaje TEXT NOT NULL,
+      UNIQUE (secuencia_id, orden)
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS negocio_secuencias (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      secuencia_id INTEGER NOT NULL REFERENCES secuencias(id),
+      paso_actual INTEGER NOT NULL DEFAULT 0,
+      estado TEXT NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa','pausada','completada','cancelada')),
+      proxima_ejecucion TIMESTAMP,
+      pausada_motivo TEXT,
+      iniciado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now(),
+      updated_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  // Solo una secuencia activa o pausada por negocio a la vez.
+  await db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_negocio_secuencia_activa
+    ON negocio_secuencias (negocio_id) WHERE estado IN ('activa','pausada')
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencia_ejecuciones (
+      id SERIAL PRIMARY KEY,
+      negocio_secuencia_id INTEGER NOT NULL REFERENCES negocio_secuencias(id) ON DELETE CASCADE,
+      paso_id INTEGER NOT NULL REFERENCES secuencia_pasos(id),
+      tarea_id INTEGER REFERENCES tareas(id),
+      ejecutado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_secuencia_pasos_secuencia ON secuencia_pasos (secuencia_id, orden)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_negocio_secuencias_pendientes ON negocio_secuencias (estado, proxima_ejecucion)`);
+
+  // === Etapa 3C — Encuesta post-cierre ===
+  // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta
+  // simple de una pregunta (puntaje 0-10, estilo NPS) + comentario libre. Como
+  // el envío de correo al cliente depende de Graph (bloqueado), se genera una
+  // tarea para que el vendedor comparta el link con el cliente por su canal.
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS encuestas (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL UNIQUE REFERENCES negocios(id),
+      token_publico TEXT UNIQUE NOT NULL,
+      recordatorio_enviado_en TIMESTAMP,
+      respondida_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS encuesta_respuestas (
+      id SERIAL PRIMARY KEY,
+      encuesta_id INTEGER NOT NULL REFERENCES encuestas(id),
+      puntaje INTEGER NOT NULL CHECK (puntaje BETWEEN 0 AND 10),
+      comentario TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_encuestas_pendiente_recordatorio ON encuestas (respondida_en, recordatorio_enviado_en, created_at)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

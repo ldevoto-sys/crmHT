@@ -11,11 +11,13 @@ import Usuarios from './pages/admin/Usuarios';
 import ConfigPipeline from './pages/admin/ConfigPipeline';
 import ReglasAsignacion from './pages/admin/ReglasAsignacion';
 import ConfigEmpresa from './pages/admin/ConfigEmpresa';
+import ConfigSecuencias from './pages/admin/ConfigSecuencias';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
 import Contactos from './pages/maestros/Contactos';
+import DetalleContacto from './pages/maestros/DetalleContacto';
 import ImportarContactos from './pages/maestros/ImportarContactos';
 import Duplicados from './pages/maestros/Duplicados';
 import Productos from './pages/maestros/Productos';
@@ -27,6 +29,9 @@ import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
 import CotizacionPublica from './pages/publico/CotizacionPublica';
+import EncuestaPublica from './pages/publico/EncuestaPublica';
+import MisTareas from './pages/ventas/MisTareas';
+import Reportes from './pages/ventas/Reportes';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -38,6 +43,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/c/:token" element={<CotizacionPublica />} />
+          <Route path="/encuesta/:token" element={<EncuestaPublica />} />
           <Route path="/cambiar-password" element={
             <ProtectedRoute><CambiarPassword /></ProtectedRoute>
           } />
@@ -55,6 +61,7 @@ export default function App() {
             } />
             <Route path="empresas/:id" element={<DetalleEmpresa />} />
             <Route path="contactos" element={<Contactos />} />
+            <Route path="contactos/:id" element={<DetalleContacto />} />
             <Route path="contactos/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarContactos /></ProtectedRoute>
             } />
@@ -77,8 +84,10 @@ export default function App() {
             <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
 
             {/* Etapa 3 — Tareas y reportes */}
-            <Route path="tareas" element={<Placeholder title="Mis Tareas" />} />
-            <Route path="reportes" element={<Placeholder title="Reportes" />} />
+            <Route path="tareas" element={<MisTareas />} />
+            <Route path="reportes" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Reportes /></ProtectedRoute>
+            } />
 
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />
@@ -98,6 +107,9 @@ export default function App() {
             } />
             <Route path="config/empresa" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigEmpresa /></ProtectedRoute>
+            } />
+            <Route path="config/secuencias" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigSecuencias /></ProtectedRoute>
             } />
           </Route>
 

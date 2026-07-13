@@ -4,6 +4,8 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { initDb } = require('./db');
+const { avanzarPasosPendientes } = require('./services/secuencias');
+const { enviarRecordatorios } = require('./services/encuestas');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -35,6 +37,10 @@ app.use('/api/cotizaciones', require('./routes/cotizaciones'));
 app.use('/api/leads', require('./routes/leads')); // /web es público con API key; el resto autenticado
 app.use('/api/public', require('./routes/public')); // sin autenticación (link al cliente)
 app.use('/api/config', require('./routes/config'));
+app.use('/api/notas', require('./routes/notas'));
+app.use('/api/tareas', require('./routes/tareas'));
+app.use('/api/secuencias', require('./routes/secuencias'));
+app.use('/api/reportes', require('./routes/reportes'));
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
@@ -54,6 +60,16 @@ if (require.main === module) {
       app.listen(PORT, () => {
         console.log(`[Server] CRM HidroTecnica corriendo en http://localhost:${PORT}`);
       });
+      // Motor de secuencias: revisa pasos vencidos cada 15 minutos (HT-AP-03 §7.4).
+      const QUINCE_MIN = 15 * 60 * 1000;
+      setInterval(() => {
+        avanzarPasosPendientes().catch(err => console.error('[secuencias] Error al avanzar pasos:', err));
+      }, QUINCE_MIN);
+      // Recordatorio único de encuesta post-cierre: revisa una vez por hora.
+      const UNA_HORA = 60 * 60 * 1000;
+      setInterval(() => {
+        enviarRecordatorios().catch(err => console.error('[encuestas] Error al enviar recordatorios:', err));
+      }, UNA_HORA);
     })
     .catch((err) => {
       console.error('[Server] Error al inicializar DB:', err);

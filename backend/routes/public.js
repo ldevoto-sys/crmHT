@@ -54,4 +54,58 @@ router.get('/cotizacion/:token/pdf', async (req, res) => {
   }
 });
 
+// === Etapa 3C — Encuesta post-cierre ===
+const timeline = require('../services/timeline');
+
+// GET /api/public/encuesta/:token
+router.get('/encuesta/:token', async (req, res) => {
+  try {
+    const encuesta = await db.get(
+      `SELECT en.id, en.respondida_en, n.titulo AS negocio_titulo, e.razon_social AS empresa_nombre
+       FROM encuestas en JOIN negocios n ON n.id = en.negocio_id
+       LEFT JOIN empresas e ON e.id = n.empresa_id
+       WHERE en.token_publico = $1`,
+      [req.params.token]
+    );
+    if (!encuesta) return res.status(404).json({ error: 'Encuesta no encontrada' });
+    res.json({
+      negocio_titulo: encuesta.negocio_titulo, empresa_nombre: encuesta.empresa_nombre,
+      ya_respondida: !!encuesta.respondida_en,
+    });
+  } catch (err) {
+    console.error('[public/encuesta GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/public/encuesta/:token {puntaje, comentario}
+router.post('/encuesta/:token', async (req, res) => {
+  try {
+    const { puntaje, comentario } = req.body;
+    if (puntaje === undefined || puntaje === null || puntaje < 0 || puntaje > 10) {
+      return res.status(400).json({ error: 'El puntaje debe ser un número entre 0 y 10' });
+    }
+    const encuesta = await db.get(
+      `SELECT en.*, n.contacto_id, n.empresa_id FROM encuestas en JOIN negocios n ON n.id = en.negocio_id
+       WHERE en.token_publico = $1`,
+      [req.params.token]
+    );
+    if (!encuesta) return res.status(404).json({ error: 'Encuesta no encontrada' });
+    if (encuesta.respondida_en) return res.status(409).json({ error: 'Esta encuesta ya fue respondida' });
+
+    await db.run('INSERT INTO encuesta_respuestas (encuesta_id, puntaje, comentario) VALUES ($1,$2,$3)',
+      [encuesta.id, puntaje, comentario || null]);
+    await db.run('UPDATE encuestas SET respondida_en = now() WHERE id = $1', [encuesta.id]);
+    await timeline.registrar({
+      negocio_id: encuesta.negocio_id, contacto_id: encuesta.contacto_id, empresa_id: encuesta.empresa_id,
+      tipo: 'encuesta_respondida', descripcion: `Encuesta respondida: puntaje ${puntaje}/10`,
+      referencia_id: encuesta.id,
+    });
+    res.status(201).json({ message: 'Gracias por tu respuesta' });
+  } catch (err) {
+    console.error('[public/encuesta POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
