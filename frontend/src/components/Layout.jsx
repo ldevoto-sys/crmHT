@@ -39,6 +39,7 @@ const menuByRole = {
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
+    { label: 'Reportes', to: '/reportes' },
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },

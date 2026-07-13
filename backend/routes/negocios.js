@@ -98,6 +98,9 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null]
     );
     const negocio = r.rows[0];
+    if (etapaInicial) {
+      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaInicial.id]);
+    }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
       descripcion: 'Negocio creado', usuario_id: req.user.id,
@@ -161,6 +164,13 @@ router.put('/:id/etapa', async (req, res) => {
        etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
        cierra ? new Date().toISOString() : null, req.params.id]
     );
+    if (etapa.id !== negocio.etapa_id) {
+      await db.run(
+        'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
+        [req.params.id]
+      );
+      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [req.params.id, etapa.id]);
+    }
     await timeline.registrar({
       contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
       tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: req.user.id,

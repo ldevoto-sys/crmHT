@@ -30,6 +30,7 @@ import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
 import CotizacionPublica from './pages/publico/CotizacionPublica';
 import MisTareas from './pages/ventas/MisTareas';
+import Reportes from './pages/ventas/Reportes';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -82,7 +83,9 @@ export default function App() {
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={<MisTareas />} />
-            <Route path="reportes" element={<Placeholder title="Reportes" />} />
+            <Route path="reportes" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Reportes /></ProtectedRoute>
+            } />
 
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />

@@ -418,6 +418,21 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_asignado ON tareas (asignado_a_id, estado, fecha_vencimiento)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_negocio ON tareas (negocio_id, created_at DESC)`);
 
+  // Historial de etapas por negocio (para reportería de tiempos por etapa, Etapa 3E).
+  // Se completa hacia adelante desde que existe esta tabla; los negocios creados
+  // antes no tienen su primer tramo registrado.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS negocio_etapa_historial (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      etapa_id INTEGER REFERENCES pipeline_etapas(id),
+      entro_en TIMESTAMP NOT NULL DEFAULT now(),
+      salio_en TIMESTAMP
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_etapa_historial_negocio ON negocio_etapa_historial (negocio_id, entro_en)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_etapa_historial_etapa ON negocio_etapa_historial (etapa_id, salio_en)`);
+
   // === Etapa 3B — Motor de secuencias de seguimiento ===
   // Nota: mientras Graph (correo) y WhatsApp (Etapa 4) no estén conectados,
   // cada paso que vence genera una TAREA para que el vendedor lo ejecute a

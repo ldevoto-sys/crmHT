@@ -39,6 +39,7 @@ app.use('/api/config', require('./routes/config'));
 app.use('/api/notas', require('./routes/notas'));
 app.use('/api/tareas', require('./routes/tareas'));
 app.use('/api/secuencias', require('./routes/secuencias'));
+app.use('/api/reportes', require('./routes/reportes'));
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".

@@ -51,4 +51,15 @@ function parseCSV(texto) {
   return { headers, rows };
 }
 
-module.exports = { parseCSV };
+// Serializa filas a CSV (separador coma, comillas cuando el valor las necesita).
+function toCSV(headers, rows) {
+  const escapar = v => {
+    const s = v === null || v === undefined ? '' : String(v);
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const lineas = [headers.map(escapar).join(',')];
+  for (const row of rows) lineas.push(headers.map(h => escapar(row[h])).join(','));
+  return lineas.join('\r\n');
+}
+
+module.exports = { parseCSV, toCSV };
