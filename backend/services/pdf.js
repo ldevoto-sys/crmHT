@@ -28,7 +28,12 @@ function generarCotizacionPDF(data, stream) {
   doc.fontSize(8).font('Helvetica').fillColor('rgba(255,255,255,0.8)').text(emLinea, M, 74, { width: 515 });
   doc.rect(0, 96, 595, 4).fill(CYAN);
 
-  let y = 120;
+  let y = 104;
+  if (cot.titulo) {
+    doc.fillColor(NAVY).fontSize(11).font('Helvetica-Bold').text(cot.titulo, M, y, { width: 515 });
+    y += 18;
+  }
+  y = Math.max(y, 120);
   // Cliente + info (dos columnas).
   doc.fillColor(CYAN).fontSize(9).font('Helvetica-Bold').text('CLIENTE', M, y);
   doc.fillColor(CYAN).text('INFORMACIÓN', 320, y);

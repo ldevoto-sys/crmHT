@@ -69,7 +69,10 @@ export default function Cotizaciones() {
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{c.numero} <span className="text-gray-400">v{c.version}</span></Link>
                 </td>
-                <td className="px-4 py-2 text-gray-600">{c.negocio_titulo}</td>
+                <td className="px-4 py-2 text-gray-600">
+                  {c.negocio_titulo}
+                  {c.titulo && <span className="block text-xs text-gray-400">{c.titulo}</span>}
+                </td>
                 <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full capitalize ${estadoColor[c.estado] || ''}`}>{c.estado}</span></td>
                 <td className="px-4 py-2 text-right text-ht-navy">{money(c.total)}</td>
                 <td className="px-4 py-2 text-gray-500">{fecha(c.created_at)}</td>

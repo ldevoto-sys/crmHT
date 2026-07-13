@@ -312,6 +312,8 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_cotizacion_items_cot ON cotizacion_items (cotizacion_id)`);
   // IVA en la cotización (default 19%, configurable por cotización; 0 = exento).
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS iva_pct NUMERIC(5,2) DEFAULT 19`);
+  // Título/descripción general de la cotización (ej. "Sistema hidroneumático Edificio X").
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS titulo TEXT`);
 
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`

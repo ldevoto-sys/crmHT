@@ -23,7 +23,7 @@ router.get('/cotizacion/:token', async (req, res) => {
     await registrarVista(data.cot, req);
     const { cot, items, cliente, vendedor, emisor } = data;
     res.json({
-      numero: cot.numero, version: cot.version, created_at: cot.created_at,
+      numero: cot.numero, version: cot.version, created_at: cot.created_at, titulo: cot.titulo,
       validez_dias: cot.validez_dias, condiciones: cot.condiciones,
       subtotal: cot.subtotal, descuento_pct: cot.descuento_pct, iva_pct: cot.iva_pct, total: cot.total,
       estado: cot.estado, cliente, vendedor, emisor,
