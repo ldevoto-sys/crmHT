@@ -269,7 +269,19 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
     if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
-    res.json(contacto);
+    const negocios = await db.all(
+      `SELECT n.id, n.titulo, n.monto_estimado, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo
+       FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       WHERE n.contacto_id = $1 ORDER BY n.created_at DESC`,
+      [req.params.id]
+    );
+    const eventos = await db.all(
+      `SELECT t.*, u.nombre AS usuario_nombre FROM timeline t
+       LEFT JOIN users u ON u.id = t.usuario_id
+       WHERE t.contacto_id = $1 ORDER BY t.created_at DESC LIMIT 200`,
+      [req.params.id]
+    );
+    res.json({ ...contacto, negocios, timeline: eventos });
   } catch (err) {
     console.error('[contactos/GET /:id]', err);
     res.status(500).json({ error: 'Error interno' });

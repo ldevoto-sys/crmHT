@@ -383,6 +383,41 @@ async function initDb() {
   if (!rrExiste) await db.run('INSERT INTO round_robin_estado (id, ultimo_vendedor_id) VALUES (1, NULL)');
   await db.run(`CREATE INDEX IF NOT EXISTS idx_leads_estado ON leads (estado, created_at DESC)`);
 
+  // === Etapa 3A — Notas y tareas ===
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS notas (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      negocio_id INTEGER REFERENCES negocios(id),
+      texto TEXT NOT NULL,
+      usuario_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS tareas (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      negocio_id INTEGER REFERENCES negocios(id),
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      fecha_vencimiento TIMESTAMP,
+      asignado_a_id INTEGER NOT NULL REFERENCES users(id),
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','cumplida','cancelada')),
+      creado_por_id INTEGER NOT NULL REFERENCES users(id),
+      cumplida_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_notas_negocio ON notas (negocio_id, created_at DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_notas_contacto ON notas (contacto_id, created_at DESC)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_asignado ON tareas (asignado_a_id, estado, fecha_vencimiento)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_negocio ON tareas (negocio_id, created_at DESC)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

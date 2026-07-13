@@ -16,6 +16,7 @@ import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
 import Contactos from './pages/maestros/Contactos';
+import DetalleContacto from './pages/maestros/DetalleContacto';
 import ImportarContactos from './pages/maestros/ImportarContactos';
 import Duplicados from './pages/maestros/Duplicados';
 import Productos from './pages/maestros/Productos';
@@ -27,6 +28,7 @@ import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
 import CotizacionPublica from './pages/publico/CotizacionPublica';
+import MisTareas from './pages/ventas/MisTareas';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -55,6 +57,7 @@ export default function App() {
             } />
             <Route path="empresas/:id" element={<DetalleEmpresa />} />
             <Route path="contactos" element={<Contactos />} />
+            <Route path="contactos/:id" element={<DetalleContacto />} />
             <Route path="contactos/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarContactos /></ProtectedRoute>
             } />
@@ -77,7 +80,7 @@ export default function App() {
             <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
 
             {/* Etapa 3 — Tareas y reportes */}
-            <Route path="tareas" element={<Placeholder title="Mis Tareas" />} />
+            <Route path="tareas" element={<MisTareas />} />
             <Route path="reportes" element={<Placeholder title="Reportes" />} />
 
             {/* Etapa 4 — WhatsApp */}

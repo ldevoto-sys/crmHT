@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
+import NotasYTareas from '../../components/NotasYTareas';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
@@ -85,6 +86,8 @@ export default function DetalleNegocio() {
               </table>
             )}
           </div>
+
+          <NotasYTareas negocioId={Number(id)} vendedorId={n.vendedor_id} />
 
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <h2 className="font-semibold text-ht-navy mb-3">Línea de tiempo</h2>

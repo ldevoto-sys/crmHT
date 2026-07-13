@@ -141,7 +141,7 @@ export default function Contactos() {
               <tr key={c.id} className={`border-t border-gray-100 ${sel.has(c.id) ? 'bg-ht-accent/5' : ''}`}>
                 {puedeEditar && <td className="px-4 py-2"><input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} /></td>}
                 <td className="px-4 py-2 text-ht-navy font-medium">
-                  {c.nombre} {c.apellido}
+                  <Link to={`/contactos/${c.id}`} className="hover:underline">{c.nombre} {c.apellido}</Link>
                   {c.revisar_duplicado && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-ht-accent/20 text-ht-navy">revisar</span>}
                 </td>
                 <td className="px-4 py-2 text-gray-600">{c.empresa_nombre || '—'}</td>
