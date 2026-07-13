@@ -68,9 +68,11 @@ router.get('/encuesta/:token', async (req, res) => {
       [req.params.token]
     );
     if (!encuesta) return res.status(404).json({ error: 'Encuesta no encontrada' });
+    const cfg = await db.get('SELECT pregunta FROM encuesta_config WHERE id = 1');
     res.json({
       negocio_titulo: encuesta.negocio_titulo, empresa_nombre: encuesta.empresa_nombre,
       ya_respondida: !!encuesta.respondida_en,
+      pregunta: cfg ? cfg.pregunta : '¿Qué tan probable es que nos recomiendes? (0 a 10)',
     });
   } catch (err) {
     console.error('[public/encuesta GET]', err);
