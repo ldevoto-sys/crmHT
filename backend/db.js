@@ -418,6 +418,69 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_asignado ON tareas (asignado_a_id, estado, fecha_vencimiento)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_tareas_negocio ON tareas (negocio_id, created_at DESC)`);
 
+  // === Etapa 3B — Motor de secuencias de seguimiento ===
+  // Nota: mientras Graph (correo) y WhatsApp (Etapa 4) no estén conectados,
+  // cada paso que vence genera una TAREA para que el vendedor lo ejecute a
+  // mano, en vez de enviar automáticamente. El motor y el enganche manual
+  // (pausar/reactivar/marcar respondido/seguimiento manual) sí quedan
+  // operativos ahora; el envío automático se conecta cuando el canal exista.
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencias (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      descripcion TEXT,
+      activo BOOLEAN DEFAULT true,
+      creado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencia_pasos (
+      id SERIAL PRIMARY KEY,
+      secuencia_id INTEGER NOT NULL REFERENCES secuencias(id) ON DELETE CASCADE,
+      orden INTEGER NOT NULL,
+      dias_espera INTEGER NOT NULL DEFAULT 1 CHECK (dias_espera >= 0),
+      canal TEXT NOT NULL CHECK (canal IN ('correo','whatsapp','llamada','tarea')),
+      asunto TEXT,
+      mensaje TEXT NOT NULL,
+      UNIQUE (secuencia_id, orden)
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS negocio_secuencias (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      secuencia_id INTEGER NOT NULL REFERENCES secuencias(id),
+      paso_actual INTEGER NOT NULL DEFAULT 0,
+      estado TEXT NOT NULL DEFAULT 'activa' CHECK (estado IN ('activa','pausada','completada','cancelada')),
+      proxima_ejecucion TIMESTAMP,
+      pausada_motivo TEXT,
+      iniciado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now(),
+      updated_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  // Solo una secuencia activa o pausada por negocio a la vez.
+  await db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_negocio_secuencia_activa
+    ON negocio_secuencias (negocio_id) WHERE estado IN ('activa','pausada')
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS secuencia_ejecuciones (
+      id SERIAL PRIMARY KEY,
+      negocio_secuencia_id INTEGER NOT NULL REFERENCES negocio_secuencias(id) ON DELETE CASCADE,
+      paso_id INTEGER NOT NULL REFERENCES secuencia_pasos(id),
+      tarea_id INTEGER REFERENCES tareas(id),
+      ejecutado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_secuencia_pasos_secuencia ON secuencia_pasos (secuencia_id, orden)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_negocio_secuencias_pendientes ON negocio_secuencias (estado, proxima_ejecucion)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

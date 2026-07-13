@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
 import NotasYTareas from '../../components/NotasYTareas';
+import SeguimientoNegocio from '../../components/SeguimientoNegocio';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
@@ -86,6 +87,8 @@ export default function DetalleNegocio() {
               </table>
             )}
           </div>
+
+          <SeguimientoNegocio negocioId={Number(id)} puedeEditar={n.puede_editar} />
 
           <NotasYTareas negocioId={Number(id)} vendedorId={n.vendedor_id} />
 

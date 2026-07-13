@@ -62,12 +62,14 @@ const configByRole = {
   administrador: [
     { label: 'Config pipeline', to: '/config/pipeline' },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
     { label: 'Datos de empresa', to: '/config/empresa' },
     { label: 'Usuarios', to: '/usuarios' },
   ],
   jefe_comercial: [
     { label: 'Config pipeline', to: '/config/pipeline' },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
     { label: 'Datos de empresa', to: '/config/empresa' },
   ],
 };
