@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const { initDb } = require('./db');
 const { avanzarPasosPendientes } = require('./services/secuencias');
+const { enviarRecordatorios } = require('./services/encuestas');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -64,6 +65,11 @@ if (require.main === module) {
       setInterval(() => {
         avanzarPasosPendientes().catch(err => console.error('[secuencias] Error al avanzar pasos:', err));
       }, QUINCE_MIN);
+      // Recordatorio único de encuesta post-cierre: revisa una vez por hora.
+      const UNA_HORA = 60 * 60 * 1000;
+      setInterval(() => {
+        enviarRecordatorios().catch(err => console.error('[encuestas] Error al enviar recordatorios:', err));
+      }, UNA_HORA);
     })
     .catch((err) => {
       console.error('[Server] Error al inicializar DB:', err);

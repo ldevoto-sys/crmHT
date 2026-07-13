@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
@@ -175,6 +176,36 @@ router.put('/:id/etapa', async (req, res) => {
       contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
       tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: req.user.id,
     });
+
+    if (cierra) {
+      // Un negocio cerrado no sigue en seguimiento automático.
+      await db.run(
+        `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now()
+         WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
+        [req.params.id]
+      );
+    }
+
+    if (etapa.tipo === 'ganada') {
+      const token = crypto.randomBytes(16).toString('hex');
+      const r = await db.run(
+        `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2)
+         ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
+        [req.params.id, token]
+      );
+      if (r.rows[0]) {
+        await db.run(
+          `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+           VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
+          [
+            'Enviar encuesta de satisfacción al cliente',
+            `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
+            negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, req.params.id,
+          ]
+        );
+      }
+    }
+
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
     console.error('[negocios/PUT /:id/etapa]', err);
@@ -383,6 +414,22 @@ router.post('/:id/seguimiento-manual', async (req, res) => {
     res.status(201).json({ message: 'Seguimiento registrado' });
   } catch (err) {
     console.error('[negocios/seguimiento-manual]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/negocios/:id/encuesta — estado de la encuesta post-cierre (si existe)
+router.get('/:id/encuesta', async (req, res) => {
+  try {
+    const encuesta = await db.get(
+      `SELECT en.*, er.puntaje, er.comentario FROM encuestas en
+       LEFT JOIN encuesta_respuestas er ON er.encuesta_id = en.id
+       WHERE en.negocio_id = $1`,
+      [req.params.id]
+    );
+    res.json(encuesta || null);
+  } catch (err) {
+    console.error('[negocios/GET /:id/encuesta]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

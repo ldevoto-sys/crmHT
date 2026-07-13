@@ -496,6 +496,34 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_secuencia_pasos_secuencia ON secuencia_pasos (secuencia_id, orden)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_negocio_secuencias_pendientes ON negocio_secuencias (estado, proxima_ejecucion)`);
 
+  // === Etapa 3C — Encuesta post-cierre ===
+  // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta
+  // simple de una pregunta (puntaje 0-10, estilo NPS) + comentario libre. Como
+  // el envío de correo al cliente depende de Graph (bloqueado), se genera una
+  // tarea para que el vendedor comparta el link con el cliente por su canal.
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS encuestas (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL UNIQUE REFERENCES negocios(id),
+      token_publico TEXT UNIQUE NOT NULL,
+      recordatorio_enviado_en TIMESTAMP,
+      respondida_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS encuesta_respuestas (
+      id SERIAL PRIMARY KEY,
+      encuesta_id INTEGER NOT NULL REFERENCES encuestas(id),
+      puntaje INTEGER NOT NULL CHECK (puntaje BETWEEN 0 AND 10),
+      comentario TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_encuestas_pendiente_recordatorio ON encuestas (respondida_en, recordatorio_enviado_en, created_at)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

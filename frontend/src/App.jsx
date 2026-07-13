@@ -29,6 +29,7 @@ import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
 import CotizacionPublica from './pages/publico/CotizacionPublica';
+import EncuestaPublica from './pages/publico/EncuestaPublica';
 import MisTareas from './pages/ventas/MisTareas';
 import Reportes from './pages/ventas/Reportes';
 import Placeholder from './pages/Placeholder';
@@ -42,6 +43,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/c/:token" element={<CotizacionPublica />} />
+          <Route path="/encuesta/:token" element={<EncuestaPublica />} />
           <Route path="/cambiar-password" element={
             <ProtectedRoute><CambiarPassword /></ProtectedRoute>
           } />
