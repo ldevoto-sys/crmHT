@@ -4,7 +4,7 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
-const { mapearProductos } = require('../services/import_productos');
+const { mapearProductos, PLANTILLA_HEADERS } = require('../services/import_productos');
 
 router.use(authenticate);
 
@@ -116,6 +116,12 @@ router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res
 });
 
 // --- Importador CSV ---
+
+router.get('/importar/plantilla', (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_productos.csv"');
+  res.send('﻿' + PLANTILLA_HEADERS.join(',') + '\n');
+});
 
 async function analizar(buffer) {
   const texto = buffer.toString('utf8');

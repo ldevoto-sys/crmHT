@@ -32,14 +32,25 @@ export default function ImportarProductos() {
     finally { setCargando(false); }
   };
 
+  const descargarPlantilla = async () => {
+    const { data } = await api.get('/productos/importar/plantilla', { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'plantilla_productos.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div>
       <Link to="/productos" className="text-sm text-ht-accent hover:underline">← Productos</Link>
       <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-2">Importar catálogo de productos</h1>
-      <p className="text-gray-500 text-sm mb-6">
+      <p className="text-gray-500 text-sm mb-4">
         Exporta la hoja "Catálogo" del Excel a CSV y súbela. Se matchea por <strong>Código</strong>:
         crea los nuevos y actualiza los existentes. Si el archivo trae columna de stock del proveedor, se registra.
       </p>
+      <button onClick={descargarPlantilla} className="text-sm text-ht-accent hover:underline mb-6 inline-block">
+        Descargar plantilla CSV
+      </button>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
