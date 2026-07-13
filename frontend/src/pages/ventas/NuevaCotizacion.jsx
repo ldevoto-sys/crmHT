@@ -14,20 +14,35 @@ export default function NuevaCotizacion() {
   const [validez, setValidez] = useState(15);
   const [condiciones, setCondiciones] = useState('');
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
+  const [categoria, setCategoria] = useState(''); const [marca, setMarca] = useState('');
+  const [facetas, setFacetas] = useState({ categorias: [], marcas: [] });
   const [error, setError] = useState('');
 
   useEffect(() => { api.get(`/negocios/${negocioId}`).then(r => setNegocio(r.data)).catch(() => setError('No se pudo cargar el negocio.')); }, [negocioId]);
+  useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
 
-  const buscar = async val => {
+  const buscar = async (val, cat = categoria, mar = marca) => {
     setQ(val);
-    if (val.length < 2) { setResultados([]); return; }
-    try { setResultados((await api.get('/productos', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
+    if (val.length < 2 && !cat && !mar) { setResultados([]); return; }
+    try {
+      const params = {};
+      if (val.length >= 2) params.q = val;
+      if (cat) params.categoria = cat;
+      if (mar) params.marca = mar;
+      setResultados((await api.get('/productos', { params })).data.slice(0, 15));
+    } catch { /* */ }
   };
+  const cambiarCategoria = val => { setCategoria(val); buscar(q, val, marca); };
+  const cambiarMarca = val => { setMarca(val); buscar(q, categoria, val); };
+
   const agregarProducto = p => {
-    setItems(is => [...is, { producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0 }]);
+    setItems(is => [...is, {
+      producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
+      producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen },
+    }]);
     setQ(''); setResultados([]);
   };
-  const agregarLibre = () => setItems(is => [...is, { producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0 }]);
+  const agregarLibre = () => setItems(is => [...is, { producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0, producto_meta: null }]);
   const setItem = (i, campo, val) => setItems(is => is.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const quitar = i => setItems(is => is.filter((_, idx) => idx !== i));
 
@@ -62,19 +77,34 @@ export default function NuevaCotizacion() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
-        <div className="relative mb-3">
-          <input value={q} onChange={e => buscar(e.target.value)} placeholder="Buscar producto por nombre o código…"
-            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-          {resultados.length > 0 && (
-            <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-56 overflow-y-auto shadow">
-              {resultados.map(p => (
-                <button key={p.id} onClick={() => agregarProducto(p)} className="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
-                  <span className="text-ht-navy">{p.nombre}</span>
-                  <span className="text-gray-400"> · {p.sku} · {money(p.precio_lista)}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex gap-2 mb-3">
+          <div className="relative flex-1">
+            <input value={q} onChange={e => buscar(e.target.value)} placeholder="Buscar producto por nombre, código, marca o categoría…"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            {resultados.length > 0 && (
+              <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-72 overflow-y-auto shadow">
+                {resultados.map(p => (
+                  <button key={p.id} onClick={() => agregarProducto(p)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+                    {p.url_imagen && <img src={p.url_imagen} alt="" className="h-8 w-8 object-contain flex-shrink-0" />}
+                    <span>
+                      <span className="text-ht-navy">{p.nombre}</span>
+                      <span className="text-gray-400"> · {p.sku}{p.marca ? ` · ${p.marca}` : ''}{p.categoria ? ` · ${p.categoria}` : ''} · {money(p.precio_lista)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <select value={categoria} onChange={e => cambiarCategoria(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Categoría</option>
+            {facetas.categorias.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select value={marca} onChange={e => cambiarMarca(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Marca</option>
+            {facetas.marcas.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
         </div>
 
         <table className="w-full text-sm">
@@ -89,16 +119,22 @@ export default function NuevaCotizacion() {
           </thead>
           <tbody>
             {items.map((it, i) => (
-              <tr key={i} className="border-t border-gray-100">
-                <td className="py-1 pr-2">
+              <tr key={i} className="border-t border-gray-100 align-top">
+                <td className="py-2 pr-2">
                   <input value={it.descripcion} onChange={e => setItem(i, 'descripcion', e.target.value)}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+                  {it.producto_meta && (
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                      {it.producto_meta.url_imagen && <img src={it.producto_meta.url_imagen} alt="" className="h-6 w-6 object-contain" />}
+                      <span>{it.producto_meta.sku}{it.producto_meta.marca ? ` · ${it.producto_meta.marca}` : ''}</span>
+                    </div>
+                  )}
                 </td>
-                <td className="py-1">
+                <td className="py-2">
                   <input type="number" value={it.cantidad} onChange={e => setItem(i, 'cantidad', e.target.value)}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                 </td>
-                <td className="py-1 pl-2">
+                <td className="py-2 pl-2">
                   <input type="number" value={it.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                 </td>
