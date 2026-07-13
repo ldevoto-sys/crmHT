@@ -48,9 +48,7 @@ export default function EncuestaPublica() {
           ) : (
             <form onSubmit={enviar}>
               <p className="text-sm text-gray-600 mb-1">{info.empresa_nombre || info.negocio_titulo}</p>
-              <p className="font-medium mb-4" style={{ color: NAVY }}>
-                ¿Qué tan probable es que recomiendes a HidroTecnica? (0 = nada probable, 10 = muy probable)
-              </p>
+              <p className="font-medium mb-4" style={{ color: NAVY }}>{info.pregunta}</p>
               <div className="grid grid-cols-11 gap-1 mb-4">
                 {Array.from({ length: 11 }, (_, i) => i).map(n => (
                   <button type="button" key={n} onClick={() => setPuntaje(n)}

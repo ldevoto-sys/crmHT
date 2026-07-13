@@ -524,6 +524,23 @@ async function initDb() {
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_encuestas_pendiente_recordatorio ON encuestas (respondida_en, recordatorio_enviado_en, created_at)`);
 
+  // Pregunta de la encuesta, editable por admin/jefe comercial (fila única id=1).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS encuesta_config (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      pregunta TEXT NOT NULL,
+      CONSTRAINT encuesta_config_unica CHECK (id = 1)
+    )
+  `);
+  const encuestaCfgExiste = await db.get('SELECT id FROM encuesta_config WHERE id = 1');
+  if (!encuestaCfgExiste) {
+    await db.run(
+      `INSERT INTO encuesta_config (id, pregunta) VALUES (1, $1)`,
+      ['¿Qué tan probable es que recomiendes a HidroTecnica? (0 = nada probable, 10 = muy probable)']
+    );
+    console.log('[DB] Config de encuesta creada.');
+  }
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');

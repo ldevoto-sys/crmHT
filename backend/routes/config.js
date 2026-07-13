@@ -185,4 +185,31 @@ router.put('/empresa', authorize('administrador', 'jefe_comercial'), async (req,
   }
 });
 
+// --- Pregunta de la encuesta post-cierre ---
+router.get('/encuesta', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM encuesta_config WHERE id = 1');
+    res.json(cfg || {});
+  } catch (err) {
+    console.error('[config/encuesta GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/encuesta', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { pregunta } = req.body;
+    if (!pregunta || !pregunta.trim()) return res.status(400).json({ error: 'La pregunta es requerida' });
+    await db.run(
+      `INSERT INTO encuesta_config (id, pregunta) VALUES (1, $1)
+       ON CONFLICT (id) DO UPDATE SET pregunta = $1`,
+      [pregunta.trim()]
+    );
+    res.json({ message: 'Pregunta de la encuesta actualizada' });
+  } catch (err) {
+    console.error('[config/encuesta PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;

@@ -54,11 +54,10 @@ validación de Gerencia se marcan explícitamente.
 
 - Al mover un negocio a una etapa "ganada" se crea automáticamente una
   encuesta con link público (mismo estilo que el link de cotizaciones).
-- **Supuesto de formato a validar con Gerencia:** una sola pregunta estilo
-  NPS (puntaje 0 a 10, "¿qué tan probable es que nos recomiendes?") más un
-  comentario libre opcional. Si la empresa quiere otras preguntas, se ajusta
-  sin problema; se implementó así por ser el formato más simple y estándar
-  para no bloquear el resto de la etapa.
+- Formato validado por Gerencia: NPS (puntaje 0 a 10) más un comentario
+  libre opcional. **La pregunta es editable** por administrador o jefe
+  comercial en el engranaje → "Encuesta post-cierre", para poder ajustar el
+  texto más adelante sin requerir un cambio de código.
 - Como el envío de correo al cliente depende de Graph (bloqueado), se genera
   una tarea para que el vendedor comparta el link con el cliente por su
   canal, igual que en el motor de secuencias.
@@ -66,11 +65,13 @@ validación de Gerencia se marcan explícitamente.
   variable de entorno `ENCUESTA_DIAS_RECORDATORIO`). No se reintenta más de
   una vez.
 
-## 5. Pendiente: 3D — Nota de venta Softland
+## 5. Cerrado: 3D — Nota de venta Softland
 
-No se construye en esta nota. Se necesita que Gerencia comparta el
-layout/columnas exacto que usa Softland hoy (o el archivo de referencia del
-ingreso manual actual), para no adivinar el formato.
+**No se construye.** Gerencia confirmó que el ingreso a Softland se hace
+directamente y a mano; no requiere importación desde el CRM. Las
+cotizaciones aceptadas, ya visibles en la ficha del negocio, son
+información suficiente en esta etapa. Se cierra este punto sin desarrollo
+adicional.
 
 ## 6. Impacto en el documento base
 
