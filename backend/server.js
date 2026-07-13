@@ -30,6 +30,11 @@ app.use('/api/users', require('./routes/users'));
 app.use('/api/empresas', require('./routes/empresas'));
 app.use('/api/contactos', require('./routes/contactos'));
 app.use('/api/productos', require('./routes/productos'));
+app.use('/api/negocios', require('./routes/negocios'));
+app.use('/api/cotizaciones', require('./routes/cotizaciones'));
+app.use('/api/leads', require('./routes/leads')); // /web es público con API key; el resto autenticado
+app.use('/api/public', require('./routes/public')); // sin autenticación (link al cliente)
+app.use('/api/config', require('./routes/config'));
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".

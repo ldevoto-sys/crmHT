@@ -8,6 +8,9 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
+import ConfigPipeline from './pages/admin/ConfigPipeline';
+import ReglasAsignacion from './pages/admin/ReglasAsignacion';
+import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
@@ -17,6 +20,12 @@ import Duplicados from './pages/maestros/Duplicados';
 import Productos from './pages/maestros/Productos';
 import DetalleProducto from './pages/maestros/DetalleProducto';
 import ImportarProductos from './pages/maestros/ImportarProductos';
+import Pipeline from './pages/ventas/Pipeline';
+import DetalleNegocio from './pages/ventas/DetalleNegocio';
+import Cotizaciones from './pages/ventas/Cotizaciones';
+import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
+import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
+import CotizacionPublica from './pages/publico/CotizacionPublica';
 import Placeholder from './pages/Placeholder';
 
 export default function App() {
@@ -27,6 +36,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
+          <Route path="/c/:token" element={<CotizacionPublica />} />
           <Route path="/cambiar-password" element={
             <ProtectedRoute><CambiarPassword /></ProtectedRoute>
           } />
@@ -57,8 +67,13 @@ export default function App() {
             <Route path="productos/:id" element={<DetalleProducto />} />
 
             {/* Etapa 2 — Cotizador y pipeline */}
-            <Route path="pipeline" element={<Placeholder title="Pipeline" />} />
-            <Route path="cotizaciones" element={<Placeholder title="Cotizaciones" />} />
+            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="negocios/:id" element={<DetalleNegocio />} />
+            <Route path="negocios/:negocioId/cotizar" element={
+              <ProtectedRoute roles={['administrador', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+            } />
+            <Route path="cotizaciones" element={<Cotizaciones />} />
+            <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={<Placeholder title="Mis Tareas" />} />
@@ -67,12 +82,18 @@ export default function App() {
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />
             <Route path="cola" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><Placeholder title="Cola de asignación" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ColaAsignacion /></ProtectedRoute>
             } />
 
             {/* Administración */}
             <Route path="usuarios" element={
               <ProtectedRoute roles={['administrador']}><Usuarios /></ProtectedRoute>
+            } />
+            <Route path="config/pipeline" element={
+              <ProtectedRoute roles={['administrador']}><ConfigPipeline /></ProtectedRoute>
+            } />
+            <Route path="config/reglas-asignacion" element={
+              <ProtectedRoute roles={['administrador']}><ReglasAsignacion /></ProtectedRoute>
             } />
           </Route>
 
