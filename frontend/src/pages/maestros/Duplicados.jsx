@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import api from '../../api';
 
 export default function Duplicados() {
@@ -30,7 +31,8 @@ export default function Duplicados() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ht-navy mb-2">Duplicados de contactos</h1>
+      <Link to="/contactos" className="text-sm text-ht-accent hover:underline">← Contactos</Link>
+      <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-2">Duplicados de contactos</h1>
       <p className="text-gray-500 text-sm mb-6">
         Candidatos por email igual o por nombre repetido dentro de la misma empresa.
         Elige el registro maestro y fusiona; los demás quedarán inactivos.

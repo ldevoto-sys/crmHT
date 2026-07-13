@@ -7,7 +7,8 @@ const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '
 
 export default function Contactos() {
   const { user } = useAuth();
-  const puedeEditar = ['administrador', 'callcenter', 'vendedor'].includes(user?.rol);
+  const puedeEditar = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'].includes(user?.rol);
+  const puedeVerDuplicados = ['administrador', 'jefe_comercial', 'callcenter'].includes(user?.rol);
   const [contactos, setContactos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [q, setQ] = useState('');
@@ -86,6 +87,11 @@ export default function Contactos() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Contactos</h1>
         <div className="flex gap-2">
+          {puedeVerDuplicados && (
+            <Link to="/duplicados" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+              Duplicados
+            </Link>
+          )}
           {(user?.rol === 'administrador' || user?.rol === 'jefe_comercial') && (
             <Link to="/contactos/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
               Importar CSV

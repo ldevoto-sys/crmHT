@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
+
+const PUEDE_COTIZAR = ['administrador', 'jefe_comercial', 'vendedor'];
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
@@ -13,14 +16,39 @@ const estadoColor = {
 };
 
 export default function Cotizaciones() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [cots, setCots] = useState([]);
   const [error, setError] = useState('');
+  const [negocios, setNegocios] = useState([]);
+  const [showSelector, setShowSelector] = useState(false);
+  const [q, setQ] = useState('');
 
   useEffect(() => { api.get('/cotizaciones').then(r => setCots(r.data)).catch(() => setError('No se pudieron cargar las cotizaciones.')); }, []);
 
+  const abrirSelector = async () => {
+    setShowSelector(true);
+    try {
+      const params = user?.rol === 'vendedor' ? { vendedor_id: user.id } : {};
+      setNegocios((await api.get('/negocios', { params })).data);
+    } catch { /* silencioso */ }
+  };
+
+  const filtrados = negocios.filter(n => {
+    const texto = `${n.titulo} ${n.contacto_nombre || ''} ${n.contacto_apellido || ''} ${n.empresa_nombre || ''}`.toLowerCase();
+    return texto.includes(q.toLowerCase());
+  });
+
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ht-navy mb-6">Cotizaciones</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-ht-navy">Cotizaciones</h1>
+        {PUEDE_COTIZAR.includes(user?.rol) && (
+          <button onClick={abrirSelector} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+            + Nueva cotización
+          </button>
+        )}
+      </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -52,6 +80,31 @@ export default function Cotizaciones() {
           </tbody>
         </table>
       </div>
+
+      {showSelector && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setShowSelector(false)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
+            <h2 className="font-semibold text-ht-navy text-lg mb-3">Elige el negocio a cotizar</h2>
+            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por título, contacto o empresa…"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            <div className="flex-1 overflow-y-auto space-y-1">
+              {filtrados.map(n => (
+                <button key={n.id} onClick={() => navigate(`/negocios/${n.id}/cotizar`)}
+                  className="w-full text-left px-3 py-2 rounded hover:bg-slate-50 border border-transparent hover:border-gray-200">
+                  <div className="text-sm text-ht-navy font-medium">{n.titulo}</div>
+                  <div className="text-xs text-gray-500">
+                    {n.contacto_nombre} {n.contacto_apellido || ''}{n.empresa_nombre ? ` · ${n.empresa_nombre}` : ''} · {n.etapa_nombre}
+                  </div>
+                </button>
+              ))}
+              {filtrados.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Sin negocios que coincidan.</p>}
+            </div>
+            <button onClick={() => setShowSelector(false)} className="mt-3 px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 self-end">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -114,4 +114,10 @@ function mapearProductos(rows) {
   return { validos, rechazos };
 }
 
-module.exports = { mapearProductos, mapearFila, parsePrecio };
+// Cabeceras sugeridas para la plantilla de descarga (núcleo + algunos atributos comunes).
+const PLANTILLA_HEADERS = [
+  'Código', 'Nombre Producto', 'Marca', 'Tipo', 'Precio Neto ($)',
+  'URL Imagen', 'URL Ficha PDF', 'HP', 'Voltaje', 'Caudal Máx (L/min)', 'Altura Máx (m)',
+];
+
+module.exports = { mapearProductos, mapearFila, parsePrecio, PLANTILLA_HEADERS };

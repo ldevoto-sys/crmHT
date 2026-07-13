@@ -13,7 +13,6 @@ const menuByRole = {
     { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
-    { label: 'Duplicados', to: '/duplicados' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
   ],
@@ -26,7 +25,6 @@ const menuByRole = {
     { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
-    { label: 'Duplicados', to: '/duplicados' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
   ],
@@ -48,7 +46,6 @@ const menuByRole = {
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
-    { label: 'Duplicados', to: '/duplicados' },
   ],
   gerencia: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -106,9 +103,9 @@ export default function Layout() {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="w-60 flex-shrink-0 bg-ht-navy flex flex-col">
-        <div className="px-5 py-4 border-b border-white/10">
-          <span className="text-white font-bold text-base">HidroTecnica</span>
-          <span className="text-ht-accent font-semibold text-sm ml-1">| CRM</span>
+        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
+          <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-7 bg-white rounded px-1.5 py-1 object-contain" />
+          <span className="text-ht-accent font-semibold text-sm">CRM</span>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           {menu.map(item => (
