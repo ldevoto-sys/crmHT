@@ -9,7 +9,7 @@ const { mapearProductos, PLANTILLA_HEADERS } = require('../services/import_produ
 router.use(authenticate);
 
 const SELECT_CON_STOCK = `
-  SELECT p.id, p.sku, p.nombre, p.marca, p.categoria, p.precio_lista,
+  SELECT p.id, p.sku, p.nombre, p.marca, p.categoria, p.precio_lista, p.descripcion, p.ficha_tecnica_url,
          p.stock_gestionado_por_proveedor, p.url_imagen, p.activo,
          sp.stock AS stock_prov, sp.precio AS precio_prov, sp.fecha_carga AS stock_fecha
   FROM productos p
@@ -26,7 +26,7 @@ router.get('/', async (req, res) => {
     const clauses = ['p.activo = true'];
     const params = [];
     let i = 1;
-    if (q) { clauses.push(`(p.nombre ILIKE $${i} OR p.sku ILIKE $${i})`); params.push(`%${q}%`); i++; }
+    if (q) { clauses.push(`(p.nombre ILIKE $${i} OR p.sku ILIKE $${i} OR p.categoria ILIKE $${i} OR p.marca ILIKE $${i})`); params.push(`%${q}%`); i++; }
     if (categoria) { clauses.push(`p.categoria = $${i++}`); params.push(categoria); }
     if (marca) { clauses.push(`p.marca = $${i++}`); params.push(marca); }
     const productos = await db.all(
