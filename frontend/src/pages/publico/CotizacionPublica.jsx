@@ -48,6 +48,10 @@ export default function CotizacionPublica() {
         </div>
         <div style={{ background: CYAN }} className="h-1" />
 
+        {cot.titulo && (
+          <div className="px-8 py-3 border-b border-gray-200 font-semibold" style={{ color: NAVY }}>{cot.titulo}</div>
+        )}
+
         {/* Cliente */}
         <div className="px-8 py-5 border-b border-gray-200">
           <h3 className="text-[10px] font-bold uppercase tracking-wider mb-2" style={{ color: CYAN }}>Cliente</h3>

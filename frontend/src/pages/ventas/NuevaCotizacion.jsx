@@ -4,43 +4,95 @@ import api from '../../api';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 
+// Autocompletado de producto propio de cada línea: cada fila puede buscar
+// en el maestro de forma independiente (antes solo existía un buscador
+// arriba, y agregar una segunda línea sin volver a esa barra dejaba la
+// línea sin datos del catálogo).
+function BuscadorProducto({ value, onChange, onElegir, categoria, marca }) {
+  const [resultados, setResultados] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+
+  const buscar = async val => {
+    onChange(val);
+    if (val.length < 2 && !categoria && !marca) { setResultados([]); return; }
+    try {
+      const params = {};
+      if (val.length >= 2) params.q = val;
+      if (categoria) params.categoria = categoria;
+      if (marca) params.marca = marca;
+      setResultados((await api.get('/productos', { params })).data.slice(0, 15));
+    } catch { /* */ }
+  };
+
+  return (
+    <div className="relative">
+      <input value={value} onChange={e => buscar(e.target.value)}
+        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Nombre, código, marca o categoría…"
+        className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+      {abierto && resultados.length > 0 && (
+        <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-64 overflow-y-auto shadow">
+          {resultados.map(p => (
+            <button key={p.id} type="button" onMouseDown={() => { onElegir(p); setResultados([]); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
+              {p.url_imagen && <img src={p.url_imagen} alt="" className="h-8 w-8 object-contain flex-shrink-0" />}
+              <span>
+                <span className="text-ht-navy">{p.nombre}</span>
+                <span className="text-gray-400"> · {p.sku}{p.marca ? ` · ${p.marca}` : ''}{p.categoria ? ` · ${p.categoria}` : ''} · {money(p.precio_lista)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function NuevaCotizacion() {
-  const { negocioId } = useParams();
+  const { negocioId, cotizacionId } = useParams();
+  const modoEdicion = !!cotizacionId;
   const navigate = useNavigate();
   const [negocio, setNegocio] = useState(null);
+  const [negocioIdReal, setNegocioIdReal] = useState(negocioId ? Number(negocioId) : null);
+  const [titulo, setTitulo] = useState('');
   const [items, setItems] = useState([]);
   const [descuento, setDescuento] = useState(0);
   const [iva, setIva] = useState(19);
   const [validez, setValidez] = useState(15);
   const [condiciones, setCondiciones] = useState('');
-  const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
   const [categoria, setCategoria] = useState(''); const [marca, setMarca] = useState('');
   const [facetas, setFacetas] = useState({ categorias: [], marcas: [] });
   const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(modoEdicion);
 
-  useEffect(() => { api.get(`/negocios/${negocioId}`).then(r => setNegocio(r.data)).catch(() => setError('No se pudo cargar el negocio.')); }, [negocioId]);
   useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
 
-  const buscar = async (val, cat = categoria, mar = marca) => {
-    setQ(val);
-    if (val.length < 2 && !cat && !mar) { setResultados([]); return; }
-    try {
-      const params = {};
-      if (val.length >= 2) params.q = val;
-      if (cat) params.categoria = cat;
-      if (mar) params.marca = mar;
-      setResultados((await api.get('/productos', { params })).data.slice(0, 15));
-    } catch { /* */ }
-  };
-  const cambiarCategoria = val => { setCategoria(val); buscar(q, val, marca); };
-  const cambiarMarca = val => { setMarca(val); buscar(q, categoria, val); };
+  useEffect(() => {
+    if (modoEdicion) {
+      api.get(`/cotizaciones/${cotizacionId}`).then(r => {
+        const c = r.data;
+        if (c.estado !== 'borrador') { setError('Solo se puede editar una cotización en borrador.'); setCargando(false); return; }
+        setNegocioIdReal(c.negocio_id);
+        setTitulo(c.titulo || ''); setDescuento(c.descuento_pct); setIva(c.iva_pct);
+        setValidez(c.validez_dias); setCondiciones(c.condiciones || '');
+        setItems(c.items.map(it => ({
+          producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre,
+          cantidad: it.cantidad, precio_unitario: it.precio_unitario,
+          producto_meta: it.producto_id ? { sku: it.sku, marca: it.marca, categoria: it.categoria, url_imagen: it.url_imagen } : null,
+        })));
+        api.get(`/negocios/${c.negocio_id}`).then(rn => setNegocio(rn.data)).finally(() => setCargando(false));
+      }).catch(() => { setError('No se pudo cargar la cotización.'); setCargando(false); });
+    } else {
+      api.get(`/negocios/${negocioId}`).then(r => { setNegocio(r.data); setCargando(false); })
+        .catch(() => { setError('No se pudo cargar el negocio.'); setCargando(false); });
+    }
+  }, [negocioId, cotizacionId, modoEdicion]);
 
-  const agregarProducto = p => {
-    setItems(is => [...is, {
-      producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
+  const agregarProducto = (i, p) => {
+    setItems(is => is.map((it, idx) => idx === i ? {
+      ...it, producto_id: p.id, descripcion: p.nombre, precio_unitario: Number(p.precio_lista) || 0,
       producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen },
-    }]);
-    setQ(''); setResultados([]);
+    } : it));
   };
   const agregarLibre = () => setItems(is => [...is, { producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0, producto_meta: null }]);
   const setItem = (i, campo, val) => setItems(is => is.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
@@ -55,54 +107,52 @@ export default function NuevaCotizacion() {
   const guardar = async () => {
     setError('');
     if (items.length === 0) { setError('Agrega al menos un ítem.'); return; }
+    const payload = {
+      negocio_id: negocioIdReal, descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
+      validez_dias: Number(validez) || 15, condiciones, titulo,
+      items: items.map(it => ({ producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad), precio_unitario: Number(it.precio_unitario) })),
+    };
     try {
-      const { data } = await api.post('/cotizaciones', {
-        negocio_id: Number(negocioId), descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
-        validez_dias: Number(validez) || 15, condiciones,
-        items: items.map(it => ({ producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad), precio_unitario: Number(it.precio_unitario) })),
-      });
-      navigate(`/cotizaciones/${data.id}`);
-    } catch (err) { setError(err.response?.data?.error || 'Error al crear la cotización.'); }
+      if (modoEdicion) {
+        await api.put(`/cotizaciones/${cotizacionId}`, payload);
+        navigate(`/cotizaciones/${cotizacionId}`);
+      } else {
+        const { data } = await api.post('/cotizaciones', payload);
+        navigate(`/cotizaciones/${data.id}`);
+      }
+    } catch (err) { setError(err.response?.data?.error || 'Error al guardar la cotización.'); }
   };
 
+  if (cargando) return <div className="p-6 text-gray-400">Cargando…</div>;
   if (error && !negocio) return <div className="p-6 text-red-600">{error}</div>;
   if (!negocio) return <div className="p-6 text-gray-400">Cargando…</div>;
 
   return (
     <div>
-      <Link to={`/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">← {negocio.titulo}</Link>
-      <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-1">Nueva cotización</h1>
+      <Link to={modoEdicion ? `/cotizaciones/${cotizacionId}` : `/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">
+        ← {modoEdicion ? 'Volver a la cotización' : negocio.titulo}
+      </Link>
+      <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-1">{modoEdicion ? 'Editar cotización' : 'Nueva cotización'}</h1>
       <p className="text-gray-500 text-sm mb-6">{negocio.contacto_nombre} {negocio.contacto_apellido} {negocio.empresa_nombre ? `· ${negocio.empresa_nombre}` : ''}</p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-4">
+        <div className="mb-4">
+          <label className="block text-sm text-gray-700 mb-1">Título / descripción general</label>
+          <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej: Sistema hidroneumático Edificio Energy Lord Cochrane"
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+
         <div className="flex gap-2 mb-3">
-          <div className="relative flex-1">
-            <input value={q} onChange={e => buscar(e.target.value)} placeholder="Buscar producto por nombre, código, marca o categoría…"
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-            {resultados.length > 0 && (
-              <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-72 overflow-y-auto shadow">
-                {resultados.map(p => (
-                  <button key={p.id} onClick={() => agregarProducto(p)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center gap-2">
-                    {p.url_imagen && <img src={p.url_imagen} alt="" className="h-8 w-8 object-contain flex-shrink-0" />}
-                    <span>
-                      <span className="text-ht-navy">{p.nombre}</span>
-                      <span className="text-gray-400"> · {p.sku}{p.marca ? ` · ${p.marca}` : ''}{p.categoria ? ` · ${p.categoria}` : ''} · {money(p.precio_lista)}</span>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <select value={categoria} onChange={e => cambiarCategoria(e.target.value)}
+          <select value={categoria} onChange={e => setCategoria(e.target.value)}
             className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            <option value="">Categoría</option>
+            <option value="">Categoría (filtro)</option>
             {facetas.categorias.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select value={marca} onChange={e => cambiarMarca(e.target.value)}
+          <select value={marca} onChange={e => setMarca(e.target.value)}
             className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            <option value="">Marca</option>
+            <option value="">Marca (filtro)</option>
             {facetas.marcas.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
@@ -121,8 +171,8 @@ export default function NuevaCotizacion() {
             {items.map((it, i) => (
               <tr key={i} className="border-t border-gray-100 align-top">
                 <td className="py-2 pr-2">
-                  <input value={it.descripcion} onChange={e => setItem(i, 'descripcion', e.target.value)}
-                    className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+                  <BuscadorProducto value={it.descripcion} onChange={val => setItem(i, 'descripcion', val)}
+                    onElegir={p => agregarProducto(i, p)} categoria={categoria} marca={marca} />
                   {it.producto_meta && (
                     <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                       {it.producto_meta.url_imagen && <img src={it.producto_meta.url_imagen} alt="" className="h-6 w-6 object-contain" />}
@@ -138,14 +188,14 @@ export default function NuevaCotizacion() {
                   <input type="number" value={it.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                 </td>
-                <td className="py-1 text-right text-ht-navy">{money(Number(it.cantidad || 0) * Number(it.precio_unitario || 0))}</td>
-                <td className="py-1 text-right"><button onClick={() => quitar(i)} className="text-red-400 hover:text-red-600">✕</button></td>
+                <td className="py-2 text-right text-ht-navy">{money(Number(it.cantidad || 0) * Number(it.precio_unitario || 0))}</td>
+                <td className="py-2 text-right"><button onClick={() => quitar(i)} className="text-red-400 hover:text-red-600">✕</button></td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-gray-400">Busca productos arriba o agrega una línea libre.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
           </tbody>
         </table>
-        <button onClick={agregarLibre} className="mt-2 text-sm text-ht-accent hover:underline">+ Línea libre</button>
+        <button onClick={agregarLibre} className="mt-2 text-sm text-ht-accent hover:underline">+ Agregar línea</button>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
@@ -178,7 +228,9 @@ export default function NuevaCotizacion() {
           {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{money(descMonto)}</span></div>}
           {Number(iva) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
           <div className="flex justify-between text-lg font-bold text-ht-navy border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{money(total)}</span></div>
-          <button onClick={guardar} className="w-full mt-4 bg-ht-navy text-white py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Crear cotización</button>
+          <button onClick={guardar} className="w-full mt-4 bg-ht-navy text-white py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+            {modoEdicion ? 'Guardar cambios' : 'Crear cotización'}
+          </button>
         </div>
       </div>
     </div>

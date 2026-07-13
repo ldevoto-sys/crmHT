@@ -83,6 +83,9 @@ export default function App() {
             } />
             <Route path="cotizaciones" element={<Cotizaciones />} />
             <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
+            <Route path="cotizaciones/:cotizacionId/editar" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+            } />
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={<MisTareas />} />

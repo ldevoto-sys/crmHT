@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
     if (negocio_id) { clauses.push(`c.negocio_id = $${i++}`); params.push(negocio_id); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const cots = await db.all(
-      `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id,
+      `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo,
               c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
@@ -81,7 +81,7 @@ router.get('/:id', async (req, res) => {
        WHERE c.id = $1`, [req.params.id]);
     if (!cot) return res.status(404).json({ error: 'Cotización no encontrada' });
     const items = await db.all(
-      `SELECT ci.*, p.nombre AS producto_nombre, p.sku
+      `SELECT ci.*, p.nombre AS producto_nombre, p.sku, p.marca, p.categoria, p.url_imagen
        FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
        WHERE ci.cotizacion_id = $1 ORDER BY ci.id`, [req.params.id]);
     const requiere_aprobacion = Number(cot.descuento_pct) > DESCUENTO_MAX && !cot.descuento_aprobado_por_id;
@@ -108,7 +108,7 @@ router.get('/:id/pdf', async (req, res) => {
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
-  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
+  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, titulo } = req.body;
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
   if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
@@ -125,9 +125,9 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     const numero = await proximoNumero(client);
     const token = crypto.randomBytes(16).toString('hex');
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
-       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, token, req.user.id]
+      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id)
+       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+      [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, token, req.user.id]
     );
     const cotId = r.rows[0].id;
     for (const it of items) {
@@ -149,6 +149,50 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
   }
 });
 
+// PUT /api/cotizaciones/:id — edita una cotización en estado 'borrador' (incl. luego de "nueva versión")
+router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, titulo } = req.body;
+  if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
+  if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
+  if (iva_pct < 0 || iva_pct > 100) return res.status(400).json({ error: 'IVA inválido' });
+
+  const negocio = await negocioDe(req.params.id);
+  if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
+  if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+
+  const cot = await db.get('SELECT estado FROM cotizaciones WHERE id = $1', [req.params.id]);
+  if (cot.estado !== 'borrador') return res.status(409).json({ error: 'Solo se puede editar una cotización en borrador' });
+
+  const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE cotizaciones SET subtotal=$1, descuento_pct=$2, iva_pct=$3, total=$4, validez_dias=$5, condiciones=$6, titulo=$7,
+              descuento_solicitado=false, descuento_aprobado_por_id=NULL
+       WHERE id=$8`,
+      [subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, req.params.id]
+    );
+    await client.query('DELETE FROM cotizacion_items WHERE cotizacion_id = $1', [req.params.id]);
+    for (const it of items) {
+      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario));
+      await client.query(
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ id: Number(req.params.id) });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[cotizaciones/PUT /:id]', err);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/cotizaciones/:id/nueva-version — clona ítems en version+1; la anterior queda 'reemplazada'
 router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   const negocio = await negocioDe(req.params.id);
@@ -164,9 +208,9 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
     await client.query(`UPDATE cotizaciones SET estado='reemplazada' WHERE negocio_id=$1 AND numero=$2 AND estado NOT IN ('aceptada','rechazada')`, [base.negocio_id, base.numero]);
     const token = crypto.randomBytes(16).toString('hex');
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, token_publico, creado_por_id)
-       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.iva_pct, base.total, base.validez_dias, base.condiciones, token, req.user.id]
+      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id)
+       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.iva_pct, base.total, base.validez_dias, base.condiciones, base.titulo, token, req.user.id]
     );
     const nuevaId = r.rows[0].id;
     await client.query(

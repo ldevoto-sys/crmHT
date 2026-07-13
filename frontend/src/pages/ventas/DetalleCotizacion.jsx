@@ -39,10 +39,11 @@ export default function DetalleCotizacion() {
   return (
     <div>
       <Link to={`/negocios/${cot.negocio_id}`} className="text-sm text-ht-accent hover:underline">← {cot.negocio_titulo}</Link>
-      <div className="flex items-center justify-between mt-2 mb-6">
+      <div className="flex items-center justify-between mt-2 mb-1">
         <h1 className="text-2xl font-bold text-ht-navy">{cot.numero} <span className="text-gray-400 text-lg">v{cot.version}</span></h1>
         <span className="text-sm px-3 py-1 rounded-full bg-ht-accent/15 text-ht-navy capitalize">{cot.estado}</span>
       </div>
+      <p className="text-gray-600 text-sm mb-5 min-h-[1.25rem]">{cot.titulo}</p>
 
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
@@ -104,8 +105,11 @@ export default function DetalleCotizacion() {
           <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
           <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
           <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
+          {cot.puede_editar && cot.estado === 'borrador' && (
+            <Link to={`/cotizaciones/${id}/editar`} className="block w-full text-center text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Editar</Link>
+          )}
           {cot.puede_editar && (
-            <button onClick={() => accion(async () => { const { data } = await api.post(`/cotizaciones/${id}/nueva-version`); navigate(`/cotizaciones/${data.id}`); })}
+            <button onClick={() => accion(async () => { const { data } = await api.post(`/cotizaciones/${id}/nueva-version`); navigate(`/cotizaciones/${data.id}/editar`); })}
               className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5">Nueva versión</button>
           )}
           <p className="text-xs text-gray-400 pt-2">Validez: {cot.validez_dias} días</p>
