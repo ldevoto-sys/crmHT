@@ -119,4 +119,43 @@ router.delete('/pipeline-etapas/:id', authorize('administrador'), async (req, re
   }
 });
 
+// --- Reglas de asignación por categoría (§7.1). El orden cuenta→categoría→RR
+//     es fijo; aquí se configuran solo los mapeos categoría → vendedor. ---
+router.get('/reglas-asignacion', async (req, res) => {
+  try {
+    const reglas = await db.all(
+      `SELECT ra.id, ra.tipo, ra.parametro, ra.vendedor_id, ra.activo, ra.prioridad, u.nombre AS vendedor_nombre
+       FROM reglas_asignacion ra LEFT JOIN users u ON u.id = ra.vendedor_id
+       ORDER BY ra.prioridad, ra.id`);
+    res.json(reglas);
+  } catch (err) {
+    console.error('[config/reglas GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/reglas-asignacion', authorize('administrador'), async (req, res) => {
+  try {
+    const { parametro, vendedor_id, prioridad } = req.body;
+    if (!parametro || !vendedor_id) return res.status(400).json({ error: 'Categoría y vendedor requeridos' });
+    const r = await db.run(
+      `INSERT INTO reglas_asignacion (tipo, parametro, vendedor_id, prioridad) VALUES ('por_categoria',$1,$2,$3) RETURNING *`,
+      [parametro, vendedor_id, prioridad || 100]);
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[config/reglas POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.delete('/reglas-asignacion/:id', authorize('administrador'), async (req, res) => {
+  try {
+    await db.run('DELETE FROM reglas_asignacion WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Regla eliminada' });
+  } catch (err) {
+    console.error('[config/reglas DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;

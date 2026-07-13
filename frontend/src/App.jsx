@@ -9,6 +9,8 @@ import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
 import ConfigPipeline from './pages/admin/ConfigPipeline';
+import ReglasAsignacion from './pages/admin/ReglasAsignacion';
+import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
@@ -80,7 +82,7 @@ export default function App() {
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />
             <Route path="cola" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><Placeholder title="Cola de asignación" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'callcenter']}><ColaAsignacion /></ProtectedRoute>
             } />
 
             {/* Administración */}
@@ -89,6 +91,9 @@ export default function App() {
             } />
             <Route path="config/pipeline" element={
               <ProtectedRoute roles={['administrador']}><ConfigPipeline /></ProtectedRoute>
+            } />
+            <Route path="config/reglas-asignacion" element={
+              <ProtectedRoute roles={['administrador']}><ReglasAsignacion /></ProtectedRoute>
             } />
           </Route>
 

@@ -16,6 +16,7 @@ const menuByRole = {
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
     { label: 'Config pipeline', to: '/config/pipeline' },
+    { label: 'Reglas asignación', to: '/config/reglas-asignacion' },
     { label: 'Usuarios', to: '/usuarios' },
   ],
   vendedor: [

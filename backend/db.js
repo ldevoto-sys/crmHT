@@ -332,6 +332,54 @@ async function initDb() {
     console.log('[DB] Config de empresa (emisor) creada.');
   }
 
+  // === Etapa 2E — Leads y motor de asignación (§7.1, §9.4) ===
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS leads (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER REFERENCES contactos(id),
+      conversacion_id INTEGER,
+      origen TEXT NOT NULL DEFAULT 'web' CHECK (origen IN ('whatsapp','web','manual','correo','telefono')),
+      creado_por TEXT NOT NULL DEFAULT 'web' CHECK (creado_por IN ('bot','callcenter','vendedor','web')),
+      estado TEXT NOT NULL DEFAULT 'nuevo' CHECK (estado IN ('nuevo','asignado','convertido','descartado')),
+      vendedor_id INTEGER REFERENCES users(id),
+      vendedor_sugerido_id INTEGER REFERENCES users(id),
+      asignacion_modo TEXT CHECK (asignacion_modo IN ('sugerida_confirmada','sugerida_cambiada','automatica_apertura','manual')),
+      negocio_id INTEGER REFERENCES negocios(id),
+      producto_interes_id INTEGER REFERENCES productos(id),
+      pagina_origen TEXT,
+      mensaje_formulario TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS lead_respuestas (
+      id SERIAL PRIMARY KEY,
+      lead_id INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+      campo TEXT NOT NULL,
+      valor TEXT NOT NULL,
+      capturado_por TEXT NOT NULL DEFAULT 'bot' CHECK (capturado_por IN ('bot','humano')),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reglas_asignacion (
+      id SERIAL PRIMARY KEY,
+      prioridad INTEGER NOT NULL DEFAULT 100,
+      tipo TEXT NOT NULL CHECK (tipo IN ('vendedor_de_cuenta','por_categoria','round_robin')),
+      parametro TEXT,
+      vendedor_id INTEGER REFERENCES users(id),
+      activo BOOLEAN DEFAULT true
+    )
+  `);
+
+  await db.run(`CREATE TABLE IF NOT EXISTS round_robin_estado (id INTEGER PRIMARY KEY DEFAULT 1, ultimo_vendedor_id INTEGER, CONSTRAINT rr_unica CHECK (id = 1))`);
+  const rrExiste = await db.get('SELECT id FROM round_robin_estado WHERE id = 1');
+  if (!rrExiste) await db.run('INSERT INTO round_robin_estado (id, ultimo_vendedor_id) VALUES (1, NULL)');
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_leads_estado ON leads (estado, created_at DESC)`);
+
   // Seed: administrador. must_change_password=false según HT-AP-03 §16.
   // La contraseña por defecto DEBE cambiarse tras el primer despliegue.
   const adminExiste = await db.get('SELECT id FROM users LIMIT 1');
