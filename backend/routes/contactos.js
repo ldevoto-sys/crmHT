@@ -8,7 +8,8 @@ const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
 const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
 
-const PUEDE_EDITAR = ['administrador', 'callcenter', 'vendedor'];
+const PUEDE_EDITAR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
+const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
@@ -130,7 +131,7 @@ async function clasificar(validos) {
 }
 
 // POST /api/contactos/importar/preview
-router.post('/importar/preview', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/preview', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
     const { rows } = parseCSV(req.file.buffer.toString('utf8'));
@@ -159,7 +160,7 @@ router.post('/importar/preview', authorize('administrador', 'callcenter'), uploa
 });
 
 // POST /api/contactos/importar/confirmar
-router.post('/importar/confirmar', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
   const { rows } = parseCSV(req.file.buffer.toString('utf8'));
   const { validos } = mapearContactos(rows);
@@ -343,7 +344,7 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
 
 // POST /api/contactos/fusionar — {master_id, duplicado_ids:[...]}
 // Completa datos faltantes del maestro con los de los duplicados y desactiva estos.
-router.post('/fusionar', authorize('administrador', 'callcenter'), async (req, res) => {
+router.post('/fusionar', authorize('administrador', 'jefe_comercial', 'callcenter'), async (req, res) => {
   const { master_id, duplicado_ids } = req.body;
   if (!master_id || !Array.isArray(duplicado_ids) || duplicado_ids.length === 0) {
     return res.status(400).json({ error: 'master_id y duplicado_ids requeridos' });

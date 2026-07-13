@@ -17,7 +17,7 @@ router.get('/causas-no-cierre', async (req, res) => {
 });
 
 // POST /api/config/causas-no-cierre (admin)
-router.post('/causas-no-cierre', authorize('administrador'), async (req, res) => {
+router.post('/causas-no-cierre', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { nombre } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
@@ -32,7 +32,7 @@ router.post('/causas-no-cierre', authorize('administrador'), async (req, res) =>
 });
 
 // PUT /api/config/causas-no-cierre/:id (admin) — renombrar / activar-desactivar
-router.put('/causas-no-cierre/:id', authorize('administrador'), async (req, res) => {
+router.put('/causas-no-cierre/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { nombre, activo } = req.body;
     const causa = await db.get('SELECT * FROM causas_no_cierre WHERE id=$1', [req.params.id]);
@@ -60,7 +60,7 @@ router.get('/pipeline-etapas', async (req, res) => {
 });
 
 // POST /api/config/pipeline-etapas (admin) — nueva etapa intermedia (abierta)
-router.post('/pipeline-etapas', authorize('administrador'), async (req, res) => {
+router.post('/pipeline-etapas', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { nombre, probabilidad_cierre } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
@@ -83,7 +83,7 @@ router.post('/pipeline-etapas', authorize('administrador'), async (req, res) => 
 });
 
 // PUT /api/config/pipeline-etapas/:id (admin) — renombrar, % , orden, activar/desactivar
-router.put('/pipeline-etapas/:id', authorize('administrador'), async (req, res) => {
+router.put('/pipeline-etapas/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id=$1', [req.params.id]);
     if (!etapa) return res.status(404).json({ error: 'Etapa no encontrada' });
@@ -104,7 +104,7 @@ router.put('/pipeline-etapas/:id', authorize('administrador'), async (req, res) 
 });
 
 // DELETE /api/config/pipeline-etapas/:id (admin) — solo intermedias sin negocios
-router.delete('/pipeline-etapas/:id', authorize('administrador'), async (req, res) => {
+router.delete('/pipeline-etapas/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id=$1', [req.params.id]);
     if (!etapa) return res.status(404).json({ error: 'Etapa no encontrada' });
@@ -134,7 +134,7 @@ router.get('/reglas-asignacion', async (req, res) => {
   }
 });
 
-router.post('/reglas-asignacion', authorize('administrador'), async (req, res) => {
+router.post('/reglas-asignacion', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { parametro, vendedor_id, prioridad } = req.body;
     if (!parametro || !vendedor_id) return res.status(400).json({ error: 'Categoría y vendedor requeridos' });
@@ -148,12 +148,39 @@ router.post('/reglas-asignacion', authorize('administrador'), async (req, res) =
   }
 });
 
-router.delete('/reglas-asignacion/:id', authorize('administrador'), async (req, res) => {
+router.delete('/reglas-asignacion/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     await db.run('DELETE FROM reglas_asignacion WHERE id = $1', [req.params.id]);
     res.json({ message: 'Regla eliminada' });
   } catch (err) {
     console.error('[config/reglas DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// --- Datos de empresa (emisor de cotizaciones) ---
+router.get('/empresa', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM config_empresa WHERE id = 1');
+    res.json(cfg || {});
+  } catch (err) {
+    console.error('[config/empresa GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/empresa', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const campos = ['razon_social', 'rut', 'direccion', 'comuna', 'ciudad', 'telefono', 'whatsapp',
+                    'email_ventas', 'email_cobranzas', 'sitio_web', 'banco', 'cuenta_tipo', 'cuenta_numero'];
+    const sets = campos.map((c, i) => `${c}=$${i + 1}`).join(', ');
+    const vals = campos.map(c => req.body[c] ?? null);
+    await db.run(
+      `INSERT INTO config_empresa (id, ${campos.join(', ')}) VALUES (1, ${campos.map((_, i) => `$${i + 1}`).join(', ')})
+       ON CONFLICT (id) DO UPDATE SET ${sets}`, vals);
+    res.json({ message: 'Datos de empresa actualizados' });
+  } catch (err) {
+    console.error('[config/empresa PUT]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

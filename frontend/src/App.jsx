@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import Usuarios from './pages/admin/Usuarios';
 import ConfigPipeline from './pages/admin/ConfigPipeline';
 import ReglasAsignacion from './pages/admin/ReglasAsignacion';
+import ConfigEmpresa from './pages/admin/ConfigEmpresa';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
@@ -50,19 +51,19 @@ export default function App() {
             {/* Etapa 1 — Maestros */}
             <Route path="empresas" element={<Empresas />} />
             <Route path="empresas/importar" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarEmpresas /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarEmpresas /></ProtectedRoute>
             } />
             <Route path="empresas/:id" element={<DetalleEmpresa />} />
             <Route path="contactos" element={<Contactos />} />
             <Route path="contactos/importar" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><ImportarContactos /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarContactos /></ProtectedRoute>
             } />
             <Route path="duplicados" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><Duplicados /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'callcenter']}><Duplicados /></ProtectedRoute>
             } />
             <Route path="productos" element={<Productos />} />
             <Route path="productos/importar" element={
-              <ProtectedRoute roles={['administrador']}><ImportarProductos /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarProductos /></ProtectedRoute>
             } />
             <Route path="productos/:id" element={<DetalleProducto />} />
 
@@ -70,7 +71,7 @@ export default function App() {
             <Route path="pipeline" element={<Pipeline />} />
             <Route path="negocios/:id" element={<DetalleNegocio />} />
             <Route path="negocios/:negocioId/cotizar" element={
-              <ProtectedRoute roles={['administrador', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
             } />
             <Route path="cotizaciones" element={<Cotizaciones />} />
             <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
@@ -82,7 +83,7 @@ export default function App() {
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />
             <Route path="cola" element={
-              <ProtectedRoute roles={['administrador', 'callcenter']}><ColaAsignacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'callcenter']}><ColaAsignacion /></ProtectedRoute>
             } />
 
             {/* Administración */}
@@ -90,10 +91,13 @@ export default function App() {
               <ProtectedRoute roles={['administrador']}><Usuarios /></ProtectedRoute>
             } />
             <Route path="config/pipeline" element={
-              <ProtectedRoute roles={['administrador']}><ConfigPipeline /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigPipeline /></ProtectedRoute>
             } />
             <Route path="config/reglas-asignacion" element={
-              <ProtectedRoute roles={['administrador']}><ReglasAsignacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ReglasAsignacion /></ProtectedRoute>
+            } />
+            <Route path="config/empresa" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigEmpresa /></ProtectedRoute>
             } />
           </Route>
 

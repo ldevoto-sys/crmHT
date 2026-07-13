@@ -56,7 +56,7 @@ async function initDb() {
       rut TEXT UNIQUE,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
-      rol TEXT NOT NULL CHECK (rol IN ('administrador','vendedor','callcenter','gerencia')),
+      rol TEXT NOT NULL CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia')),
       activo BOOLEAN DEFAULT true,
       must_change_password BOOLEAN DEFAULT true,
       reset_token TEXT,
@@ -66,6 +66,9 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Ampliar el CHECK del rol para incluir jefe_comercial (bases existentes).
+  await db.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_rol_check`);
+  await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia'))`);
 
   // === Etapa 1 — Maestros ===
 

@@ -66,7 +66,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/productos
-router.post('/', authorize('administrador'), async (req, res) => {
+router.post('/', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { sku, nombre, marca, categoria, precio_lista, url_imagen, ficha_tecnica_url, descripcion, proveedor, stock_gestionado_por_proveedor, atributos } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
@@ -89,7 +89,7 @@ router.post('/', authorize('administrador'), async (req, res) => {
 });
 
 // PUT /api/productos/:id
-router.put('/:id', authorize('administrador'), async (req, res) => {
+router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { id } = req.params;
     const { sku, nombre, marca, categoria, precio_lista, url_imagen, ficha_tecnica_url, descripcion, proveedor, stock_gestionado_por_proveedor, atributos, activo } = req.body;
@@ -133,7 +133,7 @@ async function analizar(buffer) {
 }
 
 // POST /api/productos/importar/preview
-router.post('/importar/preview', authorize('administrador'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/preview', authorize('administrador', 'jefe_comercial'), uploadCSV.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
     const { headers, validos, rechazos, existentes, conStock } = await analizar(req.file.buffer);
@@ -161,7 +161,7 @@ router.post('/importar/preview', authorize('administrador'), uploadCSV.single('a
 });
 
 // POST /api/productos/importar/confirmar
-router.post('/importar/confirmar', authorize('administrador'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
   const client = await db.pool.connect();
   try {

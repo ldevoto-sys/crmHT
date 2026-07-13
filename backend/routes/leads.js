@@ -91,7 +91,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/leads/:id/asignar {vendedor_id} — confirma/cambia sugerencia (call center/admin)
-router.post('/:id/asignar', authorize('administrador', 'callcenter'), async (req, res) => {
+router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callcenter'), async (req, res) => {
   try {
     const { vendedor_id } = req.body;
     if (!vendedor_id) return res.status(400).json({ error: 'vendedor_id requerido' });
@@ -109,7 +109,7 @@ router.post('/:id/asignar', authorize('administrador', 'callcenter'), async (req
 });
 
 // POST /api/leads/:id/convertir {titulo} — crea negocio
-router.post('/:id/convertir', authorize('administrador', 'vendedor', 'callcenter'), async (req, res) => {
+router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   try {
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
@@ -133,7 +133,7 @@ router.post('/:id/convertir', authorize('administrador', 'vendedor', 'callcenter
 });
 
 // POST /api/leads/:id/descartar
-router.post('/:id/descartar', authorize('administrador', 'callcenter', 'vendedor'), async (req, res) => {
+router.post('/:id/descartar', authorize('administrador', 'jefe_comercial', 'callcenter', 'vendedor'), async (req, res) => {
   try {
     const lead = await db.get('SELECT id FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
