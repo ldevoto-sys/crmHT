@@ -20,7 +20,7 @@ function StockBadge({ p }) {
 
 export default function Productos() {
   const { user } = useAuth();
-  const esAdmin = user?.rol === 'administrador';
+  const esAdmin = user?.rol === 'administrador' || user?.rol === 'jefe_comercial';
   const [productos, setProductos] = useState([]);
   const [facetas, setFacetas] = useState({ marcas: [], categorias: [] });
   const [q, setQ] = useState('');

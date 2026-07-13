@@ -47,7 +47,7 @@ export default function Empresas() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Empresas</h1>
         <div className="flex gap-2">
-          {(user?.rol === 'administrador' || user?.rol === 'callcenter') && (
+          {(user?.rol === 'administrador' || user?.rol === 'jefe_comercial') && (
             <Link to="/empresas/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
               Importar CSV
             </Link>

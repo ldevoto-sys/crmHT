@@ -16,7 +16,7 @@ async function negocioDe(cotId) {
   );
 }
 function puedeEditar(negocio, user) {
-  return negocio && (user.rol === 'administrador' || negocio.vendedor_id === user.id);
+  return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
 }
 
 // Calcula subtotal (neto), y total con descuento e IVA.
@@ -107,7 +107,7 @@ router.get('/:id/pdf', async (req, res) => {
 });
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
-router.post('/', authorize('administrador', 'vendedor'), async (req, res) => {
+router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
@@ -150,7 +150,7 @@ router.post('/', authorize('administrador', 'vendedor'), async (req, res) => {
 });
 
 // POST /api/cotizaciones/:id/nueva-version — clona ítems en version+1; la anterior queda 'reemplazada'
-router.post('/:id/nueva-version', authorize('administrador', 'vendedor'), async (req, res) => {
+router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   const negocio = await negocioDe(req.params.id);
   if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede versionar' });
@@ -200,7 +200,7 @@ router.post('/:id/solicitar-aprobacion-descuento', async (req, res) => {
 });
 
 // POST /api/cotizaciones/:id/aprobar-descuento (admin)
-router.post('/:id/aprobar-descuento', authorize('administrador'), async (req, res) => {
+router.post('/:id/aprobar-descuento', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const cot = await db.get('SELECT id FROM cotizaciones WHERE id = $1', [req.params.id]);
     if (!cot) return res.status(404).json({ error: 'Cotización no encontrada' });

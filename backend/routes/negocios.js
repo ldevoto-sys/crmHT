@@ -7,7 +7,7 @@ const timeline = require('../services/timeline');
 router.use(authenticate);
 
 function puedeEditar(negocio, user) {
-  return user.rol === 'administrador' || negocio.vendedor_id === user.id;
+  return user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id;
 }
 
 // GET /api/negocios?etapa_id=&vendedor_id=&q=
@@ -76,7 +76,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/negocios
-router.post('/', authorize('administrador', 'vendedor'), async (req, res) => {
+router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   try {
     const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });

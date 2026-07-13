@@ -9,7 +9,8 @@ const { parseCSV } = require('../utils/csv');
 const { mapearEmpresas, PLANTILLA_HEADERS } = require('../services/import_empresas');
 
 // Roles que pueden crear/editar maestros. Gerencia es solo lectura (§5).
-const PUEDE_EDITAR = ['administrador', 'callcenter', 'vendedor'];
+const PUEDE_EDITAR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
+const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
@@ -74,7 +75,7 @@ async function clasificarEmpresas(validos) {
 }
 
 // POST /api/empresas/importar/preview
-router.post('/importar/preview', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/preview', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
     const { rows } = parseCSV(req.file.buffer.toString('utf8'));
@@ -100,7 +101,7 @@ router.post('/importar/preview', authorize('administrador', 'callcenter'), uploa
 });
 
 // POST /api/empresas/importar/confirmar
-router.post('/importar/confirmar', authorize('administrador', 'callcenter'), uploadCSV.single('archivo'), async (req, res) => {
+router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
   const { rows } = parseCSV(req.file.buffer.toString('utf8'));
   const { validos } = mapearEmpresas(rows);
