@@ -23,8 +23,15 @@ export default function Cotizaciones() {
   const [negocios, setNegocios] = useState([]);
   const [showSelector, setShowSelector] = useState(false);
   const [q, setQ] = useState('');
+  const [busqueda, setBusqueda] = useState('');
 
-  useEffect(() => { api.get('/cotizaciones').then(r => setCots(r.data)).catch(() => setError('No se pudieron cargar las cotizaciones.')); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const params = busqueda.trim() ? { q: busqueda.trim() } : {};
+      api.get('/cotizaciones', { params }).then(r => setCots(r.data)).catch(() => setError('No se pudieron cargar las cotizaciones.'));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [busqueda]);
 
   const abrirSelector = async () => {
     setShowSelector(true);
@@ -51,6 +58,10 @@ export default function Cotizaciones() {
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
+      <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+        placeholder="Buscar por número, cliente/empresa o producto…"
+        className="w-full max-w-md mb-4 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
@@ -71,6 +82,9 @@ export default function Cotizaciones() {
                 </td>
                 <td className="px-4 py-2 text-gray-600">
                   {c.negocio_titulo}
+                  <span className="block text-xs text-gray-400">
+                    {c.empresa_nombre || `${c.contacto_nombre || ''} ${c.contacto_apellido || ''}`.trim()}
+                  </span>
                   {c.titulo && <span className="block text-xs text-gray-400">{c.titulo}</span>}
                 </td>
                 <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full capitalize ${estadoColor[c.estado] || ''}`}>{c.estado}</span></td>

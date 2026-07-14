@@ -19,6 +19,14 @@ function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
 }
 
+// Visibilidad (§5 matriz de permisos v1.6): admin/jefe comercial/gerencia ven todas;
+// vendedor solo las suyas; call center no tiene acceso a cotizaciones.
+const PUEDE_VER_TODAS = ['administrador', 'jefe_comercial', 'gerencia'];
+function puedeVer(negocio, user) {
+  if (PUEDE_VER_TODAS.includes(user.rol)) return true;
+  return user.rol === 'vendedor' && negocio && negocio.vendedor_id === user.id;
+}
+
 // Calcula subtotal (neto), y total con descuento e IVA.
 function calcular(items, descuento_pct, iva_pct) {
   const subtotal = Math.round(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0));
@@ -44,20 +52,37 @@ function itemsValidos(items) {
   return items.every(it => it.cantidad > 0 && it.precio_unitario >= 0);
 }
 
-// GET /api/cotizaciones?negocio_id=
+// GET /api/cotizaciones?negocio_id=&q=
 router.get('/', async (req, res) => {
   try {
-    const { negocio_id } = req.query;
+    if (!PUEDE_VER_TODAS.includes(req.user.rol) && req.user.rol !== 'vendedor') {
+      return res.status(403).json({ error: 'Sin permiso' });
+    }
+    const { negocio_id, q } = req.query;
     const clauses = [];
     const params = [];
     let i = 1;
     if (negocio_id) { clauses.push(`c.negocio_id = $${i++}`); params.push(negocio_id); }
+    if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
+    if (q) {
+      clauses.push(`(
+        c.numero ILIKE $${i} OR ct.nombre ILIKE $${i} OR ct.apellido ILIKE $${i} OR e.razon_social ILIKE $${i}
+        OR EXISTS (
+          SELECT 1 FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
+          WHERE ci.cotizacion_id = c.id AND (ci.descripcion ILIKE $${i} OR p.nombre ILIKE $${i} OR p.sku ILIKE $${i})
+        )
+      )`);
+      params.push(`%${q}%`); i++;
+    }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const cots = await db.all(
       `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo,
-              c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por
+              c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por,
+              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, e.razon_social AS empresa_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
+       JOIN contactos ct ON ct.id = n.contacto_id
+       LEFT JOIN empresas e ON e.id = n.empresa_id
        LEFT JOIN users u ON u.id = c.creado_por_id
        ${where} ORDER BY c.created_at DESC LIMIT 500`, params);
     res.json(cots);
@@ -80,6 +105,7 @@ router.get('/:id', async (req, res) => {
        LEFT JOIN empresas e ON e.id = n.empresa_id
        WHERE c.id = $1`, [req.params.id]);
     if (!cot) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeVer({ vendedor_id: cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const items = await db.all(
       `SELECT ci.*, p.nombre AS producto_nombre, p.sku, p.marca, p.categoria, p.url_imagen
        FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
@@ -97,9 +123,10 @@ router.get('/:id/pdf', async (req, res) => {
   try {
     const data = await fetchCompleta({ id: req.params.id });
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeVer({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${data.cot.numero}-v${data.cot.version}.pdf"`);
-    generarCotizacionPDF(data, res);
+    await generarCotizacionPDF(data, res);
   } catch (err) {
     console.error('[cotizaciones/:id/pdf]', err);
     res.status(500).json({ error: 'Error al generar PDF' });

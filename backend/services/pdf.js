@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
+const { esImagenPublica } = require('./cotizacion_data');
 
 // Documento al cliente: paleta corporativa (navy + celeste), no el acento de app.
 const NAVY = '#112548';
@@ -11,8 +12,29 @@ const LOGO = path.join(__dirname, '../../frontend/public/Hidrotecnica.jpg');
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const fechaCorta = d => new Date(d).toLocaleDateString('es-CL');
 
-function generarCotizacionPDF(data, stream) {
+// Descarga una imagen para incrustarla en el PDF. Solo se intenta con URLs
+// públicas (esImagenPublica): las de SharePoint no cargarían igual para el
+// cliente, así que ni se intentan. Cualquier falla (timeout, no es imagen,
+// red caída) se ignora y la línea queda sin imagen, sin romper el PDF.
+async function descargarImagen(url) {
+  if (!esImagenPublica(url)) return null;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) return null;
+    const contentType = resp.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) return null;
+    return Buffer.from(await resp.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
+async function generarCotizacionPDF(data, stream) {
   const { cot, items, cliente, vendedor, emisor = {} } = data;
+  const imagenes = await Promise.all(items.map(it => descargarImagen(it.url_imagen)));
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(stream);
   const M = 40;
@@ -70,16 +92,28 @@ function generarCotizacionPDF(data, stream) {
   items.forEach((it, idx) => {
     const nombre = it.descripcion || it.producto_nombre || '—';
     const sub = [it.marca, it.sku].filter(Boolean).join(' · ');
-    const h = 30;
+    const imagenBuf = imagenes[idx];
+    const fichaPublica = esImagenPublica(it.ficha_tecnica_url) ? it.ficha_tecnica_url : null;
+    const textoX = imagenBuf ? M + 34 : M + 8;
+    const textoAncho = imagenBuf ? 274 : 300;
+    const h = (sub && fichaPublica) ? 42 : (sub || fichaPublica || imagenBuf) ? 34 : 26;
+
     if (idx % 2 === 1) doc.rect(M, y, 515, h).fill('#f7f9fc');
-    doc.fillColor(NAVY).font('Helvetica-Bold').text(nombre, M + 8, y + 6, { width: 300 });
-    if (sub) doc.fillColor(GRAY).font('Helvetica').fontSize(8).text(sub, M + 8, y + 18, { width: 300 }), doc.fontSize(9);
+    if (imagenBuf) { try { doc.image(imagenBuf, M + 6, y + 5, { fit: [24, 24] }); } catch { /* imagen inválida, se omite */ } }
+    doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text(nombre, textoX, y + 6, { width: textoAncho });
+    let subY = y + 18;
+    if (sub) { doc.fillColor(GRAY).font('Helvetica').fontSize(8).text(sub, textoX, subY, { width: textoAncho }); subY += 11; }
+    if (fichaPublica) {
+      doc.fillColor(CYAN).font('Helvetica').fontSize(8)
+        .text('Ficha técnica (PDF) ↗', textoX, subY, { width: textoAncho, underline: true, link: fichaPublica });
+    }
+    doc.fontSize(9);
     doc.fillColor('#000').font('Helvetica')
       .text(String(Number(it.cantidad)), 330, y + 6, { width: 45, align: 'right' })
       .text(money(it.precio_unitario), 385, y + 6, { width: 80, align: 'right' })
       .fillColor(NAVY).font('Helvetica-Bold').text(money(it.total_linea), 475, y + 6, { width: 72, align: 'right' });
     y += h;
-    if (y > 720) { doc.addPage(); y = 40; }
+    if (y > 700) { doc.addPage(); y = 40; }
   });
 
   // Totales con IVA.
