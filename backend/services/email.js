@@ -77,6 +77,18 @@ module.exports = {
     `)
   ),
 
+  contrasenaAsignada: (user, passwordTemporal) => enviar(
+    user.email,
+    'Tu contraseña fue restablecida — CRM HidroTecnica',
+    template('Contraseña restablecida', `
+      <p>Hola <strong>${user.nombre}</strong>,</p>
+      <p>Un administrador restableció tu contraseña del CRM Comercial.</p>
+      <p><strong>Nueva contraseña temporal:</strong> <code style="background:#f3f4f6;padding:2px 6px;border-radius:3px;">${passwordTemporal}</code></p>
+      <p>Deberás cambiarla al ingresar.</p>
+      ${boton(`${APP_URL}/login`, 'Ingresar al sistema')}
+    `)
+  ),
+
   resetPassword: (user, token) => enviar(
     user.email,
     'Recuperar contraseña — CRM HidroTecnica',
