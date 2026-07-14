@@ -47,7 +47,7 @@ router.get('/cotizacion/:token/pdf', async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${data.cot.numero}.pdf"`);
-    generarCotizacionPDF(data, res);
+    await generarCotizacionPDF(data, res);
   } catch (err) {
     console.error('[public/cotizacion/pdf]', err);
     res.status(500).json({ error: 'Error al generar PDF' });
