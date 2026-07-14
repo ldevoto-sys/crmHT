@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
-const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true };
+const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '' };
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -11,6 +11,9 @@ export default function Usuarios() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [passwordGenerada, setPasswordGenerada] = useState(null); // {nombre, password}
+  const [resetPara, setResetPara] = useState(null); // usuario en modal de reset
+  const [resetPassword, setResetPassword] = useState('');
 
   const cargar = async () => {
     try {
@@ -27,14 +30,15 @@ export default function Usuarios() {
 
   const submit = async e => {
     e.preventDefault();
-    setError(''); setMsg(''); setLoading(true);
+    setError(''); setMsg(''); setLoading(true); setPasswordGenerada(null);
     try {
       if (editId) {
         await api.put(`/users/${editId}`, form);
         setMsg('Usuario actualizado.');
       } else {
-        await api.post('/users', form);
-        setMsg('Usuario creado. Se envió la contraseña temporal por correo.');
+        const { data } = await api.post('/users', form);
+        setMsg('Usuario creado.');
+        setPasswordGenerada({ nombre: data.nombre, password: data.password_temporal });
       }
       resetForm();
       cargar();
@@ -42,6 +46,19 @@ export default function Usuarios() {
       setError(err.response?.data?.error || 'Error al guardar.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const abrirReset = u => { setResetPara(u); setResetPassword(''); setError(''); };
+  const confirmarReset = async e => {
+    e.preventDefault();
+    setError(''); setMsg(''); setPasswordGenerada(null);
+    try {
+      const { data } = await api.post(`/users/${resetPara.id}/reset-password`, resetPassword ? { password: resetPassword } : {});
+      setPasswordGenerada({ nombre: resetPara.nombre, password: data.password_temporal });
+      setResetPara(null);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al restablecer la contraseña.');
     }
   };
 
@@ -68,6 +85,16 @@ export default function Usuarios() {
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+      {passwordGenerada && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center justify-between gap-3">
+          <span>
+            Contraseña para <strong>{passwordGenerada.nombre}</strong>:{' '}
+            <code className="bg-white px-2 py-0.5 rounded border border-amber-200">{passwordGenerada.password}</code>
+            {' '}— cópiala y entrégasela a mano (el correo automático puede no estar configurado todavía).
+          </span>
+          <button onClick={() => setPasswordGenerada(null)} className="text-amber-700 hover:underline flex-shrink-0">Cerrar</button>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Formulario */}
@@ -101,6 +128,13 @@ export default function Usuarios() {
                 onChange={e => setForm({ ...form, recibe_round_robin: e.target.checked })} />
               Participa en asignación round-robin
             </label>
+          )}
+          {!editId && (
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Contraseña <span className="text-gray-400">(opcional; si la dejas vacía se genera una)</span></label>
+              <input value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Mín. 8 caracteres, mayúscula, minúscula y carácter especial"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            </div>
           )}
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={loading}
@@ -141,6 +175,7 @@ export default function Usuarios() {
                   </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     <button onClick={() => editar(u)} className="text-ht-accent hover:underline mr-3">Editar</button>
+                    <button onClick={() => abrirReset(u)} className="text-ht-accent hover:underline mr-3">Restablecer contraseña</button>
                     {u.activo && <button onClick={() => desactivar(u)} className="text-red-500 hover:underline">Desactivar</button>}
                   </td>
                 </tr>
@@ -152,6 +187,24 @@ export default function Usuarios() {
           </table>
         </div>
       </div>
+
+      {resetPara && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setResetPara(null)}>
+          <form onSubmit={confirmarReset} onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-sm space-y-3">
+            <h2 className="font-semibold text-ht-navy text-lg">Restablecer contraseña de {resetPara.nombre}</h2>
+            {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Nueva contraseña <span className="text-gray-400">(opcional; si la dejas vacía se genera una)</span></label>
+              <input value={resetPassword} onChange={e => setResetPassword(e.target.value)} placeholder="Mín. 8 caracteres, mayúscula, minúscula y carácter especial"
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Restablecer</button>
+              <button type="button" onClick={() => setResetPara(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
-const { validarRut, validarEmail } = require('../utils/validaciones');
+const { validarRut, validarEmail, validarPassword } = require('../utils/validaciones');
 const emailSvc = require('../services/email');
 
 const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
@@ -40,16 +40,21 @@ router.get('/vendedores', async (req, res) => {
   }
 });
 
-// POST /api/users
+// POST /api/users {password?} — si no se indica password, se genera una temporal.
+// Mientras el envío de correo no esté configurado (SMTP_USER/SMTP_PASS), la
+// respuesta siempre incluye password_temporal para que el administrador la
+// pueda copiar y entregar a mano.
 router.post('/', authorize('administrador'), async (req, res) => {
   try {
-    const { nombre, rut, email, rol, recibe_round_robin } = req.body;
+    const { nombre, rut, email, rol, recibe_round_robin, password } = req.body;
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
 
     if (!ROLES.includes(rol)) return res.status(400).json({ error: 'Rol inválido' });
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
     if (!validarEmail(email)) return res.status(400).json({ error: 'Email inválido' });
+    if (password && !validarPassword(password))
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un carácter especial' });
 
     const emailExiste = await db.get('SELECT id FROM users WHERE email = $1', [email]);
     if (emailExiste) return res.status(409).json({ error: 'El email ya está registrado' });
@@ -59,8 +64,9 @@ router.post('/', authorize('administrador'), async (req, res) => {
       if (rutExiste) return res.status(409).json({ error: 'El RUT ya está registrado' });
     }
 
-    // Contraseña temporal; el usuario la cambia al primer ingreso.
-    const passwordTemporal = crypto.randomBytes(6).toString('hex') + 'A1!';
+    // Contraseña definida por el admin, o temporal generada; el usuario la
+    // cambia al primer ingreso en cualquiera de los dos casos.
+    const passwordTemporal = password || (crypto.randomBytes(6).toString('hex') + 'A1!');
     const hash = await bcrypt.hash(passwordTemporal, 10);
 
     const result = await db.run(
@@ -72,7 +78,7 @@ router.post('/', authorize('administrador'), async (req, res) => {
 
     await emailSvc.bienvenida({ nombre, email, rol }, passwordTemporal);
 
-    res.status(201).json(result.rows[0]);
+    res.status(201).json({ ...result.rows[0], password_temporal: passwordTemporal });
   } catch (err) {
     console.error('[users/POST /]', err);
     res.status(500).json({ error: 'Error interno' });
@@ -112,6 +118,31 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     res.json({ message: 'Usuario actualizado correctamente' });
   } catch (err) {
     console.error('[users/PUT /:id]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/users/:id/reset-password {password?} — igual que en la creación:
+// mientras no haya correo configurado, la respuesta trae password_temporal.
+router.post('/:id/reset-password', authorize('administrador'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { password } = req.body;
+    if (password && !validarPassword(password))
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres, una mayúscula, una minúscula y un carácter especial' });
+
+    const user = await db.get('SELECT nombre, email, rol FROM users WHERE id = $1', [id]);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const passwordTemporal = password || (crypto.randomBytes(6).toString('hex') + 'A1!');
+    const hash = await bcrypt.hash(passwordTemporal, 10);
+    await db.run('UPDATE users SET password_hash = $1, must_change_password = true WHERE id = $2', [hash, id]);
+
+    await emailSvc.contrasenaAsignada(user, passwordTemporal);
+
+    res.json({ message: 'Contraseña restablecida', password_temporal: passwordTemporal });
+  } catch (err) {
+    console.error('[users/reset-password]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
