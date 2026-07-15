@@ -14,6 +14,7 @@ export default function DetalleNegocio() {
   const [causas, setCausas] = useState([]);
   const [error, setError] = useState('');
   const [prob, setProb] = useState('');
+  const [fechaEstimada, setFechaEstimada] = useState('');
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
 
@@ -22,6 +23,7 @@ export default function DetalleNegocio() {
   const cargar = async () => {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
+      setFechaEstimada(data.fecha_cierre_estimada ? data.fecha_cierre_estimada.slice(0, 10) : '');
       setCots((await api.get('/cotizaciones', { params: { negocio_id: id } })).data);
       if (data.etapa_tipo === 'ganada') setEncuesta((await api.get(`/negocios/${id}/encuesta`)).data);
     }
@@ -41,6 +43,11 @@ export default function DetalleNegocio() {
   const guardarProb = async () => {
     try { await api.put(`/negocios/${id}`, { probabilidad_cierre: prob === '' ? null : Number(prob) }); cargar(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la probabilidad.'); }
+  };
+
+  const guardarFechaEstimada = async () => {
+    try { await api.put(`/negocios/${id}`, { fecha_cierre_estimada: fechaEstimada || null }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la fecha estimada.'); }
   };
 
   if (error) return <div className="p-6 text-red-600">{error}</div>;
@@ -155,6 +162,17 @@ export default function DetalleNegocio() {
                 className="w-24 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
               <span className="text-gray-500">%</span>
               {n.puede_editar && <button onClick={guardarProb} className="ml-auto bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Guardar</button>}
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="font-semibold text-ht-navy mb-2">Fecha estimada de cierre</h2>
+            <p className="text-xs text-gray-500 mb-2">Para forecasting; se usa como filtro en Reportes.</p>
+            <div className="flex items-center gap-2">
+              <input type="date" value={fechaEstimada} disabled={!n.puede_editar}
+                onChange={e => setFechaEstimada(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              {n.puede_editar && <button onClick={guardarFechaEstimada} className="bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Guardar</button>}
             </div>
           </div>
         </div>

@@ -18,14 +18,19 @@ function vendedorFiltro(req) {
 
 async function embudo(req) {
   const vendedorId = vendedorFiltro(req);
+  const { desde, hasta } = req.query;
   const params = [];
-  let filtroVendedor = '';
-  if (vendedorId) { params.push(vendedorId); filtroVendedor = 'AND n.vendedor_id = $1'; }
+  const condiciones = [];
+  let i = 1;
+  if (vendedorId) { condiciones.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  if (desde) { condiciones.push(`n.fecha_cierre_estimada >= $${i++}`); params.push(desde); }
+  if (hasta) { condiciones.push(`n.fecha_cierre_estimada <= $${i++}`); params.push(hasta); }
+  const filtroJoin = condiciones.length ? `AND ${condiciones.join(' AND ')}` : '';
   return db.all(
     `SELECT pe.id AS etapa_id, pe.nombre AS etapa_nombre, pe.orden, pe.tipo,
             count(n.id)::int AS cantidad, coalesce(sum(n.monto_estimado), 0) AS monto_total
      FROM pipeline_etapas pe
-     LEFT JOIN negocios n ON n.etapa_id = pe.id ${filtroVendedor}
+     LEFT JOIN negocios n ON n.etapa_id = pe.id ${filtroJoin}
      WHERE pe.activo = true
      GROUP BY pe.id, pe.nombre, pe.orden, pe.tipo
      ORDER BY pe.orden`,
