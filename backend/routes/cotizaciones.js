@@ -58,12 +58,14 @@ router.get('/', async (req, res) => {
     if (!PUEDE_VER_TODAS.includes(req.user.rol) && req.user.rol !== 'vendedor') {
       return res.status(403).json({ error: 'Sin permiso' });
     }
-    const { negocio_id, q } = req.query;
+    const { negocio_id, q, vendedor_id } = req.query;
     const clauses = [];
     const params = [];
     let i = 1;
     if (negocio_id) { clauses.push(`c.negocio_id = $${i++}`); params.push(negocio_id); }
+    // Un vendedor solo ve las suyas, sin importar qué vendedor_id se pida.
     if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
+    else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
     if (q) {
       clauses.push(`(
         c.numero ILIKE $${i} OR ct.nombre ILIKE $${i} OR ct.apellido ILIKE $${i} OR e.razon_social ILIKE $${i}
