@@ -349,10 +349,11 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
     const revisar = candidatos.length > 0;
 
     const result = await db.run(
-      `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado, vendedor_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado, vendedor_id, vendedor_asignado_en)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [nombre, apellido || null, email || null, telefono_e164, empresa_id || null,
-       rut_comprador || null, cargo || null, origen || 'manual', revisar, vendedor_id || null]
+       rut_comprador || null, cargo || null, origen || 'manual', revisar, vendedor_id || null,
+       vendedor_id ? new Date() : null]
     );
     res.status(201).json({ contacto: result.rows[0], duplicados_detectados: candidatos });
   } catch (err) {
@@ -369,7 +370,7 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
     if (rut_comprador && !validarRut(rut_comprador)) return res.status(400).json({ error: 'RUT inválido' });
 
-    const contacto = await db.get('SELECT id FROM contactos WHERE id = $1', [id]);
+    const contacto = await db.get('SELECT id, vendedor_id FROM contactos WHERE id = $1', [id]);
     if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
 
     const telefono_e164 = normalizarTelefono(telefono);
@@ -378,12 +379,17 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
       if (existe) return res.status(409).json({ error: 'Otro contacto ya usa ese teléfono' });
     }
 
+    const nuevoVendedorId = vendedor_id || null;
+    const cambiaAsignacion = nuevoVendedorId && nuevoVendedorId != contacto.vendedor_id;
+
     await db.run(
       `UPDATE contactos SET nombre=$1, apellido=$2, email=$3, telefono_e164=$4, empresa_id=$5,
-              rut_comprador=$6, cargo=$7, activo=$8, revisar_duplicado=$9, vendedor_id=$10 WHERE id=$11`,
+              rut_comprador=$6, cargo=$7, activo=$8, revisar_duplicado=$9, vendedor_id=$10,
+              vendedor_asignado_en = CASE WHEN $12 THEN now() ELSE vendedor_asignado_en END
+       WHERE id=$11`,
       [nombre, apellido || null, email || null, telefono_e164, empresa_id || null,
        rut_comprador || null, cargo || null, activo !== undefined ? activo : true,
-       revisar_duplicado !== undefined ? revisar_duplicado : false, vendedor_id || null, id]
+       revisar_duplicado !== undefined ? revisar_duplicado : false, nuevoVendedorId, id, cambiaAsignacion]
     );
     res.json({ message: 'Contacto actualizado' });
   } catch (err) {

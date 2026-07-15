@@ -108,6 +108,10 @@ async function initDb() {
   // Vendedor asignado directamente al contacto (independiente del vendedor de
   // cuenta de la empresa, para contactos sin empresa o con dueño propio).
   await db.run(`ALTER TABLE contactos ADD COLUMN IF NOT EXISTS vendedor_id INTEGER REFERENCES users(id)`);
+  // Fecha de la última asignación de vendedor (para medir actividad diaria de
+  // asignación). No se rellena retroactivamente: para contactos ya asignados
+  // antes de este cambio queda NULL, porque no hay forma de saber cuándo ocurrió.
+  await db.run(`ALTER TABLE contactos ADD COLUMN IF NOT EXISTS vendedor_asignado_en TIMESTAMP`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS productos (
@@ -562,6 +566,36 @@ async function initDb() {
       ['Administrador', '11.111.111-1', 'admin@hidrotecnica.cl', hash, 'administrador']
     );
     console.log('[DB] Usuario administrador creado (admin@hidrotecnica.cl).');
+  }
+
+  // === Rol de solo lectura para BI externo (Power BI, Looker Studio, etc.) ===
+  // Se provisiona solo si BI_READONLY_PASSWORD está definida (variable de
+  // entorno en Railway). La contraseña se resincroniza en cada arranque: para
+  // rotarla basta con cambiar la variable y volver a desplegar.
+  if (process.env.BI_READONLY_PASSWORD) {
+    const rolBI = process.env.BI_READONLY_USER || 'bi_readonly';
+    if (!/^[a-z_][a-z0-9_]*$/i.test(rolBI)) {
+      console.error(`[DB] BI_READONLY_USER "${rolBI}" no es un nombre de rol válido; se omite el aprovisionamiento.`);
+    } else {
+      try {
+        const password = process.env.BI_READONLY_PASSWORD.replace(/'/g, "''");
+        const existe = await db.get('SELECT 1 FROM pg_roles WHERE rolname = $1', [rolBI]);
+        if (!existe) {
+          await db.run(`CREATE ROLE ${rolBI} WITH LOGIN PASSWORD '${password}'`);
+          console.log(`[DB] Rol de solo lectura "${rolBI}" creado.`);
+        } else {
+          await db.run(`ALTER ROLE ${rolBI} WITH LOGIN PASSWORD '${password}'`);
+        }
+        const { db_name: dbName } = await db.get('SELECT current_database() AS db_name');
+        await db.run(`GRANT CONNECT ON DATABASE ${dbName} TO ${rolBI}`);
+        await db.run(`GRANT USAGE ON SCHEMA public TO ${rolBI}`);
+        await db.run(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${rolBI}`);
+        await db.run(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${rolBI}`);
+        console.log(`[DB] Permisos de solo lectura sincronizados para "${rolBI}" (incluye tablas futuras).`);
+      } catch (err) {
+        console.error(`[DB] No se pudo aprovisionar el rol de solo lectura "${rolBI}": ${err.message}`);
+      }
+    }
   }
 
   console.log('[DB] Base de datos lista.');
