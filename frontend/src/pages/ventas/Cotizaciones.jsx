@@ -4,6 +4,7 @@ import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const PUEDE_COTIZAR = ['administrador', 'jefe_comercial', 'vendedor'];
+const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
@@ -26,14 +27,25 @@ export default function Cotizaciones() {
   const [modoNuevo, setModoNuevo] = useState(false);
   const [q, setQ] = useState('');
   const [busqueda, setBusqueda] = useState('');
+  const [vendedores, setVendedores] = useState([]);
+  const [filtroVendedor, setFiltroVendedor] = useState('');
+
+  const puedeFiltrarVendedor = PUEDE_FILTRAR_VENDEDOR.includes(user?.rol);
+
+  useEffect(() => {
+    if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+    // eslint-disable-next-line
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      const params = busqueda.trim() ? { q: busqueda.trim() } : {};
+      const params = {};
+      if (busqueda.trim()) params.q = busqueda.trim();
+      if (filtroVendedor) params.vendedor_id = filtroVendedor;
       api.get('/cotizaciones', { params }).then(r => setCots(r.data)).catch(() => setError('No se pudieron cargar las cotizaciones.'));
     }, 300);
     return () => clearTimeout(t);
-  }, [busqueda]);
+  }, [busqueda, filtroVendedor]);
 
   const abrirSelector = async () => {
     setShowSelector(true); setModoNuevo(false); setQ('');
@@ -66,9 +78,18 @@ export default function Cotizaciones() {
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
-        placeholder="Buscar por número, cliente/empresa o producto…"
-        className="w-full max-w-md mb-4 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+      <div className="flex items-center gap-3 mb-4">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por número, cliente/empresa o producto…"
+          className="w-full max-w-md border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        {puedeFiltrarVendedor && (
+          <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todos los vendedores</option>
+            {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+          </select>
+        )}
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <table className="w-full text-sm">
