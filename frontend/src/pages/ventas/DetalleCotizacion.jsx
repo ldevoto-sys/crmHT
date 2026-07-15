@@ -61,6 +61,17 @@ export default function DetalleCotizacion() {
     navigator.clipboard.writeText(link).then(() => setMsg('Link público copiado al portapapeles.'));
   };
 
+  const [enviando, setEnviando] = useState(false);
+  const enviarCorreo = async () => {
+    setError(''); setMsg(''); setEnviando(true);
+    try {
+      const { data } = await api.post(`/cotizaciones/${id}/enviar`);
+      setMsg(data.message);
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo enviar el correo.'); }
+    finally { setEnviando(false); }
+  };
+
   const accion = async (fn) => { setError(''); setMsg(''); try { await fn(); cargar(); } catch (err) { setError(err.response?.data?.error || 'Error.'); } };
 
   if (error && !cot) return <div className="p-6 text-red-600">{error}</div>;
@@ -134,6 +145,12 @@ export default function DetalleCotizacion() {
           <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-2">
             <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
             <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
+            {cot.puede_editar && (
+              <button onClick={enviarCorreo} disabled={enviando}
+                className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50">
+                {enviando ? 'Enviando…' : 'Enviar por correo'}
+              </button>
+            )}
             <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
             <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
             {cot.puede_editar && cot.estado === 'borrador' && (

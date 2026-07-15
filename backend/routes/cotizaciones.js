@@ -4,8 +4,9 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { fetchCompleta } = require('../services/cotizacion_data');
-const { generarCotizacionPDF } = require('../services/pdf');
+const { generarCotizacionPDF, generarCotizacionPDFBuffer } = require('../services/pdf');
 const timeline = require('../services/timeline');
+const email = require('../services/email');
 
 router.use(authenticate);
 
@@ -167,6 +168,35 @@ router.get('/:id/pdf', async (req, res) => {
   } catch (err) {
     console.error('[cotizaciones/:id/pdf]', err);
     res.status(500).json({ error: 'Error al generar PDF' });
+  }
+});
+
+// POST /api/cotizaciones/:id/enviar — envía la cotización al contacto por correo
+// (SMTP existente), con el vendedor como "Responder a" y el PDF adjunto.
+router.post('/:id/enviar', async (req, res) => {
+  try {
+    const data = await fetchCompleta({ id: req.params.id });
+    if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeEditar({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    if (data.cot.estado === 'reemplazada') return res.status(409).json({ error: 'Esta versión fue reemplazada por una más nueva' });
+    if (!data.cliente.contacto_email) return res.status(400).json({ error: 'El contacto no tiene email registrado' });
+
+    const pdfBuffer = await generarCotizacionPDFBuffer(data);
+    const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
+    const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer);
+    if (!resultado?.enviado) {
+      return res.status(502).json({ error: 'No se pudo enviar el correo. Revisa la configuración SMTP.' });
+    }
+
+    await db.run(
+      `UPDATE cotizaciones SET fecha_envio = now(), estado = CASE WHEN estado = 'borrador' THEN 'enviada' ELSE estado END
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ message: 'Cotización enviada por correo a ' + data.cliente.contacto_email });
+  } catch (err) {
+    console.error('[cotizaciones/:id/enviar]', err);
+    res.status(500).json({ error: 'Error al enviar el correo' });
   }
 });
 
