@@ -5,6 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => `$${Number(v || 0).toLocaleString('es-CL')}`;
 const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
+const PUEDE_VER_COTIZACIONES_DIA = ['administrador', 'jefe_comercial'];
+const fecha = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('es-CL') : '';
 
 export default function Reportes() {
   const { user } = useAuth();
@@ -31,6 +33,12 @@ export default function Reportes() {
   const [cargandoEtapa, setCargandoEtapa] = useState(null);
 
   const puedeFiltrarVendedor = PUEDE_FILTRAR_VENDEDOR.includes(user?.rol);
+  const puedeVerCotizacionesDia = PUEDE_VER_COTIZACIONES_DIA.includes(user?.rol);
+
+  const [cotizacionesDia, setCotizacionesDia] = useState([]);
+  const [mostrarCotizacionesDia, setMostrarCotizacionesDia] = useState(false);
+  const [cotDiaDesde, setCotDiaDesde] = useState('');
+  const [cotDiaHasta, setCotDiaHasta] = useState('');
 
   useEffect(() => {
     if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
@@ -50,6 +58,10 @@ export default function Reportes() {
 
   const cargarTiempos = () => api.get('/reportes/tiempos-etapa', { params: paramsBase() }).then(r => setTiempos(r.data));
 
+  const cargarCotizacionesDia = () => api.get('/reportes/cotizaciones-por-dia', {
+    params: { ...paramsBase(), desde: cotDiaDesde || undefined, hasta: cotDiaHasta || undefined },
+  }).then(r => setCotizacionesDia(r.data));
+
   useEffect(() => {
     cargarEmbudo().catch(() => setError('No se pudieron cargar los reportes.'));
     setEtapaExpandida(null); setNegociosPorEtapa({});
@@ -65,6 +77,12 @@ export default function Reportes() {
     cargarTiempos().catch(() => setError('No se pudieron cargar los reportes.'));
     // eslint-disable-next-line
   }, [vendedorId]);
+
+  useEffect(() => {
+    if (!mostrarCotizacionesDia) return;
+    cargarCotizacionesDia().catch(() => setError('No se pudieron cargar las cotizaciones por día.'));
+    // eslint-disable-next-line
+  }, [vendedorId, cotDiaDesde, cotDiaHasta, mostrarCotizacionesDia]);
 
   const exportar = async tipo => {
     try {
@@ -93,8 +111,47 @@ export default function Reportes() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-ht-navy mb-4">Reportes</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-bold text-ht-navy">Reportes</h1>
+        {puedeVerCotizacionesDia && (
+          <button onClick={() => setMostrarCotizacionesDia(v => !v)}
+            className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+            {mostrarCotizacionesDia ? 'Ocultar cotizaciones por día' : 'Cotizaciones por día'}
+          </button>
+        )}
+      </div>
       {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
+
+      {mostrarCotizacionesDia && puedeVerCotizacionesDia && (
+        <Seccion
+          titulo="Cotizaciones por día"
+          onExportar={() => exportar('cotizaciones_dia')}
+          filtros={
+            <RangoFechas label="Fecha de creación" desde={cotDiaDesde} hasta={cotDiaHasta}
+              onDesde={setCotDiaDesde} onHasta={setCotDiaHasta} />
+          }
+        >
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-gray-600">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Fecha</th>
+                <th className="text-left px-4 py-2 font-medium">Cotizaciones</th>
+                <th className="text-right px-4 py-2 font-medium">Monto total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cotizacionesDia.map(c => (
+                <tr key={c.fecha} className="border-t border-gray-100">
+                  <td className="px-4 py-2 text-ht-navy">{fecha(c.fecha)}</td>
+                  <td className="px-4 py-2 text-gray-600">{c.cantidad}</td>
+                  <td className="px-4 py-2 text-right text-ht-navy">{money(c.monto_total)}</td>
+                </tr>
+              ))}
+              {cotizacionesDia.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">Sin cotizaciones en el rango.</td></tr>}
+            </tbody>
+          </table>
+        </Seccion>
+      )}
 
       {puedeFiltrarVendedor && (
         <div className="mb-6 flex items-center gap-2">

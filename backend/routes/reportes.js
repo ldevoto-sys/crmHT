@@ -101,11 +101,34 @@ async function rankingVendedores(req) {
   );
 }
 
+// Cotizaciones generadas por día (fecha de creación de cada versión), con su monto total.
+async function cotizacionesPorDia(req) {
+  const vendedorId = vendedorFiltro(req);
+  const { desde, hasta } = req.query;
+  const clauses = [];
+  const params = [];
+  let i = 1;
+  if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  if (desde) { clauses.push(`c.created_at >= $${i++}`); params.push(desde); }
+  if (hasta) { clauses.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  return db.all(
+    `SELECT to_char(date(c.created_at), 'YYYY-MM-DD') AS fecha, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
+     FROM cotizaciones c
+     JOIN negocios n ON n.id = c.negocio_id
+     ${where}
+     GROUP BY date(c.created_at)
+     ORDER BY date(c.created_at) DESC`,
+    params
+  );
+}
+
 const REPORTES = {
   embudo: { fn: embudo, headers: ['etapa_nombre', 'cantidad', 'monto_total'] },
   causas: { fn: causasNoCierre, headers: ['causa', 'cantidad', 'monto_total'] },
   tiempos: { fn: tiemposEtapa, headers: ['etapa_nombre', 'dias_promedio', 'tramos'] },
   ranking: { fn: rankingVendedores, headers: ['vendedor_nombre', 'ganados', 'perdidos', 'monto_ganado', 'tasa_cierre_pct'] },
+  cotizaciones_dia: { fn: cotizacionesPorDia, headers: ['fecha', 'cantidad', 'monto_total'] },
 };
 
 router.get('/embudo', async (req, res) => {
@@ -123,6 +146,10 @@ router.get('/tiempos-etapa', async (req, res) => {
 router.get('/ranking-vendedores', async (req, res) => {
   try { res.json(await rankingVendedores(req)); }
   catch (err) { console.error('[reportes/ranking]', err); res.status(500).json({ error: 'Error interno' }); }
+});
+router.get('/cotizaciones-por-dia', async (req, res) => {
+  try { res.json(await cotizacionesPorDia(req)); }
+  catch (err) { console.error('[reportes/cotizaciones-por-dia]', err); res.status(500).json({ error: 'Error interno' }); }
 });
 
 // GET /api/reportes/export?tipo=embudo|causas|tiempos|ranking
