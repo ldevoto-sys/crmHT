@@ -212,7 +212,7 @@ router.delete('/:id', authorize('administrador'), async (req, res) => {
       const client = await db.pool.connect();
       try {
         await client.query('BEGIN');
-        await client.query('UPDATE contactos SET vendedor_id = $1 WHERE vendedor_id = $2', [reasignar_a, id]);
+        await client.query('UPDATE contactos SET vendedor_id = $1, vendedor_asignado_en = now() WHERE vendedor_id = $2', [reasignar_a, id]);
         await client.query('UPDATE empresas SET vendedor_id = $1 WHERE vendedor_id = $2', [reasignar_a, id]);
         await client.query(
           `UPDATE negocios n SET vendedor_id = $1

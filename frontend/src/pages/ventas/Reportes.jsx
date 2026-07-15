@@ -39,6 +39,9 @@ export default function Reportes() {
   const [mostrarCotizacionesDia, setMostrarCotizacionesDia] = useState(false);
   const [cotDiaDesde, setCotDiaDesde] = useState('');
   const [cotDiaHasta, setCotDiaHasta] = useState('');
+  const [diaExpandido, setDiaExpandido] = useState(null);
+  const [detallePorDia, setDetallePorDia] = useState({});
+  const [cargandoDia, setCargandoDia] = useState(null);
 
   useEffect(() => {
     if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
@@ -81,6 +84,7 @@ export default function Reportes() {
   useEffect(() => {
     if (!mostrarCotizacionesDia) return;
     cargarCotizacionesDia().catch(() => setError('No se pudieron cargar las cotizaciones por día.'));
+    setDiaExpandido(null); setDetallePorDia({});
     // eslint-disable-next-line
   }, [vendedorId, cotDiaDesde, cotDiaHasta, mostrarCotizacionesDia]);
 
@@ -92,6 +96,19 @@ export default function Reportes() {
       a.href = url; a.download = `reporte_${tipo}.csv`; a.click();
       URL.revokeObjectURL(url);
     } catch { setError('No se pudo exportar el reporte.'); }
+  };
+
+  const toggleDia = async c => {
+    if (diaExpandido === c.fecha) { setDiaExpandido(null); return; }
+    setDiaExpandido(c.fecha);
+    if (!detallePorDia[c.fecha]) {
+      setCargandoDia(c.fecha);
+      try {
+        const { data } = await api.get('/reportes/cotizaciones-por-dia/detalle', { params: { fecha: c.fecha, ...paramsBase() } });
+        setDetallePorDia(prev => ({ ...prev, [c.fecha]: data }));
+      } catch { setError('No se pudo cargar el detalle por vendedor.'); }
+      finally { setCargandoDia(null); }
+    }
   };
 
   const toggleEtapa = async e => {
@@ -141,11 +158,53 @@ export default function Reportes() {
             </thead>
             <tbody>
               {cotizacionesDia.map(c => (
-                <tr key={c.fecha} className="border-t border-gray-100">
-                  <td className="px-4 py-2 text-ht-navy">{fecha(c.fecha)}</td>
-                  <td className="px-4 py-2 text-gray-600">{c.cantidad}</td>
-                  <td className="px-4 py-2 text-right text-ht-navy">{money(c.monto_total)}</td>
-                </tr>
+                <Fragment key={c.fecha}>
+                  <tr onClick={() => toggleDia(c)} className="border-t border-gray-100 cursor-pointer hover:bg-slate-50">
+                    <td className="px-4 py-2 text-ht-navy">
+                      <span className="inline-block w-3 text-gray-400">{diaExpandido === c.fecha ? '▾' : '▸'}</span>
+                      {fecha(c.fecha)}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">{c.cantidad}</td>
+                    <td className="px-4 py-2 text-right text-ht-navy">{money(c.monto_total)}</td>
+                  </tr>
+                  {diaExpandido === c.fecha && (
+                    <tr>
+                      <td colSpan={3} className="bg-slate-50 px-4 py-3">
+                        {cargandoDia === c.fecha ? (
+                          <p className="text-sm text-gray-400">Cargando…</p>
+                        ) : (
+                          <table className="w-full text-sm">
+                            <thead className="text-gray-500">
+                              <tr>
+                                <th className="text-left py-1 font-medium">Vendedor</th>
+                                <th className="text-right py-1 font-medium">Contactos asignados</th>
+                                <th className="text-right py-1 font-medium">Cotizaciones generadas</th>
+                                <th className="text-right py-1 font-medium">Monto generado</th>
+                                <th className="text-right py-1 font-medium">Cotizaciones ganadas</th>
+                                <th className="text-right py-1 font-medium">Monto ganado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(detallePorDia[c.fecha] || []).map(v => (
+                                <tr key={v.vendedor_id} className="border-t border-gray-200">
+                                  <td className="py-1 text-ht-navy">{v.vendedor_nombre}</td>
+                                  <td className="py-1 text-right text-gray-600">{v.contactos_asignados}</td>
+                                  <td className="py-1 text-right text-gray-600">{v.cotizaciones_generadas}</td>
+                                  <td className="py-1 text-right text-ht-navy">{money(v.cotizaciones_generadas_monto)}</td>
+                                  <td className="py-1 text-right text-gray-600">{v.cotizaciones_ganadas}</td>
+                                  <td className="py-1 text-right text-ht-navy">{money(v.cotizaciones_ganadas_monto)}</td>
+                                </tr>
+                              ))}
+                              {(detallePorDia[c.fecha] || []).length === 0 && (
+                                <tr><td colSpan={6} className="py-3 text-center text-gray-400">Sin actividad por vendedor ese día.</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
               {cotizacionesDia.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">Sin cotizaciones en el rango.</td></tr>}
             </tbody>

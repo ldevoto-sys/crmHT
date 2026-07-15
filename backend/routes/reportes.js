@@ -123,6 +123,50 @@ async function cotizacionesPorDia(req) {
   );
 }
 
+// Detalle por vendedor de la actividad comercial de un día puntual:
+// contactos recién asignados, cotizaciones generadas y cotizaciones ganadas
+// (el negocio se cerró ganado ese día; se usa la última cotización del
+// negocio como monto representativo del cierre).
+async function cotizacionesPorDiaDetalle(req) {
+  const { fecha } = req.query;
+  const vendedorId = vendedorFiltro(req);
+  const filtroVendedor = vendedorId ? 'AND vendedor_id = $2' : '';
+  const params = vendedorId ? [fecha, vendedorId] : [fecha];
+  return db.all(
+    `SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
+            coalesce(ca.cantidad, 0) AS contactos_asignados,
+            coalesce(cg.cantidad, 0) AS cotizaciones_generadas,
+            coalesce(cg.monto_total, 0) AS cotizaciones_generadas_monto,
+            coalesce(gz.cantidad, 0) AS cotizaciones_ganadas,
+            coalesce(gz.monto_total, 0) AS cotizaciones_ganadas_monto
+     FROM users u
+     LEFT JOIN (
+       SELECT vendedor_id, count(*)::int AS cantidad
+       FROM contactos WHERE date(vendedor_asignado_en) = $1::date ${filtroVendedor}
+       GROUP BY vendedor_id
+     ) ca ON ca.vendedor_id = u.id
+     LEFT JOIN (
+       SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
+       FROM cotizaciones c JOIN negocios n ON n.id = c.negocio_id
+       WHERE date(c.created_at) = $1::date ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
+       GROUP BY n.vendedor_id
+     ) cg ON cg.vendedor_id = u.id
+     LEFT JOIN (
+       SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(uc.total), 0) AS monto_total
+       FROM negocios n
+       JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       JOIN LATERAL (
+         SELECT total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
+       ) uc ON true
+       WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada' ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
+       GROUP BY n.vendedor_id
+     ) gz ON gz.vendedor_id = u.id
+     WHERE ca.cantidad IS NOT NULL OR cg.cantidad IS NOT NULL OR gz.cantidad IS NOT NULL
+     ORDER BY u.nombre`,
+    params
+  );
+}
+
 const REPORTES = {
   embudo: { fn: embudo, headers: ['etapa_nombre', 'cantidad', 'monto_total'] },
   causas: { fn: causasNoCierre, headers: ['causa', 'cantidad', 'monto_total'] },
@@ -150,6 +194,12 @@ router.get('/ranking-vendedores', async (req, res) => {
 router.get('/cotizaciones-por-dia', async (req, res) => {
   try { res.json(await cotizacionesPorDia(req)); }
   catch (err) { console.error('[reportes/cotizaciones-por-dia]', err); res.status(500).json({ error: 'Error interno' }); }
+});
+router.get('/cotizaciones-por-dia/detalle', async (req, res) => {
+  try {
+    if (!req.query.fecha) return res.status(400).json({ error: 'fecha requerida' });
+    res.json(await cotizacionesPorDiaDetalle(req));
+  } catch (err) { console.error('[reportes/cotizaciones-por-dia/detalle]', err); res.status(500).json({ error: 'Error interno' }); }
 });
 
 // GET /api/reportes/export?tipo=embudo|causas|tiempos|ranking
