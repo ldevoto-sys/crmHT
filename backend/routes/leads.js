@@ -116,7 +116,15 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
     if (lead.negocio_id) return res.status(409).json({ error: 'El lead ya fue convertido' });
     const vendedorId = lead.vendedor_id || req.user.id;
     const contacto = await db.get('SELECT empresa_id FROM contactos WHERE id = $1', [lead.contacto_id]);
-    const etapaInicial = await db.get(`SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo='abierta' AND activo=true ORDER BY orden LIMIT 1`);
+    // Si el lead ya tenía vendedor asignado (pasó por /asignar), el negocio nace
+    // directo en "Calificado" en vez de "Lead" — ya no está sin dueño. Si la
+    // etapa "Calificado" no existe (fue renombrada/eliminada), se cae al
+    // comportamiento anterior (primera etapa abierta por orden).
+    const etapaCalificado = lead.vendedor_id
+      ? await db.get(`SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo='abierta' AND activo=true AND nombre ILIKE 'calificado' LIMIT 1`)
+      : null;
+    const etapaInicial = etapaCalificado
+      || await db.get(`SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo='abierta' AND activo=true ORDER BY orden LIMIT 1`);
     const titulo = req.body.titulo || lead.mensaje_formulario?.slice(0, 80) || 'Lead web';
     const r = await db.run(
       `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, etapa_id, probabilidad_cierre)
@@ -124,6 +132,9 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
       [lead.contacto_id, contacto ? contacto.empresa_id : null, vendedorId, titulo,
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null]
     );
+    if (etapaInicial) {
+      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [r.rows[0].id, etapaInicial.id]);
+    }
     await db.run('UPDATE leads SET estado=\'convertido\', negocio_id=$1, vendedor_id=COALESCE(vendedor_id,$2) WHERE id=$3', [r.rows[0].id, vendedorId, req.params.id]);
     res.status(201).json({ negocio_id: r.rows[0].id });
   } catch (err) {
