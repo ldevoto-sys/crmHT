@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const path = require('path');
 const fs = require('fs');
 const { initDb } = require('./db');
@@ -10,6 +11,10 @@ const { enviarRecordatorios } = require('./services/encuestas');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Railway corre detrás de un proxy: sin esto, req.ip sería siempre la IP del
+// proxy (rompe el rate limiting y el registro de IP en cotizacion_vistas).
+app.set('trust proxy', 1);
+
 // Uploads (imágenes de producto, fichas técnicas, media WhatsApp). En Railway
 // se monta un volumen persistente en RAILWAY_VOLUME_MOUNT_PATH.
 const uploadsDir = process.env.RAILWAY_VOLUME_MOUNT_PATH
@@ -17,7 +22,15 @@ const uploadsDir = process.env.RAILWAY_VOLUME_MOUNT_PATH
   : path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
-app.use(cors());
+// CSP desactivado: el frontend carga imágenes de producto desde dominios
+// externos (fichas/fotos del catálogo); una CSP por defecto las bloquearía.
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// El frontend siempre llama a esta misma API en el mismo origen (o vía el
+// proxy de Vite en desarrollo), así que no hay un caso de uso real que
+// necesite CORS abierto a cualquier origen; se acota al de la app.
+const ORIGENES_PERMITIDOS = [process.env.APP_URL, 'http://localhost:5173', 'http://localhost:3001'].filter(Boolean);
+app.use(cors({ origin: ORIGENES_PERMITIDOS }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

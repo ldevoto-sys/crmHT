@@ -11,6 +11,14 @@ function puedeEditar(negocio, user) {
   return user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id;
 }
 
+// Visibilidad (matriz de permisos v1.6): admin/jefe comercial ven cualquiera,
+// call center y gerencia ven (sin editar), vendedor solo los propios.
+const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
+function puedeVer(negocio, user) {
+  if (PUEDE_VER_TODOS.includes(user.rol)) return true;
+  return user.rol === 'vendedor' && negocio.vendedor_id === user.id;
+}
+
 // GET /api/negocios?etapa_id=&vendedor_id=&q=
 router.get('/', async (req, res) => {
   try {
@@ -19,7 +27,9 @@ router.get('/', async (req, res) => {
     const params = [];
     let i = 1;
     if (etapa_id) { clauses.push(`n.etapa_id = $${i++}`); params.push(etapa_id); }
-    if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
+    // Un vendedor solo ve los suyos, sin importar qué vendedor_id se pida.
+    if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
+    else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
     if (q) { clauses.push(`(n.titulo ILIKE $${i} OR c.nombre ILIKE $${i} OR e.razon_social ILIKE $${i})`); params.push(`%${q}%`); i++; }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const negocios = await db.all(
@@ -63,6 +73,7 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
     if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeVer(negocio, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const eventos = await db.all(
       `SELECT t.*, u.nombre AS usuario_nombre FROM timeline t
        LEFT JOIN users u ON u.id = t.usuario_id
