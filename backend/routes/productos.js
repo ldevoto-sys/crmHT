@@ -4,7 +4,9 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
-const { mapearProductos, PLANTILLA_HEADERS } = require('../services/import_productos');
+const {
+  mapearProductos, PLANTILLA_HEADERS, PLANTILLA_HEADERS_HIDRONEUMATICO, PLANTILLA_HEADERS_FILTRO_ARENA,
+} = require('../services/import_productos');
 
 router.use(authenticate);
 
@@ -158,10 +160,17 @@ router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res
 
 // --- Importador CSV ---
 
+// GET /api/productos/importar/plantilla?tipo=bombas|hidroneumatico|filtro_arena
+const PLANTILLAS = {
+  bombas: { headers: PLANTILLA_HEADERS, archivo: 'plantilla_bombas.csv' },
+  hidroneumatico: { headers: PLANTILLA_HEADERS_HIDRONEUMATICO, archivo: 'plantilla_hidroneumaticos.csv' },
+  filtro_arena: { headers: PLANTILLA_HEADERS_FILTRO_ARENA, archivo: 'plantilla_filtros_piscina.csv' },
+};
 router.get('/importar/plantilla', (req, res) => {
+  const plantilla = PLANTILLAS[req.query.tipo] || PLANTILLAS.bombas;
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_productos.csv"');
-  res.send('﻿' + PLANTILLA_HEADERS.join(',') + '\n');
+  res.setHeader('Content-Disposition', `attachment; filename="${plantilla.archivo}"`);
+  res.send('﻿' + plantilla.headers.join(',') + '\n');
 });
 
 async function analizar(buffer) {

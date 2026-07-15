@@ -147,4 +147,16 @@ const PLANTILLA_HEADERS = [
   'Stock (sitio)', 'Diámetro pozo (pulg)',
 ];
 
-module.exports = { mapearProductos, mapearFila, parsePrecio, PLANTILLA_HEADERS };
+// Plantillas de las otras dos hojas del Excel, que no traen columna Tipo
+// propia (se detecta por estas mismas cabeceras, ver detectarCategoriaPorCabeceras).
+const PLANTILLA_HEADERS_HIDRONEUMATICO = [
+  'Código', 'Nombre', 'Marca', 'Litros', 'Bar máx', 'Orientación', 'Conexión', 'Precio Neto ($)',
+];
+const PLANTILLA_HEADERS_FILTRO_ARENA = [
+  'Código', 'Nombre', 'Marca', 'm³/h máx', 'Diámetro mm', 'Conexión', 'Precio Neto ($)', 'Volumen piscina (m³)',
+];
+
+module.exports = {
+  mapearProductos, mapearFila, parsePrecio,
+  PLANTILLA_HEADERS, PLANTILLA_HEADERS_HIDRONEUMATICO, PLANTILLA_HEADERS_FILTRO_ARENA,
+};
