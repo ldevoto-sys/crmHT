@@ -17,6 +17,7 @@ const toLmin = (v, u) => (!v || isNaN(v) || v <= 0) ? null : parseFloat(v) * (UC
 const toM = (v, u) => (!v || isNaN(v) || v <= 0) ? null : parseFloat(v) * (UA[u] || 1);
 const toHp = (v, u) => (!v || isNaN(v) || v <= 0) ? null : (u === 'kw' ? parseFloat(v) / 0.7457 : parseFloat(v));
 const norm = s => String(s).toLowerCase().replace(/[\s\-_.]/g, '');
+const esTrifasico = voltaje => /3\s*f|trif|380/i.test(voltaje || '');
 
 // Interpola la curva Q/H (lista de pares [q,h] ordenados por q) para saber qué
 // altura entrega la bomba al caudal pedido.
@@ -273,7 +274,10 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
     let effCR = cR, effAR = aR, effHR = hR, baseVoltaje = voltaje;
     if (base && !cR && !aR && !hR) {
       effHR = base.hp || null;
-      if (!voltaje && base.voltaje) baseVoltaje = base.voltaje;
+      // Solo se prioriza la línea trifásica del modelo base (igual que la herramienta
+      // original): no forzar monofásico automáticamente, para no descartar candidatos
+      // válidos cuando el usuario no especificó voltaje.
+      if (!voltaje && esTrifasico(base.voltaje)) baseVoltaje = base.voltaje;
     }
 
     const declaredCodes = new Set((base?.sustitutos || []));
@@ -326,7 +330,12 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
       return b._score - a._score;
     });
 
-    return { declared, calculados: calculados.slice(0, 200), base, hasFiltroQH: !!(cR || aR) };
+    // Límite de resultados: 10 cuando se busca por sustitución de un modelo base
+    // (para no saturar con opciones poco relevantes), 200 en búsqueda manual.
+    const limite = base ? 10 : 200;
+    const calculadosLimitados = calculados.slice(0, Math.max(0, limite - declared.length));
+
+    return { declared, calculados: calculadosLimitados, base, hasFiltroQH: !!(cR || aR) };
   }, [lista, IDX, tipo, voltaje, marca, pmax, subQ, caudal, cauUnit, altura, altUnit, pot, potUnit, tol, srt]);
 
   return (
