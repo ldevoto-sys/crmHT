@@ -5,6 +5,7 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { fetchCompleta } = require('../services/cotizacion_data');
 const { generarCotizacionPDF } = require('../services/pdf');
+const timeline = require('../services/timeline');
 
 router.use(authenticate);
 
@@ -17,6 +18,37 @@ async function negocioDe(cotId) {
 }
 function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
+}
+
+// Al generarse una cotización, el negocio avanza a la etapa "Cotizado" — pero
+// solo hacia adelante: si ya está en una etapa posterior (p.ej. Negociación) o
+// está cerrado, no se toca. Si la etapa "Cotizado" fue renombrada o eliminada
+// de la configuración del pipeline, no se fuerza nada (no hay a qué avanzar).
+async function avanzarAEtapaCotizado(client, negocio, usuarioId) {
+  const cotizada = (await client.query(
+    `SELECT * FROM pipeline_etapas WHERE tipo='abierta' AND activo=true AND nombre ILIKE 'cotizado' LIMIT 1`
+  )).rows[0];
+  if (!cotizada) return;
+  const actual = negocio.etapa_id
+    ? (await client.query('SELECT orden, tipo, nombre FROM pipeline_etapas WHERE id=$1', [negocio.etapa_id])).rows[0]
+    : null;
+  if (actual && actual.tipo === 'abierta' && actual.orden >= cotizada.orden) return;
+  if (actual && actual.tipo !== 'abierta') return;
+
+  await client.query(
+    'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
+    [negocio.id]
+  );
+  await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, cotizada.id]);
+  await client.query(
+    'UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2, ultima_actividad=now() WHERE id=$3',
+    [cotizada.id, cotizada.probabilidad_cierre, negocio.id]
+  );
+  await timeline.registrar({
+    negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+    tipo: 'cambio_etapa', descripcion: `Etapa: ${actual ? actual.nombre : '—'} → ${cotizada.nombre} (cotización generada)`,
+    usuario_id: usuarioId,
+  }, client);
 }
 
 // Visibilidad (§5 matriz de permisos v1.6): admin/jefe comercial/gerencia ven todas;
@@ -99,10 +131,13 @@ router.get('/:id', async (req, res) => {
   try {
     const cot = await db.get(
       `SELECT c.*, n.titulo AS negocio_titulo, n.vendedor_id,
+              n.etapa_id AS negocio_etapa_id, n.probabilidad_cierre AS negocio_probabilidad_cierre,
+              pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
               ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
               e.razon_social AS empresa_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
+       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
        JOIN contactos ct ON ct.id = n.contacto_id
        LEFT JOIN empresas e ON e.id = n.empresa_id
        WHERE c.id = $1`, [req.params.id]);
@@ -167,6 +202,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
         [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea]
       );
     }
+    await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: cotId, numero, version: 1 });
   } catch (err) {
@@ -247,6 +283,7 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
        SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea FROM cotizacion_items WHERE cotizacion_id=$2`,
       [nuevaId, req.params.id]
     );
+    await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: nuevaId, numero: base.numero, version: nuevaV });
   } catch (err) {

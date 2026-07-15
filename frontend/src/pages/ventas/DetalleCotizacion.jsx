@@ -11,12 +11,42 @@ export default function DetalleCotizacion() {
   const { user } = useAuth();
   const [cot, setCot] = useState(null);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
+  const [etapas, setEtapas] = useState([]);
+  const [causas, setCausas] = useState([]);
+  const [probEnEdicion, setProbEnEdicion] = useState('');
+  const [modalPerdido, setModalPerdido] = useState(null); // { etapaId }
+  const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
 
   const cargar = async () => {
     try { setCot((await api.get(`/cotizaciones/${id}`)).data); }
     catch { setError('No se pudo cargar la cotización.'); }
   };
   useEffect(() => { cargar(); }, [id]);
+  useEffect(() => {
+    api.get('/config/pipeline-etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
+    api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+  }, []);
+  useEffect(() => { if (cot) setProbEnEdicion(cot.negocio_probabilidad_cierre ?? ''); }, [cot?.negocio_probabilidad_cierre]);
+
+  const cambiarEtapa = async etapaId => {
+    const etapa = etapas.find(e => e.id === Number(etapaId));
+    if (!etapa) return;
+    if (etapa.tipo === 'perdida') { setModalPerdido({ etapaId: etapa.id }); setCausaSel(''); setDetalle(''); return; }
+    await accion(() => api.put(`/negocios/${cot.negocio_id}/etapa`, { etapa_id: etapa.id }));
+  };
+  const confirmarPerdido = async () => {
+    if (!causaSel) return;
+    await accion(() => api.put(`/negocios/${cot.negocio_id}/etapa`, {
+      etapa_id: modalPerdido.etapaId, causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle,
+    }));
+    setModalPerdido(null);
+  };
+  const guardarProbabilidad = async () => {
+    const v = Number(probEnEdicion);
+    if (Number.isNaN(v) || v < 0 || v > 100) { setError('El % de cierre debe estar entre 0 y 100.'); return; }
+    if (v === cot.negocio_probabilidad_cierre) return;
+    await accion(() => api.put(`/negocios/${cot.negocio_id}`, { probabilidad_cierre: v }));
+  };
 
   const descargarPDF = async () => {
     try {
@@ -100,21 +130,68 @@ export default function DetalleCotizacion() {
           {cot.condiciones && <p className="mt-4 text-xs text-gray-500 whitespace-pre-wrap">{cot.condiciones}</p>}
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-2">
-          <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
-          <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
-          <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
-          <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
-          {cot.puede_editar && cot.estado === 'borrador' && (
-            <Link to={`/cotizaciones/${id}/editar`} className="block w-full text-center text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Editar</Link>
-          )}
+        <div className="space-y-6">
+          <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-2">
+            <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
+            <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
+            <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
+            <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
+            {cot.puede_editar && cot.estado === 'borrador' && (
+              <Link to={`/cotizaciones/${id}/editar`} className="block w-full text-center text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Editar</Link>
+            )}
+            {cot.puede_editar && (
+              <button onClick={() => accion(async () => { const { data } = await api.post(`/cotizaciones/${id}/nueva-version`); navigate(`/cotizaciones/${data.id}/editar`); })}
+                className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5">Nueva versión</button>
+            )}
+            <p className="text-xs text-gray-400 pt-2">Validez: {cot.validez_dias} días</p>
+          </div>
+
           {cot.puede_editar && (
-            <button onClick={() => accion(async () => { const { data } = await api.post(`/cotizaciones/${id}/nueva-version`); navigate(`/cotizaciones/${data.id}/editar`); })}
-              className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5">Nueva versión</button>
+            <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-3">
+              <h2 className="font-semibold text-ht-navy">Pipeline del negocio</h2>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Etapa</label>
+                <select value={cot.negocio_etapa_id || ''} onChange={e => cambiarEtapa(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                  {etapas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">% de cierre</label>
+                <div className="flex gap-2">
+                  <input type="number" min="0" max="100" value={probEnEdicion} onChange={e => setProbEnEdicion(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                  <button onClick={guardarProbabilidad} className="px-3 py-1.5 rounded text-sm border border-gray-300 text-gray-700 hover:bg-slate-50 flex-shrink-0">
+                    Guardar
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400">El monto del negocio se actualiza desde la cotización, no aquí.</p>
+            </div>
           )}
-          <p className="text-xs text-gray-400 pt-2">Validez: {cot.validez_dias} días</p>
         </div>
       </div>
+
+      {modalPerdido && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setModalPerdido(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="font-semibold text-ht-navy text-lg mb-3">Marcar como perdido</h2>
+            <p className="text-sm text-gray-500 mb-3">La causa de no cierre es obligatoria.</p>
+            <select value={causaSel} onChange={e => setCausaSel(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">— Selecciona causa —</option>
+              {causas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            <textarea value={detalle} onChange={e => setDetalle(e.target.value)} placeholder="Detalle (opcional)" rows={2}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            <div className="flex gap-2">
+              <button onClick={confirmarPerdido} disabled={!causaSel}
+                className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">Confirmar</button>
+              <button onClick={() => setModalPerdido(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
