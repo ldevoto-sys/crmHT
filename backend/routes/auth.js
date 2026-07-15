@@ -3,15 +3,30 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { db } = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { validarPassword } = require('../utils/validaciones');
 const email = require('../services/email');
+const { JWT_SECRET } = require('../config/jwt');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'crmHT_dev_secret';
+// Freno a fuerza bruta: por IP, no cuenta los intentos exitosos.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
+});
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo.' },
+});
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
+});
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email: correo, password } = req.body;
     if (!correo || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
@@ -71,7 +86,7 @@ router.post('/change-password', authenticate, async (req, res) => {
 });
 
 // POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   try {
     const { email: correo } = req.body;
     if (!correo) return res.status(400).json({ error: 'Email requerido' });
@@ -97,7 +112,7 @@ router.post('/forgot-password', async (req, res) => {
 });
 
 // POST /api/auth/reset-password/:token
-router.post('/reset-password/:token', async (req, res) => {
+router.post('/reset-password/:token', resetPasswordLimiter, async (req, res) => {
   try {
     const { token } = req.params;
     const { newPassword } = req.body;
