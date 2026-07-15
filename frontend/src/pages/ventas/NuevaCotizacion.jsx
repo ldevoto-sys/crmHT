@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../api';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+const enUnaSemana = () => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
 // Autocompletado de producto propio de cada línea: cada fila puede buscar
 // en el maestro de forma independiente (antes solo existía un buscador
@@ -50,11 +51,15 @@ function BuscadorProducto({ value, onChange, onElegir, categoria, marca }) {
 
 export default function NuevaCotizacion() {
   const { negocioId, cotizacionId } = useParams();
+  const [searchParams] = useSearchParams();
+  const contactoIdNuevo = searchParams.get('contacto_id');
   const modoEdicion = !!cotizacionId;
+  const modoNegocioNuevo = !modoEdicion && !negocioId && !!contactoIdNuevo;
   const navigate = useNavigate();
   const [negocio, setNegocio] = useState(null);
   const [negocioIdReal, setNegocioIdReal] = useState(negocioId ? Number(negocioId) : null);
   const [titulo, setTitulo] = useState('');
+  const [fechaCierreEstimada, setFechaCierreEstimada] = useState(enUnaSemana());
   const [items, setItems] = useState([]);
   const [descuento, setDescuento] = useState(0);
   const [iva, setIva] = useState(19);
@@ -82,11 +87,17 @@ export default function NuevaCotizacion() {
         })));
         api.get(`/negocios/${c.negocio_id}`).then(rn => setNegocio(rn.data)).finally(() => setCargando(false));
       }).catch(() => { setError('No se pudo cargar la cotización.'); setCargando(false); });
+    } else if (modoNegocioNuevo) {
+      api.get(`/contactos/${contactoIdNuevo}`).then(r => {
+        const c = r.data;
+        setNegocio({ contacto_nombre: c.nombre, contacto_apellido: c.apellido, empresa_nombre: c.empresa_nombre });
+        setCargando(false);
+      }).catch(() => { setError('No se pudo cargar el contacto.'); setCargando(false); });
     } else {
       api.get(`/negocios/${negocioId}`).then(r => { setNegocio(r.data); setCargando(false); })
         .catch(() => { setError('No se pudo cargar el negocio.'); setCargando(false); });
     }
-  }, [negocioId, cotizacionId, modoEdicion]);
+  }, [negocioId, cotizacionId, modoEdicion, modoNegocioNuevo, contactoIdNuevo]);
 
   const agregarProducto = (i, p) => {
     setItems(is => is.map((it, idx) => idx === i ? {
@@ -107,12 +118,23 @@ export default function NuevaCotizacion() {
   const guardar = async () => {
     setError('');
     if (items.length === 0) { setError('Agrega al menos un ítem.'); return; }
-    const payload = {
-      negocio_id: negocioIdReal, descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
-      validez_dias: Number(validez) || 15, condiciones, titulo,
-      items: items.map(it => ({ producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad), precio_unitario: Number(it.precio_unitario) })),
-    };
     try {
+      let negocioDestino = negocioIdReal;
+      if (modoNegocioNuevo) {
+        const tituloNegocio = titulo.trim() ||
+          `Cotización para ${negocio.empresa_nombre || `${negocio.contacto_nombre} ${negocio.contacto_apellido || ''}`.trim()}`;
+        const { data: nuevoNegocio } = await api.post('/negocios', {
+          contacto_id: Number(contactoIdNuevo), titulo: tituloNegocio,
+          monto_estimado: total, fecha_cierre_estimada: fechaCierreEstimada || null,
+        });
+        negocioDestino = nuevoNegocio.id;
+      }
+
+      const payload = {
+        negocio_id: negocioDestino, descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
+        validez_dias: Number(validez) || 15, condiciones, titulo,
+        items: items.map(it => ({ producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad), precio_unitario: Number(it.precio_unitario) })),
+      };
       if (modoEdicion) {
         await api.put(`/cotizaciones/${cotizacionId}`, payload);
         navigate(`/cotizaciones/${cotizacionId}`);
@@ -129,11 +151,13 @@ export default function NuevaCotizacion() {
 
   return (
     <div>
-      <Link to={modoEdicion ? `/cotizaciones/${cotizacionId}` : `/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">
-        ← {modoEdicion ? 'Volver a la cotización' : negocio.titulo}
+      <Link to={modoEdicion ? `/cotizaciones/${cotizacionId}` : modoNegocioNuevo ? '/cotizaciones' : `/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">
+        ← {modoEdicion ? 'Volver a la cotización' : modoNegocioNuevo ? 'Cotizaciones' : negocio.titulo}
       </Link>
       <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-1">{modoEdicion ? 'Editar cotización' : 'Nueva cotización'}</h1>
-      <p className="text-gray-500 text-sm mb-6">{negocio.contacto_nombre} {negocio.contacto_apellido} {negocio.empresa_nombre ? `· ${negocio.empresa_nombre}` : ''}</p>
+      <p className="text-gray-500 text-sm mb-1">{negocio.contacto_nombre} {negocio.contacto_apellido} {negocio.empresa_nombre ? `· ${negocio.empresa_nombre}` : ''}</p>
+      {modoNegocioNuevo && <p className="text-xs text-gray-400 mb-6">El negocio se creará automáticamente al guardar, con los datos de esta cotización.</p>}
+      {!modoNegocioNuevo && <div className="mb-6" />}
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
@@ -143,6 +167,15 @@ export default function NuevaCotizacion() {
           <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej: Sistema hidroneumático Edificio Energy Lord Cochrane"
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
+
+        {modoNegocioNuevo && (
+          <div className="mb-4">
+            <label className="block text-sm text-gray-700 mb-1">Fecha estimada de cierre del negocio</label>
+            <input type="date" value={fechaCierreEstimada} onChange={e => setFechaCierreEstimada(e.target.value)}
+              className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            <p className="text-xs text-gray-400 mt-1">Por defecto, una semana desde hoy. Puedes ajustarla.</p>
+          </div>
+        )}
 
         <div className="flex gap-2 mb-3">
           <select value={categoria} onChange={e => setCategoria(e.target.value)}

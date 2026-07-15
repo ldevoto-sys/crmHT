@@ -92,7 +92,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/negocios
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   try {
-    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id } = req.body;
+    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
 
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
@@ -106,10 +106,11 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     const emp = empresa_id || contacto.empresa_id || null;
 
     const r = await db.run(
-      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [contacto_id, emp, dueno, titulo, monto_estimado || null,
-       etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null]
+       etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null,
+       fecha_cierre_estimada || null]
     );
     const negocio = r.rows[0];
     if (etapaInicial) {

@@ -21,7 +21,9 @@ export default function Cotizaciones() {
   const [cots, setCots] = useState([]);
   const [error, setError] = useState('');
   const [negocios, setNegocios] = useState([]);
+  const [contactos, setContactos] = useState([]);
   const [showSelector, setShowSelector] = useState(false);
+  const [modoNuevo, setModoNuevo] = useState(false);
   const [q, setQ] = useState('');
   const [busqueda, setBusqueda] = useState('');
 
@@ -34,11 +36,17 @@ export default function Cotizaciones() {
   }, [busqueda]);
 
   const abrirSelector = async () => {
-    setShowSelector(true);
+    setShowSelector(true); setModoNuevo(false); setQ('');
     try {
       const params = user?.rol === 'vendedor' ? { vendedor_id: user.id } : {};
       setNegocios((await api.get('/negocios', { params })).data);
     } catch { /* silencioso */ }
+  };
+
+  const buscarContactos = async val => {
+    setQ(val);
+    if (val.length < 2) { setContactos([]); return; }
+    try { setContactos((await api.get('/contactos', { params: { q: val } })).data.slice(0, 15)); } catch { /* */ }
   };
 
   const filtrados = negocios.filter(n => {
@@ -101,21 +109,54 @@ export default function Cotizaciones() {
       {showSelector && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setShowSelector(false)}>
           <div onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
-            <h2 className="font-semibold text-ht-navy text-lg mb-3">Elige el negocio a cotizar</h2>
-            <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por título, contacto o empresa…"
-              className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-            <div className="flex-1 overflow-y-auto space-y-1">
-              {filtrados.map(n => (
-                <button key={n.id} onClick={() => navigate(`/negocios/${n.id}/cotizar`)}
-                  className="w-full text-left px-3 py-2 rounded hover:bg-slate-50 border border-transparent hover:border-gray-200">
-                  <div className="text-sm text-ht-navy font-medium">{n.titulo}</div>
-                  <div className="text-xs text-gray-500">
-                    {n.contacto_nombre} {n.contacto_apellido || ''}{n.empresa_nombre ? ` · ${n.empresa_nombre}` : ''} · {n.etapa_nombre}
-                  </div>
-                </button>
-              ))}
-              {filtrados.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Sin negocios que coincidan.</p>}
+            <h2 className="font-semibold text-ht-navy text-lg mb-3">Nueva cotización</h2>
+
+            <div className="flex gap-1 mb-3 border border-gray-200 rounded p-1 bg-slate-50 w-fit">
+              <button onClick={() => { setModoNuevo(false); setQ(''); }}
+                className={`px-3 py-1.5 rounded text-sm font-medium ${!modoNuevo ? 'bg-white text-ht-navy shadow-sm' : 'text-gray-500'}`}>
+                Negocio existente
+              </button>
+              <button onClick={() => { setModoNuevo(true); setQ(''); setContactos([]); }}
+                className={`px-3 py-1.5 rounded text-sm font-medium ${modoNuevo ? 'bg-white text-ht-navy shadow-sm' : 'text-gray-500'}`}>
+                Negocio nuevo
+              </button>
             </div>
+
+            {!modoNuevo ? (
+              <>
+                <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por título, contacto o empresa…"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                <div className="flex-1 overflow-y-auto space-y-1">
+                  {filtrados.map(n => (
+                    <button key={n.id} onClick={() => navigate(`/negocios/${n.id}/cotizar`)}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-slate-50 border border-transparent hover:border-gray-200">
+                      <div className="text-sm text-ht-navy font-medium">{n.titulo}</div>
+                      <div className="text-xs text-gray-500">
+                        {n.contacto_nombre} {n.contacto_apellido || ''}{n.empresa_nombre ? ` · ${n.empresa_nombre}` : ''} · {n.etapa_nombre}
+                      </div>
+                    </button>
+                  ))}
+                  {filtrados.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Sin negocios que coincidan.</p>}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="text-xs text-gray-500 mb-2">Elige el contacto o empresa; el negocio se crea automáticamente con los datos de la cotización.</p>
+                <input autoFocus value={q} onChange={e => buscarContactos(e.target.value)} placeholder="Buscar contacto o empresa…"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                <div className="flex-1 overflow-y-auto space-y-1">
+                  {contactos.map(c => (
+                    <button key={c.id} onClick={() => navigate(`/cotizaciones/nueva?contacto_id=${c.id}`)}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-slate-50 border border-transparent hover:border-gray-200">
+                      <div className="text-sm text-ht-navy font-medium">{c.nombre} {c.apellido || ''}</div>
+                      <div className="text-xs text-gray-500">{c.empresa_nombre || 'Sin empresa'}</div>
+                    </button>
+                  ))}
+                  {q.length >= 2 && contactos.length === 0 && <p className="text-sm text-gray-400 text-center py-6">Sin contactos que coincidan.</p>}
+                </div>
+              </>
+            )}
+
             <button onClick={() => setShowSelector(false)} className="mt-3 px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50 self-end">
               Cancelar
             </button>
