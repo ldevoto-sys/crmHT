@@ -150,4 +150,19 @@ async function generarCotizacionPDF(data, stream) {
   doc.end();
 }
 
-module.exports = { generarCotizacionPDF };
+// Igual que generarCotizacionPDF, pero devuelve el PDF completo como Buffer
+// (para adjuntarlo a un correo) en vez de escribirlo a una respuesta HTTP.
+const { PassThrough } = require('stream');
+async function generarCotizacionPDFBuffer(data) {
+  const stream = new PassThrough();
+  const chunks = [];
+  stream.on('data', chunk => chunks.push(chunk));
+  const listo = new Promise((resolve, reject) => {
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+  await generarCotizacionPDF(data, stream);
+  return listo;
+}
+
+module.exports = { generarCotizacionPDF, generarCotizacionPDFBuffer };

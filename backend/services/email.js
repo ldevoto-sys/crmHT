@@ -1,7 +1,11 @@
-// Correos transaccionales del sistema (bienvenida, reset, cambio de contraseña).
-// Usa Brevo vía SMTP, igual que GastosHT/EPP (HT-AP-03 §3, §15).
-// IMPORTANTE: las cotizaciones y seguimientos al cliente NO salen por aquí;
-// salen por Microsoft Graph desde el buzón del vendedor (Etapa 2).
+// Correos transaccionales del sistema (bienvenida, reset, cambio de contraseña)
+// y envío de cotizaciones al cliente. Usa Brevo vía SMTP, igual que
+// GastosHT/EPP (HT-AP-03 §3, §15). El correo llega desde una dirección
+// genérica (no desde el buzón real del vendedor), pero con "Responder a"
+// apuntando al vendedor para que las respuestas del cliente le lleguen
+// directo a él. El envío "nativo" desde el buzón del vendedor vía Microsoft
+// Graph queda para cuando esa integración esté disponible (ver nota de
+// cambio v1.8, §7).
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
@@ -17,12 +21,14 @@ const transporter = nodemailer.createTransport({
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
 
-async function enviar(to, subject, html) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return; // Sin config SMTP, silencioso.
+async function enviar(to, subject, html, opts = {}) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return { enviado: false, motivo: 'SMTP no configurado' };
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html });
+    await transporter.sendMail({ from: FROM, to, subject, html, replyTo: opts.replyTo, attachments: opts.attachments });
+    return { enviado: true };
   } catch (e) {
     console.error('[email] Error enviando a', to, ':', e.message);
+    return { enviado: false, motivo: e.message };
   }
 }
 
@@ -98,5 +104,25 @@ module.exports = {
       ${boton(`${APP_URL}/reset-password/${token}`, 'Restablecer contraseña')}
       <p style="color:#555555;font-size:12px;margin-top:16px;">Si no solicitaste esto, ignora este correo.</p>
     `)
+  ),
+
+  // Envío de una cotización al cliente. destinatario: email del contacto;
+  // vendedor: {nombre,email} (se usa como "Responder a"); cot: fila de
+  // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar.
+  cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer) => enviar(
+    destinatario,
+    `Cotización ${cot.numero} — HidroTecnica SpA`,
+    template(`Cotización ${cot.numero}`, `
+      <p>Estimado(a) ${cot.contacto_nombre || ''},</p>
+      <p>Junto con saludar, adjuntamos la cotización solicitada${cot.titulo ? `: <strong>${cot.titulo}</strong>` : ''}.</p>
+      <p>También puedes revisarla en línea:</p>
+      ${boton(linkPublico, 'Ver cotización online')}
+      <p style="margin-top:20px;">Quedamos atentos a tus consultas.</p>
+      <p>Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
+    `),
+    {
+      replyTo: vendedor?.email || undefined,
+      attachments: pdfBuffer ? [{ filename: `${cot.numero}.pdf`, content: pdfBuffer }] : [],
+    }
   ),
 };
