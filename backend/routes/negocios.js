@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
+const { toCSV } = require('../utils/csv');
 
 router.use(authenticate);
 
@@ -19,21 +20,26 @@ function puedeVer(negocio, user) {
   return user.rol === 'vendedor' && negocio.vendedor_id === user.id;
 }
 
+// Filtros compartidos entre el listado y la exportación.
+function filtrosNegocios(query, user) {
+  const { etapa_id, vendedor_id, q, desde, hasta } = query;
+  const clauses = [];
+  const params = [];
+  let i = 1;
+  if (etapa_id) { clauses.push(`n.etapa_id = $${i++}`); params.push(etapa_id); }
+  // Un vendedor solo ve los suyos, sin importar qué vendedor_id se pida.
+  if (user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(user.id); }
+  else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
+  if (q) { clauses.push(`(n.titulo ILIKE $${i} OR c.nombre ILIKE $${i} OR e.razon_social ILIKE $${i})`); params.push(`%${q}%`); i++; }
+  if (desde) { clauses.push(`n.fecha_cierre_estimada >= $${i++}`); params.push(desde); }
+  if (hasta) { clauses.push(`n.fecha_cierre_estimada <= $${i++}`); params.push(hasta); }
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
+
 // GET /api/negocios?etapa_id=&vendedor_id=&q=&desde=&hasta= (desde/hasta filtran por fecha_cierre_estimada)
 router.get('/', async (req, res) => {
   try {
-    const { etapa_id, vendedor_id, q, desde, hasta } = req.query;
-    const clauses = [];
-    const params = [];
-    let i = 1;
-    if (etapa_id) { clauses.push(`n.etapa_id = $${i++}`); params.push(etapa_id); }
-    // Un vendedor solo ve los suyos, sin importar qué vendedor_id se pida.
-    if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
-    else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
-    if (q) { clauses.push(`(n.titulo ILIKE $${i} OR c.nombre ILIKE $${i} OR e.razon_social ILIKE $${i})`); params.push(`%${q}%`); i++; }
-    if (desde) { clauses.push(`n.fecha_cierre_estimada >= $${i++}`); params.push(desde); }
-    if (hasta) { clauses.push(`n.fecha_cierre_estimada <= $${i++}`); params.push(hasta); }
-    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const { where, params } = filtrosNegocios(req.query, req.user);
     const negocios = await db.all(
       `SELECT n.id, n.titulo, n.etapa_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
               n.fecha_cierre_estimada, n.ultima_actividad, n.created_at,
@@ -53,6 +59,37 @@ router.get('/', async (req, res) => {
     res.json(negocios);
   } catch (err) {
     console.error('[negocios/GET /]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/negocios/exportar — CSV con los mismos filtros que el listado (sin límite de 1000)
+router.get('/exportar', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { where, params } = filtrosNegocios(req.query, req.user);
+    const negocios = await db.all(
+      `SELECT n.titulo, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
+              e.razon_social AS empresa, u.nombre AS vendedor, pe.nombre AS etapa,
+              n.probabilidad_cierre, n.monto_estimado, n.fecha_cierre_estimada, n.fecha_cierre,
+              ca.nombre AS causa_no_cierre, n.causa_no_cierre_detalle, n.created_at
+       FROM negocios n
+       JOIN contactos c ON c.id = n.contacto_id
+       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       LEFT JOIN empresas e ON e.id = n.empresa_id
+       LEFT JOIN users u ON u.id = n.vendedor_id
+       LEFT JOIN causas_no_cierre ca ON ca.id = n.causa_no_cierre_id
+       ${where}
+       ORDER BY n.created_at DESC`,
+      params
+    );
+    const headers = ['titulo', 'contacto_nombre', 'contacto_apellido', 'empresa', 'vendedor', 'etapa',
+      'probabilidad_cierre', 'monto_estimado', 'fecha_cierre_estimada', 'fecha_cierre',
+      'causa_no_cierre', 'causa_no_cierre_detalle', 'created_at'];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="negocios.csv"');
+    res.send('﻿' + toCSV(headers, negocios));
+  } catch (err) {
+    console.error('[negocios/exportar]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

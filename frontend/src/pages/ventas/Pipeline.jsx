@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
+const PUEDE_EXPORTAR = ['administrador', 'jefe_comercial'];
 
 export default function Pipeline() {
+  const { user } = useAuth();
   const [negocios, setNegocios] = useState([]);
   const [etapas, setEtapas] = useState([]);
   const [causas, setCausas] = useState([]);
@@ -45,11 +48,28 @@ export default function Pipeline() {
 
   const porEtapa = id => negocios.filter(n => n.etapa_id === id);
 
+  const exportar = async () => {
+    try {
+      const { data } = await api.get('/negocios/exportar', { responseType: 'blob' });
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'negocios.csv'; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError('No se pudo exportar el listado.'); }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Pipeline</h1>
-        <button onClick={() => setShowNuevo(true)} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo negocio</button>
+        <div className="flex gap-2">
+          {PUEDE_EXPORTAR.includes(user?.rol) && (
+            <button onClick={exportar} className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+              Exportar CSV
+            </button>
+          )}
+          <button onClick={() => setShowNuevo(true)} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo negocio</button>
+        </div>
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 

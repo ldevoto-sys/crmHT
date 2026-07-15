@@ -7,28 +7,34 @@ const { normalizarTelefono, buscarDuplicados, sugerirEmpresaPorEmail } = require
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
 const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
+const { toCSV } = require('../utils/csv');
 
 const PUEDE_EDITAR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
 const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
+// Filtros compartidos entre el listado y la exportación.
+function filtrosContactos(query) {
+  const { q, empresa_id, revisar, vendedor_id, sin_vendedor } = query;
+  const clauses = ['c.activo = true'];
+  const params = [];
+  let i = 1;
+  if (q) {
+    clauses.push(`(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i})`);
+    params.push(`%${q}%`); i++;
+  }
+  if (empresa_id) { clauses.push(`c.empresa_id = $${i++}`); params.push(empresa_id); }
+  if (revisar === '1') { clauses.push('c.revisar_duplicado = true'); }
+  if (sin_vendedor === '1') { clauses.push('c.vendedor_id IS NULL'); }
+  else if (vendedor_id) { clauses.push(`c.vendedor_id = $${i++}`); params.push(vendedor_id); }
+  return { where: clauses.join(' AND '), params };
+}
+
 // GET /api/contactos?q=&empresa_id=&revisar=1&vendedor_id=&sin_vendedor=1
 router.get('/', async (req, res) => {
   try {
-    const { q, empresa_id, revisar, vendedor_id, sin_vendedor } = req.query;
-    const clauses = ['c.activo = true'];
-    const params = [];
-    let i = 1;
-    if (q) {
-      clauses.push(`(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i})`);
-      params.push(`%${q}%`); i++;
-    }
-    if (empresa_id) { clauses.push(`c.empresa_id = $${i++}`); params.push(empresa_id); }
-    if (revisar === '1') { clauses.push('c.revisar_duplicado = true'); }
-    if (sin_vendedor === '1') { clauses.push('c.vendedor_id IS NULL'); }
-    else if (vendedor_id) { clauses.push(`c.vendedor_id = $${i++}`); params.push(vendedor_id); }
-
+    const { where, params } = filtrosContactos(req.query);
     const contactos = await db.all(
       `SELECT c.id, c.nombre, c.apellido, c.email, c.telefono_e164, c.cargo, c.origen,
               c.revisar_duplicado, c.empresa_id, e.razon_social AS empresa_nombre,
@@ -36,13 +42,37 @@ router.get('/', async (req, res) => {
        FROM contactos c
        LEFT JOIN empresas e ON e.id = c.empresa_id
        LEFT JOIN users u ON u.id = c.vendedor_id
-       WHERE ${clauses.join(' AND ')}
+       WHERE ${where}
        ORDER BY c.nombre LIMIT 500`,
       params
     );
     res.json(contactos);
   } catch (err) {
     console.error('[contactos/GET /]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/contactos/exportar — CSV con los mismos filtros que el listado (sin límite de 500)
+router.get('/exportar', authorize(...PUEDE_IMPORTAR), async (req, res) => {
+  try {
+    const { where, params } = filtrosContactos(req.query);
+    const contactos = await db.all(
+      `SELECT c.nombre, c.apellido, c.email, c.telefono_e164, c.cargo, c.rut_comprador, c.origen,
+              e.razon_social AS empresa, u.nombre AS vendedor_asignado, c.created_at
+       FROM contactos c
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       LEFT JOIN users u ON u.id = c.vendedor_id
+       WHERE ${where}
+       ORDER BY c.nombre`,
+      params
+    );
+    const headers = ['nombre', 'apellido', 'email', 'telefono_e164', 'cargo', 'rut_comprador', 'origen', 'empresa', 'vendedor_asignado', 'created_at'];
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="contactos.csv"');
+    res.send('﻿' + toCSV(headers, contactos));
+  } catch (err) {
+    console.error('[contactos/exportar]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

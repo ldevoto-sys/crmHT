@@ -9,6 +9,7 @@ export default function Contactos() {
   const { user } = useAuth();
   const puedeEditar = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'].includes(user?.rol);
   const puedeVerDuplicados = ['administrador', 'jefe_comercial', 'callcenter'].includes(user?.rol);
+  const puedeExportar = ['administrador', 'jefe_comercial'].includes(user?.rol);
   const [contactos, setContactos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [vendedores, setVendedores] = useState([]);
@@ -71,6 +72,20 @@ export default function Contactos() {
     } catch { /* silencioso */ }
   };
 
+  const exportar = async () => {
+    try {
+      const params = {};
+      if (q) params.q = q;
+      if (filtroVendedor === '__sin_asignar__') params.sin_vendedor = '1';
+      else if (filtroVendedor) params.vendedor_id = filtroVendedor;
+      const { data } = await api.get('/contactos/exportar', { params, responseType: 'blob' });
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'contactos.csv'; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError('No se pudo exportar el listado.'); }
+  };
+
   const submit = async ev => {
     ev.preventDefault(); setError('');
     const payload = { ...form, empresa_id: form.empresa_id || null, vendedor_id: form.vendedor_id || null };
@@ -102,6 +117,11 @@ export default function Contactos() {
             <Link to="/contactos/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
               Importar CSV
             </Link>
+          )}
+          {puedeExportar && (
+            <button onClick={exportar} className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+              Exportar CSV
+            </button>
           )}
           <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo contacto</button>
         </div>
