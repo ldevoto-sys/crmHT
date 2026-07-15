@@ -192,6 +192,10 @@ async function initDb() {
     )
   `);
 
+  // Fecha estimada de cierre (forecast), editable por el vendedor mientras el
+  // negocio está abierto. Distinta de fecha_cierre (real, se fija sola al cerrar).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS fecha_cierre_estimada DATE`);
+
   // Línea de tiempo unificada. cotizacion_id sin FK todavía (la tabla llega en 2B).
   await db.run(`
     CREATE TABLE IF NOT EXISTS timeline (
