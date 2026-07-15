@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
-const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '', rut_comprador: '', cargo: '' };
+const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '', rut_comprador: '', cargo: '', vendedor_id: '' };
 
 export default function Contactos() {
   const { user } = useAuth();
@@ -11,7 +11,9 @@ export default function Contactos() {
   const puedeVerDuplicados = ['administrador', 'jefe_comercial', 'callcenter'].includes(user?.rol);
   const [contactos, setContactos] = useState([]);
   const [empresas, setEmpresas] = useState([]);
+  const [vendedores, setVendedores] = useState([]);
   const [q, setQ] = useState('');
+  const [filtroVendedor, setFiltroVendedor] = useState('');
   const [form, setForm] = useState(vacio);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -26,12 +28,15 @@ export default function Contactos() {
   const cargar = async () => {
     const params = {};
     if (q) params.q = q;
+    if (filtroVendedor === '__sin_asignar__') params.sin_vendedor = '1';
+    else if (filtroVendedor) params.vendedor_id = filtroVendedor;
     const { data } = await api.get('/contactos', { params });
     setContactos(data);
     setSel(new Set());
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [filtroVendedor]);
   useEffect(() => { api.get('/empresas').then(r => setEmpresas(r.data)).catch(() => {}); }, []);
+  useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const todosSel = contactos.length > 0 && contactos.every(c => sel.has(c.id));
@@ -52,7 +57,8 @@ export default function Contactos() {
     const { data } = await api.get(`/contactos/${c.id}`);
     setEditId(c.id);
     setForm({ nombre: data.nombre || '', apellido: data.apellido || '', email: data.email || '',
-      telefono: data.telefono_e164 || '', empresa_id: data.empresa_id || '', rut_comprador: data.rut_comprador || '', cargo: data.cargo || '' });
+      telefono: data.telefono_e164 || '', empresa_id: data.empresa_id || '', rut_comprador: data.rut_comprador || '',
+      cargo: data.cargo || '', vendedor_id: data.vendedor_id || '' });
     setCandidatos([]); setEmpresaSugerida(null); setError(''); setMsg(''); setShowForm(true);
   };
 
@@ -67,7 +73,7 @@ export default function Contactos() {
 
   const submit = async ev => {
     ev.preventDefault(); setError('');
-    const payload = { ...form, empresa_id: form.empresa_id || null };
+    const payload = { ...form, empresa_id: form.empresa_id || null, vendedor_id: form.vendedor_id || null };
     try {
       if (editId) { await api.put(`/contactos/${editId}`, payload); setMsg('Contacto actualizado.'); }
       else { await api.post('/contactos', payload); setMsg('Contacto creado.'); }
@@ -104,10 +110,19 @@ export default function Contactos() {
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex gap-2">
+      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex items-center gap-2">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, email o teléfono…"
           className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
+        <div className="ml-auto flex items-center gap-2">
+          <label className="text-sm text-gray-600">Vendedor asignado</label>
+          <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todos</option>
+            <option value="__sin_asignar__">Sin asignar</option>
+            {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+          </select>
+        </div>
       </form>
 
       {/* Barra de acciones en lote */}
@@ -139,6 +154,7 @@ export default function Contactos() {
               <th className="text-left px-4 py-2 font-medium">Empresa</th>
               <th className="text-left px-4 py-2 font-medium">Email</th>
               <th className="text-left px-4 py-2 font-medium">Teléfono</th>
+              <th className="text-left px-4 py-2 font-medium">Vendedor</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -153,12 +169,13 @@ export default function Contactos() {
                 <td className="px-4 py-2 text-gray-600">{c.empresa_nombre || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.email || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.telefono_e164 || '—'}</td>
+                <td className="px-4 py-2 text-gray-600">{c.vendedor_nombre || '—'}</td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => abrirEditar(c)} className="text-ht-accent hover:underline">Editar</button>
                 </td>
               </tr>
             ))}
-            {contactos.length === 0 && <tr><td colSpan={puedeEditar ? 6 : 5} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
+            {contactos.length === 0 && <tr><td colSpan={puedeEditar ? 7 : 6} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -200,6 +217,14 @@ export default function Contactos() {
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
                 <option value="">— Sin empresa —</option>
                 {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Vendedor asignado</label>
+              <select value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                <option value="">— Sin asignar —</option>
+                {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">

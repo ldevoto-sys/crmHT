@@ -147,15 +147,88 @@ router.post('/:id/reset-password', authorize('administrador'), async (req, res) 
   }
 });
 
-// DELETE /api/users/:id (soft delete)
+// Cuánto queda "huérfano" si se desactiva a este usuario: contactos y
+// empresas que le pertenecen, y negocios abiertos (los cerrados conservan
+// su vendedor original para no distorsionar el histórico/comisiones).
+async function calcularImpacto(id) {
+  const [contactos, empresas, negociosAbiertos, negociosTotales] = await Promise.all([
+    db.get('SELECT count(*)::int AS n FROM contactos WHERE vendedor_id = $1 AND activo = true', [id]),
+    db.get('SELECT count(*)::int AS n FROM empresas WHERE vendedor_id = $1 AND activo = true', [id]),
+    db.get(
+      `SELECT count(*)::int AS n FROM negocios n JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       WHERE n.vendedor_id = $1 AND pe.tipo = 'abierta'`, [id]
+    ),
+    db.get('SELECT count(*)::int AS n FROM negocios WHERE vendedor_id = $1', [id]),
+  ]);
+  return {
+    contactos: contactos.n, empresas: empresas.n,
+    negocios_abiertos: negociosAbiertos.n, negocios_totales: negociosTotales.n,
+  };
+}
+
+// GET /api/users/:id/impacto — para mostrar antes de inhabilitar/eliminar
+router.get('/:id/impacto', authorize('administrador'), async (req, res) => {
+  try {
+    const user = await db.get('SELECT id FROM users WHERE id = $1', [req.params.id]);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(await calcularImpacto(req.params.id));
+  } catch (err) {
+    console.error('[users/impacto]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/users/:id (soft delete) {reasignar_a?}
+// Si el usuario tiene contactos, empresas o negocios abiertos, es obligatorio
+// indicar a qué vendedor se reasignan antes de poder inhabilitarlo. Los
+// negocios ya cerrados (ganados/perdidos) NO se reasignan: quedan con el
+// vendedor original para no alterar el histórico de cierres/comisiones.
 router.delete('/:id', authorize('administrador'), async (req, res) => {
   try {
     const { id } = req.params;
+    const { reasignar_a } = req.body || {};
     if (parseInt(id) === req.user.id)
       return res.status(400).json({ error: 'No puedes desactivarte a ti mismo' });
 
     const user = await db.get('SELECT id FROM users WHERE id = $1', [id]);
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const impacto = await calcularImpacto(id);
+    const tieneDatos = impacto.contactos > 0 || impacto.empresas > 0 || impacto.negocios_abiertos > 0;
+
+    if (tieneDatos) {
+      if (!reasignar_a) {
+        return res.status(409).json({
+          error: 'Este usuario tiene contactos, empresas o negocios abiertos asignados. Indica a qué vendedor se reasignan.',
+          impacto,
+        });
+      }
+      if (parseInt(reasignar_a) === parseInt(id)) {
+        return res.status(400).json({ error: 'No puedes reasignar al mismo usuario que estás inhabilitando' });
+      }
+      const nuevo = await db.get(`SELECT id FROM users WHERE id = $1 AND activo = true`, [reasignar_a]);
+      if (!nuevo) return res.status(400).json({ error: 'Vendedor de reasignación inválido o inactivo' });
+
+      const client = await db.pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('UPDATE contactos SET vendedor_id = $1 WHERE vendedor_id = $2', [reasignar_a, id]);
+        await client.query('UPDATE empresas SET vendedor_id = $1 WHERE vendedor_id = $2', [reasignar_a, id]);
+        await client.query(
+          `UPDATE negocios n SET vendedor_id = $1
+           WHERE n.vendedor_id = $2 AND n.etapa_id IN (SELECT id FROM pipeline_etapas WHERE tipo = 'abierta')`,
+          [reasignar_a, id]
+        );
+        await client.query('UPDATE users SET activo = false WHERE id = $1', [id]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      } finally {
+        client.release();
+      }
+      return res.json({ message: 'Usuario inhabilitado y datos reasignados', reasignados: impacto });
+    }
 
     await db.run('UPDATE users SET activo = false WHERE id = $1', [id]);
     res.json({ message: 'Usuario desactivado correctamente' });

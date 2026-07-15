@@ -10,6 +10,7 @@ export default function Empresas() {
   const [empresas, setEmpresas] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [q, setQ] = useState('');
+  const [filtroVendedor, setFiltroVendedor] = useState('');
   const [form, setForm] = useState(vacio);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
@@ -17,10 +18,14 @@ export default function Empresas() {
   const [msg, setMsg] = useState('');
 
   const cargar = async () => {
-    const { data } = await api.get('/empresas', { params: q ? { q } : {} });
+    const params = {};
+    if (q) params.q = q;
+    if (filtroVendedor === '__sin_asignar__') params.sin_vendedor = '1';
+    else if (filtroVendedor) params.vendedor_id = filtroVendedor;
+    const { data } = await api.get('/empresas', { params });
     setEmpresas(data);
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [filtroVendedor]);
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const abrirNuevo = () => { setForm(vacio); setEditId(null); setError(''); setMsg(''); setShowForm(true); };
@@ -54,6 +59,16 @@ export default function Empresas() {
           )}
           <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nueva empresa</button>
         </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 mb-4">
+        <label className="text-sm text-gray-600">Vendedor de cuenta</label>
+        <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+          <option value="">Todos</option>
+          <option value="__sin_asignar__">Sin asignar</option>
+          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+        </select>
       </div>
 
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}

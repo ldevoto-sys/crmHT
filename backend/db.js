@@ -105,6 +105,9 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Vendedor asignado directamente al contacto (independiente del vendedor de
+  // cuenta de la empresa, para contactos sin empresa o con dueño propio).
+  await db.run(`ALTER TABLE contactos ADD COLUMN IF NOT EXISTS vendedor_id INTEGER REFERENCES users(id)`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS productos (

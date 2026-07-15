@@ -14,10 +14,10 @@ const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
-// GET /api/empresas?q=&vendedor_id=
+// GET /api/empresas?q=&vendedor_id=&sin_vendedor=1
 router.get('/', async (req, res) => {
   try {
-    const { q, vendedor_id } = req.query;
+    const { q, vendedor_id, sin_vendedor } = req.query;
     const clauses = ['e.activo = true'];
     const params = [];
     let i = 1;
@@ -25,7 +25,8 @@ router.get('/', async (req, res) => {
       clauses.push(`(e.razon_social ILIKE $${i} OR e.rut ILIKE $${i} OR e.dominio_correo ILIKE $${i})`);
       params.push(`%${q}%`); i++;
     }
-    if (vendedor_id) { clauses.push(`e.vendedor_id = $${i++}`); params.push(vendedor_id); }
+    if (sin_vendedor === '1') { clauses.push('e.vendedor_id IS NULL'); }
+    else if (vendedor_id) { clauses.push(`e.vendedor_id = $${i++}`); params.push(vendedor_id); }
 
     const empresas = await db.all(
       `SELECT e.id, e.razon_social, e.rut, e.dominio_correo, e.comuna, e.ciudad,

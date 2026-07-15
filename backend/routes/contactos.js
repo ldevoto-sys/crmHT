@@ -13,10 +13,10 @@ const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
-// GET /api/contactos?q=&empresa_id=&revisar=1
+// GET /api/contactos?q=&empresa_id=&revisar=1&vendedor_id=&sin_vendedor=1
 router.get('/', async (req, res) => {
   try {
-    const { q, empresa_id, revisar } = req.query;
+    const { q, empresa_id, revisar, vendedor_id, sin_vendedor } = req.query;
     const clauses = ['c.activo = true'];
     const params = [];
     let i = 1;
@@ -26,11 +26,16 @@ router.get('/', async (req, res) => {
     }
     if (empresa_id) { clauses.push(`c.empresa_id = $${i++}`); params.push(empresa_id); }
     if (revisar === '1') { clauses.push('c.revisar_duplicado = true'); }
+    if (sin_vendedor === '1') { clauses.push('c.vendedor_id IS NULL'); }
+    else if (vendedor_id) { clauses.push(`c.vendedor_id = $${i++}`); params.push(vendedor_id); }
 
     const contactos = await db.all(
       `SELECT c.id, c.nombre, c.apellido, c.email, c.telefono_e164, c.cargo, c.origen,
-              c.revisar_duplicado, c.empresa_id, e.razon_social AS empresa_nombre
-       FROM contactos c LEFT JOIN empresas e ON e.id = c.empresa_id
+              c.revisar_duplicado, c.empresa_id, e.razon_social AS empresa_nombre,
+              c.vendedor_id, u.nombre AS vendedor_nombre
+       FROM contactos c
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       LEFT JOIN users u ON u.id = c.vendedor_id
        WHERE ${clauses.join(' AND ')}
        ORDER BY c.nombre LIMIT 500`,
       params
@@ -264,8 +269,11 @@ router.post('/bulk-accion', authorize(...PUEDE_EDITAR), async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const contacto = await db.get(
-      `SELECT c.*, e.razon_social AS empresa_nombre
-       FROM contactos c LEFT JOIN empresas e ON e.id = c.empresa_id WHERE c.id = $1`,
+      `SELECT c.*, e.razon_social AS empresa_nombre, u.nombre AS vendedor_nombre
+       FROM contactos c
+       LEFT JOIN empresas e ON e.id = c.empresa_id
+       LEFT JOIN users u ON u.id = c.vendedor_id
+       WHERE c.id = $1`,
       [req.params.id]
     );
     if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
@@ -291,7 +299,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/contactos
 router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
-    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, origen } = req.body;
+    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, origen, vendedor_id } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
     if (rut_comprador && !validarRut(rut_comprador)) return res.status(400).json({ error: 'RUT inválido' });
 
@@ -311,10 +319,10 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
     const revisar = candidatos.length > 0;
 
     const result = await db.run(
-      `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado, vendedor_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [nombre, apellido || null, email || null, telefono_e164, empresa_id || null,
-       rut_comprador || null, cargo || null, origen || 'manual', revisar]
+       rut_comprador || null, cargo || null, origen || 'manual', revisar, vendedor_id || null]
     );
     res.status(201).json({ contacto: result.rows[0], duplicados_detectados: candidatos });
   } catch (err) {
@@ -327,7 +335,7 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
 router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, activo, revisar_duplicado } = req.body;
+    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, activo, revisar_duplicado, vendedor_id } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
     if (rut_comprador && !validarRut(rut_comprador)) return res.status(400).json({ error: 'RUT inválido' });
 
@@ -342,10 +350,10 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
 
     await db.run(
       `UPDATE contactos SET nombre=$1, apellido=$2, email=$3, telefono_e164=$4, empresa_id=$5,
-              rut_comprador=$6, cargo=$7, activo=$8, revisar_duplicado=$9 WHERE id=$10`,
+              rut_comprador=$6, cargo=$7, activo=$8, revisar_duplicado=$9, vendedor_id=$10 WHERE id=$11`,
       [nombre, apellido || null, email || null, telefono_e164, empresa_id || null,
        rut_comprador || null, cargo || null, activo !== undefined ? activo : true,
-       revisar_duplicado !== undefined ? revisar_duplicado : false, id]
+       revisar_duplicado !== undefined ? revisar_duplicado : false, vendedor_id || null, id]
     );
     res.json({ message: 'Contacto actualizado' });
   } catch (err) {

@@ -14,6 +14,9 @@ export default function Usuarios() {
   const [passwordGenerada, setPasswordGenerada] = useState(null); // {nombre, password}
   const [resetPara, setResetPara] = useState(null); // usuario en modal de reset
   const [resetPassword, setResetPassword] = useState('');
+  const [vendedores, setVendedores] = useState([]);
+  const [desactivarPara, setDesactivarPara] = useState(null); // {usuario, impacto}
+  const [reasignarA, setReasignarA] = useState('');
 
   const cargar = async () => {
     try {
@@ -25,6 +28,7 @@ export default function Usuarios() {
   };
 
   useEffect(() => { cargar(); }, []);
+  useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const resetForm = () => { setForm(vacio); setEditId(null); };
 
@@ -69,13 +73,32 @@ export default function Usuarios() {
   };
 
   const desactivar = async u => {
-    if (!window.confirm(`¿Desactivar a ${u.nombre}?`)) return;
     setError(''); setMsg('');
     try {
-      await api.delete(`/users/${u.id}`);
-      cargar();
+      const { data: impacto } = await api.get(`/users/${u.id}/impacto`);
+      const tieneDatos = impacto.contactos > 0 || impacto.empresas > 0 || impacto.negocios_abiertos > 0;
+      if (tieneDatos) {
+        setDesactivarPara({ usuario: u, impacto }); setReasignarA('');
+      } else {
+        if (!window.confirm(`¿Desactivar a ${u.nombre}? No tiene contactos, empresas ni negocios abiertos asignados.`)) return;
+        await api.delete(`/users/${u.id}`);
+        cargar();
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Error al desactivar.');
+    }
+  };
+
+  const confirmarDesactivar = async e => {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.delete(`/users/${desactivarPara.usuario.id}`, { data: { reasignar_a: Number(reasignarA) } });
+      setMsg(`${desactivarPara.usuario.nombre} inhabilitado; sus contactos, empresas y negocios abiertos se reasignaron.`);
+      setDesactivarPara(null);
+      cargar();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al inhabilitar.');
     }
   };
 
@@ -201,6 +224,40 @@ export default function Usuarios() {
             <div className="flex gap-2">
               <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Restablecer</button>
               <button type="button" onClick={() => setResetPara(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {desactivarPara && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setDesactivarPara(null)}>
+          <form onSubmit={confirmarDesactivar} onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-md space-y-3">
+            <h2 className="font-semibold text-ht-navy text-lg">Inhabilitar a {desactivarPara.usuario.nombre}</h2>
+            {error && <div className="p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+              <p className="mb-1">Este usuario tiene:</p>
+              <ul className="list-disc pl-5">
+                {desactivarPara.impacto.contactos > 0 && <li>{desactivarPara.impacto.contactos} contacto(s) asignado(s)</li>}
+                {desactivarPara.impacto.empresas > 0 && <li>{desactivarPara.impacto.empresas} empresa(s) asignada(s)</li>}
+                {desactivarPara.impacto.negocios_abiertos > 0 && <li>{desactivarPara.impacto.negocios_abiertos} negocio(s) abierto(s)</li>}
+              </ul>
+              <p className="mt-1 text-xs">
+                Los negocios ya cerrados (ganados/perdidos) no se reasignan: quedan con {desactivarPara.usuario.nombre} para no alterar el histórico.
+              </p>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Reasignar todo a</label>
+              <select required value={reasignarA} onChange={e => setReasignarA(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                <option value="">— Selecciona un vendedor —</option>
+                {vendedores.filter(v => v.id !== desactivarPara.usuario.id).map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button type="submit" disabled={!reasignarA} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+                Reasignar e inhabilitar
+              </button>
+              <button type="button" onClick={() => setDesactivarPara(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </form>
         </div>
