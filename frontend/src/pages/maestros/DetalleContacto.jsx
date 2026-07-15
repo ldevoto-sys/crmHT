@@ -49,6 +49,7 @@ export default function DetalleContacto() {
               {dato('Teléfono', c.telefono_e164)}
               {dato('RUT comprador', c.rut_comprador)}
               {dato('Origen', c.origen)}
+              {dato('Vendedor asignado', c.vendedor_nombre)}
             </dl>
           </div>
 
