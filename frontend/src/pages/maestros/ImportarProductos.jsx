@@ -33,11 +33,11 @@ export default function ImportarProductos() {
     finally { setCargando(false); }
   };
 
-  const descargarPlantilla = async () => {
-    const { data } = await api.get('/productos/importar/plantilla', { responseType: 'blob' });
+  const descargarPlantilla = async (tipo, archivo) => {
+    const { data } = await api.get('/productos/importar/plantilla', { params: { tipo }, responseType: 'blob' });
     const url = URL.createObjectURL(new Blob([data], { type: 'text/csv' }));
     const a = document.createElement('a');
-    a.href = url; a.download = 'plantilla_productos.csv'; a.click();
+    a.href = url; a.download = archivo; a.click();
     URL.revokeObjectURL(url);
   };
 
@@ -50,9 +50,17 @@ export default function ImportarProductos() {
         detecta automáticamente. Se matchea por <strong>Código</strong>: crea los nuevos y actualiza los existentes.
         Si el archivo trae columna de stock del proveedor, se registra.
       </p>
-      <button onClick={descargarPlantilla} className="text-sm text-ht-accent hover:underline mb-6 inline-block">
-        Descargar plantilla CSV
-      </button>
+      <div className="flex gap-4 mb-6">
+        <button onClick={() => descargarPlantilla('bombas', 'plantilla_bombas.csv')} className="text-sm text-ht-accent hover:underline">
+          Plantilla: Bombas
+        </button>
+        <button onClick={() => descargarPlantilla('hidroneumatico', 'plantilla_hidroneumaticos.csv')} className="text-sm text-ht-accent hover:underline">
+          Plantilla: Hidroneumáticos
+        </button>
+        <button onClick={() => descargarPlantilla('filtro_arena', 'plantilla_filtros_piscina.csv')} className="text-sm text-ht-accent hover:underline">
+          Plantilla: Filtros de piscina
+        </button>
+      </div>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
