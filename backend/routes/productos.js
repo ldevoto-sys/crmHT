@@ -19,10 +19,16 @@ const SELECT_CON_STOCK = `
   ) sp ON true
 `;
 
-// GET /api/productos?q=&categoria=&marca=
+// GET /api/productos?q=&categoria=&marca=  ó  ?ids=1,2,3 (lote, para prellenar cotización)
 router.get('/', async (req, res) => {
   try {
-    const { q, categoria, marca } = req.query;
+    const { q, categoria, marca, ids } = req.query;
+    if (ids) {
+      const idArr = String(ids).split(',').map(Number).filter(n => Number.isInteger(n));
+      if (!idArr.length) return res.json([]);
+      const productos = await db.all(`${SELECT_CON_STOCK} WHERE p.id = ANY($1) ORDER BY p.nombre`, [idArr]);
+      return res.json(productos);
+    }
     const clauses = ['p.activo = true'];
     const params = [];
     let i = 1;
@@ -48,6 +54,41 @@ router.get('/facetas', async (req, res) => {
     res.json({ marcas: marcas.map(m => m.marca), categorias: categorias.map(c => c.categoria) });
   } catch (err) {
     console.error('[productos/GET /facetas]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/productos/equivalencias — catálogo activo completo (bombas, hidroneumáticos,
+// filtros de piscina) con sus atributos técnicos, para el buscador de equivalencias.
+router.get('/equivalencias', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT id, sku AS codigo, nombre, marca, categoria AS tipo, precio_lista AS precio,
+              url_imagen, ficha_tecnica_url, atributos
+       FROM productos WHERE activo = true ORDER BY nombre`
+    );
+    const productos = rows.map(p => {
+      const a = p.atributos || {};
+      const curva = (Array.isArray(a.curva) ? a.curva : [])
+        .filter(pt => pt && pt.q != null && pt.h != null)
+        .map(pt => [Number(pt.q), Number(pt.h)]);
+      const sustitutos = String(a.sustitutos || '').split(',').map(s => s.trim()).filter(Boolean);
+      const num = v => (v === null || v === undefined || v === '' ? null : Number(v));
+      return {
+        id: p.id, codigo: p.codigo, nombre: p.nombre, marca: p.marca, tipo: p.tipo,
+        precio: p.precio != null ? Number(p.precio) : null,
+        url_imagen: p.url_imagen, ficha_tecnica_url: p.ficha_tecnica_url,
+        hp: num(a.hp), voltaje: a.voltaje || null,
+        caudal_max: num(a.caudal_max_lmin), altura_max: num(a.altura_max_m),
+        conexion: a.conexion || null, diametro_pozo_pulg: a.diametro_pozo_pulg || null,
+        curva_completa: curva, tiene_curva: curva.length > 0, sustitutos,
+        litros: num(a.litros), bar_max: num(a.bar_max), orientacion: a.orientacion || null,
+        m3h_max: num(a.m3h_max), volumen_piscina_m3: num(a.volumen_piscina_m3), diametro_mm: num(a.diametro_mm),
+      };
+    });
+    res.json(productos);
+  } catch (err) {
+    console.error('[productos/equivalencias]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -126,7 +167,7 @@ router.get('/importar/plantilla', (req, res) => {
 async function analizar(buffer) {
   const texto = buffer.toString('utf8');
   const { headers, rows } = parseCSV(texto);
-  const { validos, rechazos } = mapearProductos(rows);
+  const { validos, rechazos } = mapearProductos(rows, headers);
   // Determinar nuevos vs actualizar según SKUs existentes.
   const skus = validos.map(v => v.producto.sku);
   let existentes = new Set();
@@ -138,12 +179,33 @@ async function analizar(buffer) {
   return { headers, validos, rechazos, existentes, conStock };
 }
 
+// Categorías presentes en el archivo (p.ej. solo "hidroneumatico", o todas las
+// de la hoja "Catálogo"). El "catálogo completo" se sincroniza por categoría:
+// subir solo bombas no debe desactivar hidroneumáticos ni filtros de piscina,
+// que se cargan en archivos separados.
+function categoriasDelArchivo(validos) {
+  return [...new Set(validos.map(v => v.producto.categoria).filter(Boolean))];
+}
+
+// Productos activos de esas categorías que no vienen en este archivo (modo "catálogo completo").
+async function calcularADesactivar(validos) {
+  const skus = validos.map(v => v.producto.sku);
+  const categorias = categoriasDelArchivo(validos);
+  if (!skus.length || !categorias.length) return [];
+  return db.all(
+    `SELECT sku, nombre FROM productos WHERE activo = true AND categoria = ANY($1) AND NOT (sku = ANY($2)) ORDER BY nombre`,
+    [categorias, skus]
+  );
+}
+
 // POST /api/productos/importar/preview
 router.post('/importar/preview', authorize('administrador', 'jefe_comercial'), uploadCSV.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
     const { headers, validos, rechazos, existentes, conStock } = await analizar(req.file.buffer);
     const nuevos = validos.filter(v => !existentes.has(v.producto.sku)).length;
+    const sincronizar = req.body.sincronizar === 'true' || req.body.sincronizar === '1';
+    const aDesactivar = sincronizar ? await calcularADesactivar(validos) : [];
     res.json({
       headers,
       resumen: {
@@ -152,6 +214,7 @@ router.post('/importar/preview', authorize('administrador', 'jefe_comercial'), u
         actualizar: validos.length - nuevos,
         rechazos: rechazos.length,
         con_stock_proveedor: conStock,
+        a_desactivar: aDesactivar.length,
       },
       muestra: validos.slice(0, 20).map(v => ({
         sku: v.producto.sku, nombre: v.producto.nombre, marca: v.producto.marca,
@@ -159,6 +222,7 @@ router.post('/importar/preview', authorize('administrador', 'jefe_comercial'), u
         existe: existentes.has(v.producto.sku), stock_proveedor: v.stockProveedor,
       })),
       rechazos: rechazos.slice(0, 200),
+      a_desactivar: aDesactivar.slice(0, 200),
     });
   } catch (err) {
     console.error('[productos/importar/preview]', err);
@@ -169,11 +233,12 @@ router.post('/importar/preview', authorize('administrador', 'jefe_comercial'), u
 // POST /api/productos/importar/confirmar
 router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+  const sincronizar = req.body.sincronizar === 'true' || req.body.sincronizar === '1';
   const client = await db.pool.connect();
   try {
     const { validos } = await analizar(req.file.buffer);
     await client.query('BEGIN');
-    let insertados = 0, actualizados = 0, stockCargado = 0;
+    let insertados = 0, actualizados = 0, stockCargado = 0, desactivados = 0;
     const archivoOrigen = req.file.originalname;
     const usuarioId = req.user.id;
 
@@ -186,7 +251,8 @@ router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'),
            nombre=EXCLUDED.nombre, marca=EXCLUDED.marca, categoria=EXCLUDED.categoria,
            precio_lista=EXCLUDED.precio_lista, url_imagen=EXCLUDED.url_imagen,
            ficha_tecnica_url=EXCLUDED.ficha_tecnica_url, atributos=EXCLUDED.atributos,
-           stock_gestionado_por_proveedor=(productos.stock_gestionado_por_proveedor OR EXCLUDED.stock_gestionado_por_proveedor)
+           stock_gestionado_por_proveedor=(productos.stock_gestionado_por_proveedor OR EXCLUDED.stock_gestionado_por_proveedor),
+           activo=true
          RETURNING id, (xmax = 0) AS insertado`,
         [producto.sku, producto.nombre, producto.marca || null, producto.categoria || null,
          producto.precio_lista || null, producto.url_imagen || null, producto.ficha_tecnica_url || null,
@@ -203,8 +269,21 @@ router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'),
         stockCargado++;
       }
     }
+
+    if (sincronizar) {
+      const skus = validos.map(v => v.producto.sku);
+      const categorias = categoriasDelArchivo(validos);
+      const r = (skus.length && categorias.length)
+        ? await client.query(
+            'UPDATE productos SET activo = false WHERE activo = true AND categoria = ANY($1) AND NOT (sku = ANY($2))',
+            [categorias, skus]
+          )
+        : { rowCount: 0 };
+      desactivados = r.rowCount;
+    }
+
     await client.query('COMMIT');
-    res.json({ message: 'Importación completada', insertados, actualizados, stock_cargado: stockCargado });
+    res.json({ message: 'Importación completada', insertados, actualizados, stock_cargado: stockCargado, desactivados });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[productos/importar/confirmar]', err);

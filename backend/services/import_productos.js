@@ -22,6 +22,12 @@ const MAPA_ATRIBUTOS = {
   'sustitutos': 'sustitutos', 'notas': 'notas',
   'en sitio web': 'en_sitio_web', 'stock (sitio)': 'stock_sitio',
   'serie': 'serie', 'modelo': 'modelo',
+  // Hoja "Hidroneumáticos" del Excel (sin columna Tipo propia).
+  'litros': 'litros', 'bar máx': 'bar_max', 'orientación': 'orientacion', 'orientacion': 'orientacion',
+  // Hoja "Filtros Piscina" del Excel (sin columna Tipo propia).
+  'm³/h máx': 'm3h_max', 'm3/h máx': 'm3h_max',
+  'diámetro mm': 'diametro_mm', 'diametro mm': 'diametro_mm',
+  'volumen piscina (m³)': 'volumen_piscina_m3', 'volumen piscina (m3)': 'volumen_piscina_m3', 'volumen piscina': 'volumen_piscina_m3',
 };
 
 // Cabeceras de stock del proveedor (futuras en el mismo Excel).
@@ -29,6 +35,16 @@ const HEADERS_STOCK = new Set(['stock proveedor', 'stock (proveedor)', 'stock pr
 
 const NUCLEO_CONOCIDO = new Set(Object.keys(MAPA_NUCLEO));
 const ATRIB_CONOCIDO = new Set(Object.keys(MAPA_ATRIBUTOS));
+
+// Las hojas "Hidroneumáticos" y "Filtros Piscina" del Excel no traen columna
+// Tipo propia (a diferencia de "Catálogo"). Se detecta por sus cabeceras
+// distintivas y se fuerza la categoría en todas las filas del archivo.
+function detectarCategoriaPorCabeceras(headersNormalizados) {
+  const set = new Set(headersNormalizados);
+  if (set.has('litros') || set.has('bar máx')) return 'hidroneumatico';
+  if (set.has('m³/h máx') || set.has('m3/h máx') || set.has('volumen piscina (m³)') || set.has('volumen piscina (m3)')) return 'filtro_arena';
+  return null;
+}
 
 // Precio chileno: "314.071" o "$314071" → 314071. Sin decimales (CLP).
 function parsePrecio(v) {
@@ -92,13 +108,16 @@ function mapearFila(row) {
 }
 
 // Procesa todas las filas → {validos:[{producto,stockProveedor}], rechazos:[{fila,sku,motivo}]}
-function mapearProductos(rows) {
+// headers: cabeceras originales del archivo (para detectar hojas sin columna Tipo).
+function mapearProductos(rows, headers = []) {
+  const categoriaForzada = detectarCategoriaPorCabeceras(headers.map(h => h.trim().toLowerCase()));
   const validos = [];
   const rechazos = [];
   const skusVistos = new Set();
 
   rows.forEach((row, idx) => {
     const { producto, stockProveedor, errores } = mapearFila(row);
+    if (categoriaForzada && !producto.categoria) producto.categoria = categoriaForzada;
     if (errores.length) {
       rechazos.push({ fila: idx + 2, sku: producto.sku || '', motivo: errores.join('; ') });
       return;

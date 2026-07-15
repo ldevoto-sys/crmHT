@@ -4,6 +4,7 @@ import api from '../../api';
 
 export default function ImportarProductos() {
   const [archivo, setArchivo] = useState(null);
+  const [sincronizar, setSincronizar] = useState(false);
   const [preview, setPreview] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [error, setError] = useState('');
@@ -13,7 +14,7 @@ export default function ImportarProductos() {
     e.preventDefault();
     if (!archivo) return;
     setError(''); setResultado(null); setPreview(null); setCargando(true);
-    const fd = new FormData(); fd.append('archivo', archivo);
+    const fd = new FormData(); fd.append('archivo', archivo); fd.append('sincronizar', sincronizar);
     try {
       const { data } = await api.post('/productos/importar/preview', fd);
       setPreview(data);
@@ -24,7 +25,7 @@ export default function ImportarProductos() {
   const confirmar = async () => {
     if (!archivo) return;
     setError(''); setCargando(true);
-    const fd = new FormData(); fd.append('archivo', archivo);
+    const fd = new FormData(); fd.append('archivo', archivo); fd.append('sincronizar', sincronizar);
     try {
       const { data } = await api.post('/productos/importar/confirmar', fd);
       setResultado(data); setPreview(null);
@@ -45,8 +46,9 @@ export default function ImportarProductos() {
       <Link to="/productos" className="text-sm text-ht-accent hover:underline">← Productos</Link>
       <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-2">Importar catálogo de productos</h1>
       <p className="text-gray-500 text-sm mb-4">
-        Exporta la hoja "Catálogo" del Excel a CSV y súbela. Se matchea por <strong>Código</strong>:
-        crea los nuevos y actualiza los existentes. Si el archivo trae columna de stock del proveedor, se registra.
+        Exporta a CSV la hoja "Catálogo" (bombas), "Hidroneumáticos" o "Filtros Piscina" del Excel y súbela — se
+        detecta automáticamente. Se matchea por <strong>Código</strong>: crea los nuevos y actualiza los existentes.
+        Si el archivo trae columna de stock del proveedor, se registra.
       </p>
       <button onClick={descargarPlantilla} className="text-sm text-ht-accent hover:underline mb-6 inline-block">
         Descargar plantilla CSV
@@ -54,13 +56,20 @@ export default function ImportarProductos() {
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <form onSubmit={analizar} className="bg-white border border-gray-200 rounded-lg p-5 mb-6 flex items-center gap-3">
-        <input type="file" accept=".csv" onChange={e => { setArchivo(e.target.files[0]); setPreview(null); setResultado(null); }}
-          className="text-sm" />
-        <button type="submit" disabled={!archivo || cargando}
-          className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
-          {cargando ? 'Procesando…' : 'Previsualizar'}
-        </button>
+      <form onSubmit={analizar} className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <input type="file" accept=".csv" onChange={e => { setArchivo(e.target.files[0]); setPreview(null); setResultado(null); }}
+            className="text-sm" />
+          <button type="submit" disabled={!archivo || cargando}
+            className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+            {cargando ? 'Procesando…' : 'Previsualizar'}
+          </button>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-gray-600">
+          <input type="checkbox" checked={sincronizar}
+            onChange={e => { setSincronizar(e.target.checked); setPreview(null); setResultado(null); }} />
+          Este archivo es el catálogo completo (desactivar productos activos que no estén incluidos)
+        </label>
       </form>
 
       {resultado && (
@@ -70,6 +79,7 @@ export default function ImportarProductos() {
             <li>Insertados: {resultado.insertados}</li>
             <li>Actualizados: {resultado.actualizados}</li>
             <li>Stock de proveedor cargado: {resultado.stock_cargado}</li>
+            {sincronizar && <li>Desactivados (no estaban en el archivo): {resultado.desactivados}</li>}
           </ul>
           <Link to="/productos" className="inline-block mt-3 text-ht-navy underline">Ver productos</Link>
         </div>
@@ -84,6 +94,17 @@ export default function ImportarProductos() {
             <Tile label="Con stock prov." val={preview.resumen.con_stock_proveedor} />
             <Tile label="Rechazos" val={preview.resumen.rechazos} alerta={preview.resumen.rechazos > 0} />
           </div>
+
+          {sincronizar && (
+            <div className={`p-3 rounded-lg border text-sm ${preview.resumen.a_desactivar > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gray-50 border-gray-200 text-gray-600'}`}>
+              <p className="font-medium">{preview.resumen.a_desactivar} producto(s) activos se desactivarán por no estar en este archivo.</p>
+              {preview.a_desactivar.length > 0 && (
+                <ul className="list-disc pl-5 mt-1 max-h-32 overflow-y-auto">
+                  {preview.a_desactivar.map(p => <li key={p.sku}>{p.sku} — {p.nombre}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
 
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
             <div className="px-4 py-2 bg-slate-50 text-sm text-gray-600 font-medium">Muestra (primeras {preview.muestra.length})</div>

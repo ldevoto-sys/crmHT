@@ -53,6 +53,7 @@ export default function NuevaCotizacion() {
   const { negocioId, cotizacionId } = useParams();
   const [searchParams] = useSearchParams();
   const contactoIdNuevo = searchParams.get('contacto_id');
+  const productosPreseleccionados = searchParams.get('productos');
   const modoEdicion = !!cotizacionId;
   const modoNegocioNuevo = !modoEdicion && !negocioId && !!contactoIdNuevo;
   const navigate = useNavigate();
@@ -71,6 +72,18 @@ export default function NuevaCotizacion() {
   const [cargando, setCargando] = useState(modoEdicion);
 
   useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
+
+  // Líneas precargadas desde la Búsqueda de equivalentes (productos maestros).
+  useEffect(() => {
+    if (!productosPreseleccionados || modoEdicion) return;
+    api.get('/productos', { params: { ids: productosPreseleccionados } }).then(r => {
+      setItems(r.data.map(p => ({
+        producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
+        producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen },
+      })));
+    }).catch(() => {});
+    // eslint-disable-next-line
+  }, []);
 
   useEffect(() => {
     if (modoEdicion) {
