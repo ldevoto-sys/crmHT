@@ -133,10 +133,18 @@ function mapearProductos(rows, headers = []) {
   return { validos, rechazos };
 }
 
-// Cabeceras sugeridas para la plantilla de descarga (núcleo + algunos atributos comunes).
+// Cabeceras de la plantilla de descarga: TODAS las columnas que el importador
+// reconoce (núcleo + atributos técnicos + curva Q/H + sustitutos). Antes solo
+// traía un subconjunto básico; eso hacía que, si alguien armaba el archivo a
+// partir de la plantilla en lugar de exportar la hoja "Catálogo" completa,
+// se perdieran silenciosamente los sustitutos declarados y la curva Q/H.
 const PLANTILLA_HEADERS = [
-  'Código', 'Nombre Producto', 'Marca', 'Tipo', 'Precio Neto ($)',
-  'URL Imagen', 'URL Ficha PDF', 'HP', 'Voltaje', 'Caudal Máx (L/min)', 'Altura Máx (m)',
+  'Código', 'Nombre Producto', 'Marca', 'Tipo', 'HP', 'Voltaje',
+  'Caudal Máx (L/min)', 'Altura Máx (m)', 'Conexión', 'Precio Neto ($)',
+  'URL Imagen', 'URL Ficha PDF',
+  'Q1', 'H1', 'Q2', 'H2', 'Q3', 'H3', 'Q4', 'H4', 'Q5', 'H5', 'Q6', 'H6',
+  'Fuente curva', 'Verificado', 'Sustitutos', 'Notas',
+  'Stock (sitio)', 'Diámetro pozo (pulg)',
 ];
 
 module.exports = { mapearProductos, mapearFila, parsePrecio, PLANTILLA_HEADERS };
