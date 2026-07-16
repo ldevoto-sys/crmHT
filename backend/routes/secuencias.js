@@ -44,9 +44,9 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/secuencias {nombre, descripcion, pasos:[{orden,dias_espera,canal,asunto,mensaje}]}
+// POST /api/secuencias {nombre, descripcion, respetar_horario, pasos:[{orden,dias_espera,canal,asunto,mensaje}]}
 router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
-  const { nombre, descripcion, pasos } = req.body;
+  const { nombre, descripcion, respetar_horario, pasos } = req.body;
   if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
   const errPasos = validarPasos(pasos);
   if (errPasos) return res.status(400).json({ error: errPasos });
@@ -55,8 +55,8 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   try {
     await client.query('BEGIN');
     const r = await client.query(
-      'INSERT INTO secuencias (nombre, descripcion, creado_por_id) VALUES ($1,$2,$3) RETURNING id',
-      [nombre.trim(), descripcion || null, req.user.id]
+      'INSERT INTO secuencias (nombre, descripcion, respetar_horario, creado_por_id) VALUES ($1,$2,$3,$4) RETURNING id',
+      [nombre.trim(), descripcion || null, respetar_horario === true, req.user.id]
     );
     const secuenciaId = r.rows[0].id;
     let orden = 1;
@@ -78,9 +78,9 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   }
 });
 
-// PUT /api/secuencias/:id {nombre, descripcion, pasos} — reemplaza los pasos completos
+// PUT /api/secuencias/:id {nombre, descripcion, respetar_horario, pasos} — reemplaza los pasos completos
 router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
-  const { nombre, descripcion, pasos } = req.body;
+  const { nombre, descripcion, respetar_horario, pasos } = req.body;
   if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
   const errPasos = validarPasos(pasos);
   if (errPasos) return res.status(400).json({ error: errPasos });
@@ -99,7 +99,7 @@ router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('UPDATE secuencias SET nombre=$1, descripcion=$2 WHERE id=$3', [nombre.trim(), descripcion || null, req.params.id]);
+    await client.query('UPDATE secuencias SET nombre=$1, descripcion=$2, respetar_horario=$3 WHERE id=$4', [nombre.trim(), descripcion || null, respetar_horario === true, req.params.id]);
     await client.query('DELETE FROM secuencia_pasos WHERE secuencia_id = $1', [req.params.id]);
     let orden = 1;
     for (const p of pasos) {

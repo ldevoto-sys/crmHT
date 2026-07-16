@@ -12,6 +12,7 @@ import ConfigPipeline from './pages/admin/ConfigPipeline';
 import ReglasAsignacion from './pages/admin/ReglasAsignacion';
 import ConfigEmpresa from './pages/admin/ConfigEmpresa';
 import ConfigSecuencias from './pages/admin/ConfigSecuencias';
+import ConfigBotWhatsApp from './pages/admin/ConfigBotWhatsApp';
 import ConfigEncuesta from './pages/admin/ConfigEncuesta';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import Empresas from './pages/maestros/Empresas';
@@ -119,6 +120,9 @@ export default function App() {
             } />
             <Route path="config/secuencias" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigSecuencias /></ProtectedRoute>
+            } />
+            <Route path="config/bot-whatsapp" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigBotWhatsApp /></ProtectedRoute>
             } />
             <Route path="config/encuesta" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigEncuesta /></ProtectedRoute>
