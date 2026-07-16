@@ -9,6 +9,7 @@ export default function ConfigSecuencias() {
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [editId, setEditId] = useState(null);
   const [nombre, setNombre] = useState(''); const [descripcion, setDescripcion] = useState('');
+  const [respetarHorario, setRespetarHorario] = useState(false);
   const [pasos, setPasos] = useState([pasoVacio()]);
   const [showForm, setShowForm] = useState(false);
 
@@ -18,11 +19,12 @@ export default function ConfigSecuencias() {
   };
   useEffect(() => { cargar(); }, []);
 
-  const nueva = () => { setEditId(null); setNombre(''); setDescripcion(''); setPasos([pasoVacio()]); setShowForm(true); };
+  const nueva = () => { setEditId(null); setNombre(''); setDescripcion(''); setRespetarHorario(false); setPasos([pasoVacio()]); setShowForm(true); };
   const editar = async s => {
     try {
       const { data } = await api.get(`/secuencias/${s.id}`);
       setEditId(s.id); setNombre(data.nombre); setDescripcion(data.descripcion || '');
+      setRespetarHorario(!!data.respetar_horario);
       setPasos(data.pasos.map(p => ({ dias_espera: p.dias_espera, canal: p.canal, asunto: p.asunto || '', mensaje: p.mensaje })));
       setShowForm(true);
     } catch { setError('No se pudo cargar la secuencia.'); }
@@ -34,7 +36,7 @@ export default function ConfigSecuencias() {
 
   const guardar = async e => {
     e.preventDefault(); setError(''); setMsg('');
-    const body = { nombre, descripcion, pasos };
+    const body = { nombre, descripcion, respetar_horario: respetarHorario, pasos };
     try {
       if (editId) await api.put(`/secuencias/${editId}`, body);
       else await api.post('/secuencias', body);
@@ -66,6 +68,7 @@ export default function ConfigSecuencias() {
             <tr>
               <th className="text-left px-4 py-2 font-medium">Nombre</th>
               <th className="text-left px-4 py-2 font-medium">Pasos</th>
+              <th className="text-left px-4 py-2 font-medium">Horario hábil</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
               <th className="px-4 py-2"></th>
             </tr>
@@ -75,6 +78,7 @@ export default function ConfigSecuencias() {
               <tr key={s.id} className="border-t border-gray-100">
                 <td className="px-4 py-2 text-ht-navy">{s.nombre}</td>
                 <td className="px-4 py-2 text-gray-600">{s.total_pasos}</td>
+                <td className="px-4 py-2 text-gray-600">{s.respetar_horario ? 'Sí' : 'No'}</td>
                 <td className="px-4 py-2 text-gray-600">{s.activo ? 'Activa' : 'Inactiva'}</td>
                 <td className="px-4 py-2 text-right space-x-3">
                   <button onClick={() => editar(s)} className="text-ht-accent hover:underline">Editar</button>
@@ -82,7 +86,7 @@ export default function ConfigSecuencias() {
                 </td>
               </tr>
             ))}
-            {secuencias.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
+            {secuencias.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -100,6 +104,10 @@ export default function ConfigSecuencias() {
             <input value={descripcion} onChange={e => setDescripcion(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input type="checkbox" checked={respetarHorario} onChange={e => setRespetarHorario(e.target.checked)} />
+            Respetar horario hábil (un paso vencido fuera de horario espera a que abra)
+          </label>
 
           <div className="space-y-3">
             <label className="block text-sm font-medium text-ht-navy">Pasos (en orden)</label>

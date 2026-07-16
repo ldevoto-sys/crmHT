@@ -212,4 +212,89 @@ router.put('/encuesta', authorize('administrador', 'jefe_comercial'), async (req
   }
 });
 
+// --- Horario de atención (usado por el bot de WhatsApp y por secuencias con "respetar_horario") ---
+router.get('/horario-atencion', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM config_horario_atencion WHERE id = 1');
+    res.json(cfg);
+  } catch (err) {
+    console.error('[config/horario-atencion GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/horario-atencion', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { dias_habiles, hora_inicio, hora_fin } = req.body;
+    if (!Array.isArray(dias_habiles) || dias_habiles.length === 0 || dias_habiles.some(d => !Number.isInteger(d) || d < 1 || d > 7)) {
+      return res.status(400).json({ error: 'dias_habiles debe ser un arreglo de números 1 (lunes) a 7 (domingo)' });
+    }
+    if (!hora_inicio || !hora_fin) return res.status(400).json({ error: 'hora_inicio y hora_fin son requeridas' });
+    await db.run(
+      `UPDATE config_horario_atencion SET dias_habiles=$1, hora_inicio=$2, hora_fin=$3 WHERE id=1`,
+      [dias_habiles, hora_inicio, hora_fin]
+    );
+    res.json({ message: 'Horario de atención actualizado' });
+  } catch (err) {
+    console.error('[config/horario-atencion PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// --- Bot de WhatsApp: mensajes, opciones de categorización y pasos de recontacto ---
+router.get('/whatsapp-bot', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
+    const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
+    res.json({ ...cfg, pasos_recontacto: pasos });
+  } catch (err) {
+    console.error('[config/whatsapp-bot GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  const { mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion, recontacto_respeta_horario, pasos_recontacto } = req.body;
+  if (!mensaje_fuera_horario || !mensaje_fuera_horario.trim()) return res.status(400).json({ error: 'El mensaje fuera de horario es requerido' });
+  if (!mensaje_categorizacion || !mensaje_categorizacion.trim()) return res.status(400).json({ error: 'El mensaje de categorización es requerido' });
+  if (!Array.isArray(opciones_categorizacion) || opciones_categorizacion.length === 0) {
+    return res.status(400).json({ error: 'Debes definir al menos una opción de categorización' });
+  }
+  for (const o of opciones_categorizacion) {
+    if (!o.label || !o.label.trim() || !o.categoria || !o.categoria.trim()) return res.status(400).json({ error: 'Cada opción requiere texto y categoría' });
+  }
+  if (!Array.isArray(pasos_recontacto) || pasos_recontacto.length === 0) {
+    return res.status(400).json({ error: 'Debes definir al menos un paso de recontacto' });
+  }
+  for (const p of pasos_recontacto) {
+    if (!p.tiempo_espera_horas || Number(p.tiempo_espera_horas) <= 0) return res.status(400).json({ error: 'tiempo_espera_horas inválido en un paso de recontacto' });
+    if (!p.mensaje || !p.mensaje.trim()) return res.status(400).json({ error: 'Cada paso de recontacto requiere un mensaje' });
+  }
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE whatsapp_bot_config SET mensaje_fuera_horario=$1, mensaje_categorizacion=$2, opciones_categorizacion=$3, recontacto_respeta_horario=$4 WHERE id=1`,
+      [mensaje_fuera_horario.trim(), mensaje_categorizacion.trim(), JSON.stringify(opciones_categorizacion), recontacto_respeta_horario !== false]
+    );
+    await client.query('DELETE FROM whatsapp_recontacto_pasos');
+    let orden = 1;
+    for (const p of pasos_recontacto) {
+      await client.query(
+        'INSERT INTO whatsapp_recontacto_pasos (orden, tiempo_espera_horas, mensaje) VALUES ($1,$2,$3)',
+        [orden++, p.tiempo_espera_horas, p.mensaje.trim()]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ message: 'Configuración del bot de WhatsApp actualizada' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[config/whatsapp-bot PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

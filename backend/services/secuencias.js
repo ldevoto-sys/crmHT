@@ -8,6 +8,7 @@
 // también podrá invocarse desde un webhook de Graph/WhatsApp el día que existan.
 const { db } = require('../db');
 const timeline = require('./timeline');
+const { esHorarioHabil } = require('./horario');
 
 async function pasoSiguiente(secuenciaId, orden) {
   return db.get(
@@ -21,15 +22,19 @@ async function pasoSiguiente(secuenciaId, orden) {
 // proxima_ejecucion se recalcula antes de que el próximo tick pueda repetirla.
 async function avanzarPasosPendientes() {
   const pendientes = await db.all(
-    `SELECT ns.*, n.vendedor_id, n.contacto_id, n.empresa_id, s.nombre AS secuencia_nombre
+    `SELECT ns.*, n.vendedor_id, n.contacto_id, n.empresa_id, s.nombre AS secuencia_nombre, s.respetar_horario
      FROM negocio_secuencias ns
      JOIN negocios n ON n.id = ns.negocio_id
      JOIN secuencias s ON s.id = ns.secuencia_id
      WHERE ns.estado = 'activa' AND ns.proxima_ejecucion <= now()`
   );
 
+  // Si alguna secuencia pendiente respeta horario, se evalúa una sola vez por tick.
+  const dentroDeHorario = pendientes.some(ns => ns.respetar_horario) ? await esHorarioHabil() : null;
+
   let ejecutados = 0;
   for (const ns of pendientes) {
+    if (ns.respetar_horario && !dentroDeHorario) continue; // espera al próximo tick dentro de horario
     const paso = await pasoSiguiente(ns.secuencia_id, ns.paso_actual + 1);
     if (!paso) {
       await db.run(`UPDATE negocio_secuencias SET estado='completada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`, [ns.id]);

@@ -110,4 +110,108 @@ router.post('/encuesta/:token', async (req, res) => {
   }
 });
 
+// === Bot de WhatsApp — webhook (nota de cambio v1.8 §7) ===
+// PENDIENTE DE PROBAR CONTRA META: depende de credenciales de Meta (tenant/
+// client id/token, ver correo a IT) que aún no existen. La lógica sigue la
+// documentación estable de la Cloud API (mensajes de texto e interactivos),
+// pero no se ha podido validar de extremo a extremo con un webhook real.
+const crypto = require('crypto');
+const { normalizarTelefono } = require('../services/dedup');
+const { sugerirVendedor } = require('../services/asignacion');
+const { esHorarioHabil } = require('../services/horario');
+const whatsapp = require('../services/whatsapp');
+
+// GET /api/public/whatsapp/webhook — verificación (handshake de Meta al configurar el webhook)
+router.get('/whatsapp/webhook', (req, res) => {
+  const modo = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (modo === 'subscribe' && token && process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+    return res.status(200).send(challenge);
+  }
+  res.sendStatus(403);
+});
+
+function firmaValida(req) {
+  if (!process.env.WHATSAPP_APP_SECRET) return true; // sin secreto configurado: no se valida (solo mientras se prueba)
+  const firma = req.headers['x-hub-signature-256'];
+  if (!firma || !req.rawBody) return false;
+  const esperado = 'sha256=' + crypto.createHmac('sha256', process.env.WHATSAPP_APP_SECRET).update(req.rawBody).digest('hex');
+  try { return crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperado)); } catch { return false; }
+}
+
+// Procesa un mensaje entrante: fuera de horario solo avisa y registra el lead;
+// en horario hábil pregunta la categoría (lista de opciones); si el mensaje es
+// la respuesta a esa lista, asigna vendedor con el mismo motor que usa el
+// canal web (sugerirVendedor) y entrega la conversación (deja de "hablar").
+async function procesarMensaje(m) {
+  const telefono_e164 = normalizarTelefono('+' + m.from);
+  if (!telefono_e164) return;
+
+  let contacto = await db.get('SELECT * FROM contactos WHERE telefono_e164 = $1', [telefono_e164]);
+  if (!contacto) {
+    const r = await db.run(
+      `INSERT INTO contactos (nombre, telefono_e164, origen) VALUES ($1,$2,'whatsapp') RETURNING *`,
+      ['(WhatsApp)', telefono_e164]
+    );
+    contacto = r.rows[0];
+  }
+
+  const lead = await db.get(
+    `SELECT * FROM leads WHERE contacto_id = $1 AND bot_estado IN ('esperando_categoria','recontactando') ORDER BY created_at DESC LIMIT 1`,
+    [contacto.id]
+  );
+  const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
+
+  // ¿Es la respuesta a la lista de categorización?
+  const idOpcion = m.interactive?.list_reply?.id ?? m.interactive?.button_reply?.id;
+  if (lead && idOpcion !== undefined) {
+    const opciones = cfg.opciones_categorizacion || [];
+    const elegida = opciones[Number(idOpcion)];
+    if (elegida) {
+      const sug = await sugerirVendedor({ contacto_id: contacto.id, categoria: elegida.categoria });
+      await db.run(
+        `UPDATE leads SET estado='asignado', vendedor_id=$1, vendedor_sugerido_id=$1, asignacion_modo='automatica_apertura',
+                bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$2`,
+        [sug.vendedor_id, lead.id]
+      );
+      await db.run(`INSERT INTO lead_respuestas (lead_id, campo, valor, capturado_por) VALUES ($1,'categoria',$2,'bot')`, [lead.id, elegida.categoria]);
+      return;
+    }
+  }
+
+  const enHorario = await esHorarioHabil();
+  if (!enHorario) {
+    await whatsapp.enviar(telefono_e164, cfg.mensaje_fuera_horario);
+    if (!lead) await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo')`, [contacto.id]);
+    return;
+  }
+
+  if (!lead) {
+    const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
+    const primerPaso = pasos[0];
+    await db.run(
+      `INSERT INTO leads (contacto_id, origen, creado_por, estado, bot_estado, bot_proxima_accion)
+       VALUES ($1,'whatsapp','bot','nuevo','esperando_categoria',$2)`,
+      [contacto.id, primerPaso ? new Date(Date.now() + primerPaso.tiempo_espera_horas * 3600000) : null]
+    );
+    await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
+  }
+  // Si ya hay un lead esperando categoría y el cliente escribió texto libre en
+  // vez de elegir una opción de la lista, se deja la pregunta activa (no se
+  // interpreta texto libre) — el recontacto lo vuelve a intentar más tarde.
+}
+
+// POST /api/public/whatsapp/webhook — mensajes entrantes
+router.post('/whatsapp/webhook', async (req, res) => {
+  res.sendStatus(200); // Meta espera 200 de inmediato; se procesa después.
+  try {
+    if (!firmaValida(req)) { console.error('[whatsapp/webhook] Firma inválida'); return; }
+    const mensajes = req.body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
+    for (const m of mensajes) await procesarMensaje(m);
+  } catch (err) {
+    console.error('[whatsapp/webhook] Error procesando mensaje:', err);
+  }
+});
+
 module.exports = router;

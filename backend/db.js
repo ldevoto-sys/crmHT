@@ -509,6 +509,86 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_secuencia_pasos_secuencia ON secuencia_pasos (secuencia_id, orden)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_negocio_secuencias_pendientes ON negocio_secuencias (estado, proxima_ejecucion)`);
 
+  // Si está marcada, un paso vencido fuera del horario de atención espera a
+  // que abra en vez de generarse a cualquier hora (ver config_horario_atencion).
+  await db.run(`ALTER TABLE secuencias ADD COLUMN IF NOT EXISTS respetar_horario BOOLEAN NOT NULL DEFAULT false`);
+
+  // === Etapa 4 (preparación) — Bot de WhatsApp: horario, categorización y recontacto ===
+  // El canal de WhatsApp en sí depende de credenciales de Meta (pendientes de
+  // IT, nota de cambio v1.8 §7); esta configuración es independiente de eso.
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_horario_atencion (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      dias_habiles INTEGER[] NOT NULL DEFAULT '{1,2,3,4,5}',
+      hora_inicio TIME NOT NULL DEFAULT '09:15',
+      hora_fin TIME NOT NULL DEFAULT '17:15',
+      CONSTRAINT config_horario_atencion_unica CHECK (id = 1)
+    )
+  `);
+  const horarioExiste = await db.get('SELECT id FROM config_horario_atencion WHERE id = 1');
+  if (!horarioExiste) {
+    await db.run('INSERT INTO config_horario_atencion (id) VALUES (1)');
+    console.log('[DB] Horario de atención creado (L-V 09:15-17:15).');
+  }
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_bot_config (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      mensaje_fuera_horario TEXT NOT NULL,
+      mensaje_categorizacion TEXT NOT NULL,
+      opciones_categorizacion JSONB NOT NULL DEFAULT '[]'::jsonb,
+      recontacto_respeta_horario BOOLEAN NOT NULL DEFAULT true,
+      CONSTRAINT whatsapp_bot_config_unica CHECK (id = 1)
+    )
+  `);
+  const whatsappCfgExiste = await db.get('SELECT id FROM whatsapp_bot_config WHERE id = 1');
+  if (!whatsappCfgExiste) {
+    await db.run(
+      `INSERT INTO whatsapp_bot_config (id, mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion)
+       VALUES (1, $1, $2, $3)`,
+      [
+        '¡Hola! Gracias por escribir a HidroTecnica 👋. En este momento estamos fuera de nuestro horario de atención (Lunes a Viernes, 9:15 a 17:15 hrs). Registramos tu mensaje y uno de nuestros ejecutivos te contactará apenas abramos.',
+        '¡Hola! Para ayudarte más rápido, cuéntanos qué necesitas:',
+        JSON.stringify([
+          { label: 'Cotizar un producto', categoria: 'cotizacion' },
+          { label: 'Consulta técnica o soporte', categoria: 'soporte' },
+          { label: 'Otro', categoria: 'otro' },
+        ]),
+      ]
+    );
+    console.log('[DB] Config del bot de WhatsApp creada.');
+  }
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_recontacto_pasos (
+      id SERIAL PRIMARY KEY,
+      orden INTEGER NOT NULL UNIQUE,
+      tiempo_espera_horas INTEGER NOT NULL CHECK (tiempo_espera_horas > 0),
+      mensaje TEXT NOT NULL
+    )
+  `);
+  const recontactoExiste = await db.get('SELECT id FROM whatsapp_recontacto_pasos LIMIT 1');
+  if (!recontactoExiste) {
+    const pasosRecontacto = [
+      [1, 1, '¡Hola de nuevo! ¿Sigues ahí? Cuéntanos qué necesitas y te ayudamos enseguida 🙂'],
+      [2, 8, 'Hola, seguimos atentos a tu consulta. Si nos cuentas qué producto o servicio te interesa, te contactamos con la información que necesitas.'],
+      [3, 24, 'No hemos tenido noticias tuyas, así que por ahora cerraremos esta conversación. Si más adelante necesitas algo, escríbenos de nuevo — ¡con gusto te ayudamos! 👋'],
+    ];
+    for (const [orden, horas, mensaje] of pasosRecontacto) {
+      await db.run('INSERT INTO whatsapp_recontacto_pasos (orden, tiempo_espera_horas, mensaje) VALUES ($1,$2,$3)', [orden, horas, mensaje]);
+    }
+    console.log('[DB] Pasos de recontacto de WhatsApp creados (1h/8h/24h).');
+  }
+
+  // leads: seguimiento del bot de categorización/recontacto (independiente del
+  // estado nuevo/asignado/convertido/descartado ya existente).
+  await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS causa_descarte TEXT`);
+  await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bot_estado TEXT CHECK (bot_estado IN ('esperando_categoria','recontactando','derivado','cerrado'))`);
+  await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bot_paso_recontacto INTEGER NOT NULL DEFAULT 0`);
+  await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bot_proxima_accion TIMESTAMP`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_leads_bot_pendientes ON leads (bot_estado, bot_proxima_accion)`);
+
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta
   // simple de una pregunta (puntaje 0-10, estilo NPS) + comentario libre. Como

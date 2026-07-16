@@ -7,6 +7,7 @@ const fs = require('fs');
 const { initDb } = require('./db');
 const { avanzarPasosPendientes } = require('./services/secuencias');
 const { enviarRecordatorios } = require('./services/encuestas');
+const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -31,7 +32,9 @@ app.use(helmet({ contentSecurityPolicy: false }));
 // necesite CORS abierto a cualquier origen; se acota al de la app.
 const ORIGENES_PERMITIDOS = [process.env.APP_URL, 'http://localhost:5173', 'http://localhost:3001'].filter(Boolean);
 app.use(cors({ origin: ORIGENES_PERMITIDOS }));
-app.use(express.json());
+// rawBody: se guarda el cuerpo tal cual llega, solo lo usa el webhook de
+// WhatsApp para verificar la firma de Meta (X-Hub-Signature-256).
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use('/uploads', express.static(uploadsDir));
@@ -77,6 +80,10 @@ if (require.main === module) {
       const QUINCE_MIN = 15 * 60 * 1000;
       setInterval(() => {
         avanzarPasosPendientes().catch(err => console.error('[secuencias] Error al avanzar pasos:', err));
+      }, QUINCE_MIN);
+      // Bot de WhatsApp: recontacto de leads que no respondieron la categorización (v1.8 §7).
+      setInterval(() => {
+        avanzarRecontactosPendientes().catch(err => console.error('[whatsapp_bot] Error al avanzar recontactos:', err));
       }, QUINCE_MIN);
       // Recordatorio único de encuesta post-cierre: revisa una vez por hora.
       const UNA_HORA = 60 * 60 * 1000;
