@@ -49,11 +49,12 @@ router.get('/conversaciones', async (req, res) => {
        LEFT JOIN LATERAL (
          SELECT texto, direccion, created_at FROM whatsapp_mensajes WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
        ) ult ON true
+       LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
        LEFT JOIN LATERAL (
          SELECT EXISTS (
            SELECT 1 FROM whatsapp_mensajes
            WHERE contacto_id = c.id AND direccion = 'entrante' AND created_at > now() - interval '24 hours'
-         ) AS abierta
+         ) AND NOT COALESCE(wc.cerrada_manual, false) AS abierta
        ) abierta ON true
        ${where}
        ORDER BY ult.created_at DESC LIMIT 300`,
@@ -122,6 +123,20 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     res.status(201).json({ message: 'Mensaje enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/mensajes]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/cerrar — cierre manual (se
+// reabre solo si el cliente vuelve a escribir, ver whatsapp_mensajes.registrar).
+router.post('/conversaciones/:contactoId/cerrar', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para cerrar esta conversación' });
+    await mensajes.cerrarManual(req.params.contactoId, req.user.id);
+    res.json({ message: 'Conversación cerrada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/cerrar]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
