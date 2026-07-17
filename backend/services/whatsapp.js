@@ -2,6 +2,27 @@
 // Sin credenciales configuradas, no falla: registra y no hace nada, igual que
 // services/email.js con SMTP. Se activa cuando existan WHATSAPP_ACCESS_TOKEN
 // y WHATSAPP_PHONE_NUMBER_ID (nota de cambio v1.8 §7 — pendiente de IT/Meta).
+
+// Traduce los errores más comunes de la Cloud API a un mensaje entendible
+// para quien está usando el CRM (no un JSON técnico). Si no reconoce el
+// código, muestra el mensaje que trae Meta o, en último caso, el texto crudo.
+function errorAmigable(bodyText) {
+  let parsed;
+  try { parsed = JSON.parse(bodyText); } catch { return bodyText; }
+  const err = parsed?.error;
+  if (!err) return bodyText;
+  if (err.code === 131030) {
+    return 'Este número de WhatsApp está en modo de prueba: solo puede enviar mensajes a destinatarios autorizados en Meta. Agrega el número del cliente en Meta → Configuración de la API → destinatarios de prueba (o espera a que se use el número de producción).';
+  }
+  if (err.code === 190) {
+    return 'El token de acceso de WhatsApp no es válido o venció. Avisa al equipo técnico para renovarlo.';
+  }
+  if (err.code === 131047) {
+    return 'Pasaron más de 24 h desde el último mensaje del cliente: solo se puede responder con una plantilla aprobada por Meta.';
+  }
+  return err.error_data?.details || err.message || bodyText;
+}
+
 async function enviar(telefonoE164, mensaje) {
   if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió a ${telefonoE164}.`);
@@ -24,7 +45,7 @@ async function enviar(telefonoE164, mensaje) {
     if (!resp.ok) {
       const err = await resp.text();
       console.error('[whatsapp] Error enviando a', telefonoE164, ':', err);
-      return { enviado: false, motivo: err };
+      return { enviado: false, motivo: errorAmigable(err) };
     }
     return { enviado: true };
   } catch (e) {
@@ -58,7 +79,7 @@ async function enviarLista(telefonoE164, mensaje, opciones) {
     if (!resp.ok) {
       const err = await resp.text();
       console.error('[whatsapp] Error enviando lista a', telefonoE164, ':', err);
-      return { enviado: false, motivo: err };
+      return { enviado: false, motivo: errorAmigable(err) };
     }
     return { enviado: true };
   } catch (e) {
@@ -92,7 +113,7 @@ async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo) {
     if (!resp.ok) {
       const err = await resp.text();
       console.error('[whatsapp] Error enviando documento a', telefonoE164, ':', err);
-      return { enviado: false, motivo: err };
+      return { enviado: false, motivo: errorAmigable(err) };
     }
     return { enviado: true };
   } catch (e) {
