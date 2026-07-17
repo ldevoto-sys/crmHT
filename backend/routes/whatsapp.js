@@ -110,11 +110,16 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
     const resultado = await whatsapp.enviar(contacto.telefono_e164, texto.trim());
+    if (!resultado.enviado) {
+      // No se guarda en el hilo como si se hubiera mandado: evita que la
+      // Bandeja muestre un mensaje que en realidad nunca llegó al cliente.
+      return res.status(502).json({ error: `No se pudo enviar el mensaje a WhatsApp: ${resultado.motivo || 'error desconocido'}` });
+    }
     await mensajes.registrar({
       contacto_id: req.params.contactoId, lead_id: lead?.id ?? null,
       direccion: 'saliente', texto: texto.trim(), enviado_por_id: req.user.id,
     });
-    res.status(201).json({ message: 'Mensaje enviado', enviado: resultado.enviado });
+    res.status(201).json({ message: 'Mensaje enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/mensajes]', err);
     res.status(500).json({ error: 'Error interno' });
