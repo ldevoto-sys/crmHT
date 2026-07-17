@@ -254,9 +254,14 @@ router.get('/whatsapp-bot', async (req, res) => {
 });
 
 router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async (req, res) => {
-  const { mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion, recontacto_respeta_horario, pasos_recontacto } = req.body;
+  const {
+    mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion, recontacto_respeta_horario,
+    mensaje_confirmacion, bandeja_acceso, pasos_recontacto,
+  } = req.body;
   if (!mensaje_fuera_horario || !mensaje_fuera_horario.trim()) return res.status(400).json({ error: 'El mensaje fuera de horario es requerido' });
   if (!mensaje_categorizacion || !mensaje_categorizacion.trim()) return res.status(400).json({ error: 'El mensaje de categorización es requerido' });
+  if (!mensaje_confirmacion || !mensaje_confirmacion.trim()) return res.status(400).json({ error: 'El mensaje de confirmación es requerido' });
+  if (!['todos', 'asignado'].includes(bandeja_acceso)) return res.status(400).json({ error: 'bandeja_acceso inválido' });
   if (!Array.isArray(opciones_categorizacion) || opciones_categorizacion.length === 0) {
     return res.status(400).json({ error: 'Debes definir al menos una opción de categorización' });
   }
@@ -275,8 +280,10 @@ router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async 
   try {
     await client.query('BEGIN');
     await client.query(
-      `UPDATE whatsapp_bot_config SET mensaje_fuera_horario=$1, mensaje_categorizacion=$2, opciones_categorizacion=$3, recontacto_respeta_horario=$4 WHERE id=1`,
-      [mensaje_fuera_horario.trim(), mensaje_categorizacion.trim(), JSON.stringify(opciones_categorizacion), recontacto_respeta_horario !== false]
+      `UPDATE whatsapp_bot_config SET mensaje_fuera_horario=$1, mensaje_categorizacion=$2, opciones_categorizacion=$3,
+              recontacto_respeta_horario=$4, mensaje_confirmacion=$5, bandeja_acceso=$6 WHERE id=1`,
+      [mensaje_fuera_horario.trim(), mensaje_categorizacion.trim(), JSON.stringify(opciones_categorizacion),
+       recontacto_respeta_horario !== false, mensaje_confirmacion.trim(), bandeja_acceso]
     );
     await client.query('DELETE FROM whatsapp_recontacto_pasos');
     let orden = 1;

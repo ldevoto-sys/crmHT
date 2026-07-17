@@ -539,14 +539,16 @@ async function initDb() {
       mensaje_categorizacion TEXT NOT NULL,
       opciones_categorizacion JSONB NOT NULL DEFAULT '[]'::jsonb,
       recontacto_respeta_horario BOOLEAN NOT NULL DEFAULT true,
+      mensaje_confirmacion TEXT NOT NULL DEFAULT '',
+      bandeja_acceso TEXT NOT NULL DEFAULT 'todos' CHECK (bandeja_acceso IN ('todos','asignado')),
       CONSTRAINT whatsapp_bot_config_unica CHECK (id = 1)
     )
   `);
   const whatsappCfgExiste = await db.get('SELECT id FROM whatsapp_bot_config WHERE id = 1');
   if (!whatsappCfgExiste) {
     await db.run(
-      `INSERT INTO whatsapp_bot_config (id, mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion)
-       VALUES (1, $1, $2, $3)`,
+      `INSERT INTO whatsapp_bot_config (id, mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion, mensaje_confirmacion)
+       VALUES (1, $1, $2, $3, $4)`,
       [
         '¡Hola! Gracias por escribir a HidroTecnica 👋. En este momento estamos fuera de nuestro horario de atención (Lunes a Viernes, 9:15 a 17:15 hrs). Registramos tu mensaje y uno de nuestros ejecutivos te contactará apenas abramos.',
         '¡Hola! Para ayudarte más rápido, cuéntanos qué necesitas:',
@@ -555,10 +557,17 @@ async function initDb() {
           { label: 'Consulta técnica o soporte', categoria: 'soporte' },
           { label: 'Otro', categoria: 'otro' },
         ]),
+        'Te estamos asignando un ejecutivo, por favor espéranos un momento 🙂',
       ]
     );
     console.log('[DB] Config del bot de WhatsApp creada.');
   }
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS mensaje_confirmacion TEXT NOT NULL DEFAULT ''`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS bandeja_acceso TEXT NOT NULL DEFAULT 'todos'`);
+  await db.run(
+    `UPDATE whatsapp_bot_config SET mensaje_confirmacion=$1 WHERE id=1 AND mensaje_confirmacion=''`,
+    ['Te estamos asignando un ejecutivo, por favor espéranos un momento 🙂']
+  );
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS whatsapp_recontacto_pasos (
@@ -588,6 +597,23 @@ async function initDb() {
   await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bot_paso_recontacto INTEGER NOT NULL DEFAULT 0`);
   await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS bot_proxima_accion TIMESTAMP`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_leads_bot_pendientes ON leads (bot_estado, bot_proxima_accion)`);
+
+  // Historial completo de mensajes de WhatsApp (Bandeja WhatsApp): tanto los
+  // del bot de categorización/recontacto como los que escriba el cliente o un
+  // vendedor una vez asignado. lead_id queda fijo al lead vigente al momento
+  // del mensaje (no se reescribe si después se crea un lead nuevo).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_mensajes (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      lead_id INTEGER REFERENCES leads(id),
+      direccion TEXT NOT NULL CHECK (direccion IN ('entrante','saliente')),
+      texto TEXT NOT NULL,
+      enviado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_contacto ON whatsapp_mensajes (contacto_id, created_at)`);
 
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta

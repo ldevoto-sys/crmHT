@@ -120,6 +120,7 @@ const { normalizarTelefono } = require('../services/dedup');
 const { sugerirVendedor } = require('../services/asignacion');
 const { esHorarioHabil } = require('../services/horario');
 const whatsapp = require('../services/whatsapp');
+const mensajes = require('../services/whatsapp_mensajes');
 
 // GET /api/public/whatsapp/webhook — verificación (handshake de Meta al configurar el webhook)
 router.get('/whatsapp/webhook', (req, res) => {
@@ -157,11 +158,18 @@ async function procesarMensaje(m) {
     contacto = r.rows[0];
   }
 
-  const lead = await db.get(
-    `SELECT * FROM leads WHERE contacto_id = $1 AND bot_estado IN ('esperando_categoria','recontactando') ORDER BY created_at DESC LIMIT 1`,
-    [contacto.id]
-  );
+  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? '[mensaje no soportado]';
   const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
+  const ultimoLead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
+
+  // El bot ya entregó esta conversación a un vendedor: no vuelve a intervenir,
+  // solo se registra el mensaje para que se vea en la Bandeja de WhatsApp.
+  if (ultimoLead && ultimoLead.bot_estado === 'derivado') {
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: ultimoLead.id, direccion: 'entrante', texto: textoEntrante });
+    return;
+  }
+
+  const lead = ultimoLead && ['esperando_categoria', 'recontactando'].includes(ultimoLead.bot_estado) ? ultimoLead : null;
 
   // ¿Es la respuesta a la lista de categorización?
   const idOpcion = m.interactive?.list_reply?.id ?? m.interactive?.button_reply?.id;
@@ -170,12 +178,27 @@ async function procesarMensaje(m) {
     const elegida = opciones[Number(idOpcion)];
     if (elegida) {
       const sug = await sugerirVendedor({ contacto_id: contacto.id, categoria: elegida.categoria });
-      await db.run(
-        `UPDATE leads SET estado='asignado', vendedor_id=$1, vendedor_sugerido_id=$1, asignacion_modo='automatica_apertura',
-                bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$2`,
-        [sug.vendedor_id, lead.id]
-      );
+      // Igual que el canal web: si no hay vendedor disponible, el lead queda
+      // 'nuevo' con solo una sugerencia (se asigna a mano desde Cola de
+      // asignación), en vez de marcarse 'asignado' sin dueño.
+      if (sug.vendedor_id) {
+        await db.run(
+          `UPDATE leads SET estado='asignado', vendedor_id=$1, vendedor_sugerido_id=$1, asignacion_modo='automatica_apertura',
+                  bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$2`,
+          [sug.vendedor_id, lead.id]
+        );
+      } else {
+        await db.run(
+          `UPDATE leads SET vendedor_sugerido_id=NULL, bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$1`,
+          [lead.id]
+        );
+      }
       await db.run(`INSERT INTO lead_respuestas (lead_id, campo, valor, capturado_por) VALUES ($1,'categoria',$2,'bot')`, [lead.id, elegida.categoria]);
+      await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante });
+      if (cfg.mensaje_confirmacion) {
+        await whatsapp.enviar(telefono_e164, cfg.mensaje_confirmacion);
+        await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'saliente', texto: cfg.mensaje_confirmacion });
+      }
       return;
     }
   }
@@ -183,23 +206,34 @@ async function procesarMensaje(m) {
   const enHorario = await esHorarioHabil();
   if (!enHorario) {
     await whatsapp.enviar(telefono_e164, cfg.mensaje_fuera_horario);
-    if (!lead) await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo')`, [contacto.id]);
+    let leadId = lead?.id;
+    if (!leadId) {
+      const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
+      leadId = r.rows[0].id;
+    }
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'saliente', texto: cfg.mensaje_fuera_horario });
     return;
   }
 
   if (!lead) {
     const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
     const primerPaso = pasos[0];
-    await db.run(
+    const r = await db.run(
       `INSERT INTO leads (contacto_id, origen, creado_por, estado, bot_estado, bot_proxima_accion)
-       VALUES ($1,'whatsapp','bot','nuevo','esperando_categoria',$2)`,
+       VALUES ($1,'whatsapp','bot','nuevo','esperando_categoria',$2) RETURNING id`,
       [contacto.id, primerPaso ? new Date(Date.now() + primerPaso.tiempo_espera_horas * 3600000) : null]
     );
     await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'entrante', texto: textoEntrante });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'saliente', texto: cfg.mensaje_categorizacion });
+  } else {
+    // Ya hay un lead esperando categoría y el cliente escribió texto libre en
+    // vez de elegir una opción de la lista: se registra el mensaje y se deja
+    // la pregunta activa (no se interpreta texto libre) — el recontacto la
+    // reintenta más tarde.
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante });
   }
-  // Si ya hay un lead esperando categoría y el cliente escribió texto libre en
-  // vez de elegir una opción de la lista, se deja la pregunta activa (no se
-  // interpreta texto libre) — el recontacto lo vuelve a intentar más tarde.
 }
 
 // POST /api/public/whatsapp/webhook — mensajes entrantes
