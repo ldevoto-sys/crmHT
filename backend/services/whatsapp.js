@@ -91,7 +91,7 @@ async function enviarLista(telefonoE164, mensaje, opciones) {
 // Documento (ej. PDF de una cotización) enviado por link público — no requiere
 // subirlo antes a Meta. Solo funciona dentro de la ventana de 24 h de servicio
 // al cliente (igual que un mensaje de texto libre).
-async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo) {
+async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, caption) {
   if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió documento a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
@@ -106,7 +106,7 @@ async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo) {
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
           type: 'document',
-          document: { link: urlDocumento, filename: nombreArchivo },
+          document: { link: urlDocumento, filename: nombreArchivo, ...(caption ? { caption } : {}) },
         }),
       }
     );

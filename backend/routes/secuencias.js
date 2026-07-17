@@ -133,4 +133,25 @@ router.put('/:id/activo', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   }
 });
 
+// PUT /api/secuencias/:id/post-cotizacion-default {activo} — solo una puede
+// estar marcada a la vez: activarla en una desmarca cualquier otra.
+router.put('/:id/post-cotizacion-default', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
+  const { activo } = req.body;
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    if (activo === true) await client.query('UPDATE secuencias SET es_default_post_cotizacion=false WHERE id != $1', [req.params.id]);
+    const r = await client.query('UPDATE secuencias SET es_default_post_cotizacion=$1 WHERE id=$2', [activo === true, req.params.id]);
+    if (r.rowCount === 0) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Secuencia no encontrada' }); }
+    await client.query('COMMIT');
+    res.json({ message: 'Secuencia actualizada' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[secuencias/PUT /:id/post-cotizacion-default]', err);
+    res.status(500).json({ error: 'Error interno' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

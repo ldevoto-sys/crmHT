@@ -172,7 +172,8 @@ router.get('/empresa', async (req, res) => {
 router.put('/empresa', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const campos = ['razon_social', 'rut', 'direccion', 'comuna', 'ciudad', 'telefono', 'whatsapp',
-                    'email_ventas', 'email_cobranzas', 'sitio_web', 'banco', 'cuenta_tipo', 'cuenta_numero'];
+                    'email_ventas', 'email_cobranzas', 'sitio_web', 'banco', 'cuenta_tipo', 'cuenta_numero',
+                    'mensaje_cotizacion_whatsapp'];
     const sets = campos.map((c, i) => `${c}=$${i + 1}`).join(', ');
     const vals = campos.map(c => req.body[c] ?? null);
     await db.run(

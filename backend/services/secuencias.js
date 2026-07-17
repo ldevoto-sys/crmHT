@@ -75,4 +75,42 @@ async function avanzarPasosPendientes() {
   return { procesadas: pendientes.length, ejecutados };
 }
 
-module.exports = { avanzarPasosPendientes };
+// Al enviar una cotización (correo o WhatsApp) se asume que el cliente ya
+// respondió, así que la secuencia "post cotización" configurada como default
+// prevalece sobre cualquier otra que estuviera activa/pausada en el negocio
+// (la reemplaza, no corren en paralelo — el motor solo permite una a la vez).
+async function iniciarSecuenciaPostCotizacion(negocio, usuarioId) {
+  const secuencia = await db.get(
+    `SELECT * FROM secuencias WHERE es_default_post_cotizacion = true AND activo = true LIMIT 1`
+  );
+  if (!secuencia) return; // nada configurado como default: no se dispara nada
+
+  const existente = await db.get(
+    `SELECT id, secuencia_id FROM negocio_secuencias WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
+    [negocio.id]
+  );
+  if (existente) {
+    if (existente.secuencia_id === secuencia.id) return; // ya es esta misma, no reiniciar
+    await db.run(
+      `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`,
+      [existente.id]
+    );
+  }
+
+  const primerPaso = await pasoSiguiente(secuencia.id, 1);
+  if (!primerPaso) return; // secuencia sin pasos configurados
+
+  const proxima = new Date(Date.now() + primerPaso.dias_espera * 86400000);
+  const r = await db.run(
+    `INSERT INTO negocio_secuencias (negocio_id, secuencia_id, proxima_ejecucion, iniciado_por_id) VALUES ($1,$2,$3,$4) RETURNING id`,
+    [negocio.id, secuencia.id, proxima, usuarioId]
+  );
+  await timeline.registrar({
+    negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+    tipo: 'seguimiento_auto',
+    descripcion: `Secuencia "${secuencia.nombre}" iniciada automáticamente al enviar la cotización`,
+    referencia_id: r.rows[0].id,
+  });
+}
+
+module.exports = { avanzarPasosPendientes, iniciarSecuenciaPostCotizacion };

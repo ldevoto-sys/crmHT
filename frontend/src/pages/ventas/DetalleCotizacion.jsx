@@ -62,25 +62,27 @@ export default function DetalleCotizacion() {
   };
 
   const [enviando, setEnviando] = useState(false);
-  const enviarCorreo = async () => {
-    setError(''); setMsg(''); setEnviando(true);
-    try {
-      const { data } = await api.post(`/cotizaciones/${id}/enviar`);
-      setMsg(data.message);
-      cargar();
-    } catch (err) { setError(err.response?.data?.error || 'No se pudo enviar el correo.'); }
-    finally { setEnviando(false); }
-  };
+  const [canalCorreo, setCanalCorreo] = useState(true);
+  const [canalWhatsapp, setCanalWhatsapp] = useState(true);
+  useEffect(() => {
+    if (cot) { setCanalCorreo(!!cot.contacto_email); setCanalWhatsapp(!!cot.contacto_telefono); }
+  }, [cot?.id]);
 
-  const [enviandoWhatsapp, setEnviandoWhatsapp] = useState(false);
-  const enviarWhatsapp = async () => {
-    setError(''); setMsg(''); setEnviandoWhatsapp(true);
-    try {
-      const { data } = await api.post(`/cotizaciones/${id}/enviar-whatsapp`);
-      setMsg(data.message);
-      cargar();
-    } catch (err) { setError(err.response?.data?.error || 'No se pudo enviar por WhatsApp.'); }
-    finally { setEnviandoWhatsapp(false); }
+  const enviarCotizacion = async () => {
+    setError(''); setMsg(''); setEnviando(true);
+    const mensajes = []; const errores = [];
+    if (canalCorreo) {
+      try { const { data } = await api.post(`/cotizaciones/${id}/enviar`); mensajes.push(data.message); }
+      catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar el correo.'); }
+    }
+    if (canalWhatsapp) {
+      try { const { data } = await api.post(`/cotizaciones/${id}/enviar-whatsapp`); mensajes.push(data.message); }
+      catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar por WhatsApp.'); }
+    }
+    if (mensajes.length) setMsg(mensajes.join(' · '));
+    if (errores.length) setError(errores.join(' · '));
+    await cargar();
+    setEnviando(false);
   };
 
   const accion = async (fn) => { setError(''); setMsg(''); try { await fn(); cargar(); } catch (err) { setError(err.response?.data?.error || 'Error.'); } };
@@ -157,16 +159,22 @@ export default function DetalleCotizacion() {
             <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
             <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
             {cot.puede_editar && (
-              <button onClick={enviarCorreo} disabled={enviando}
-                className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50">
-                {enviando ? 'Enviando…' : 'Enviar por correo'}
-              </button>
-            )}
-            {cot.puede_editar && cot.contacto_telefono && (
-              <button onClick={enviarWhatsapp} disabled={enviandoWhatsapp}
-                className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50">
-                {enviandoWhatsapp ? 'Enviando…' : 'Enviar por WhatsApp'}
-              </button>
+              <div className="border border-gray-200 rounded p-2 space-y-1.5">
+                <label className={`flex items-center gap-2 text-sm ${cot.contacto_email ? 'text-gray-700' : 'text-gray-300'}`}>
+                  <input type="checkbox" checked={canalCorreo} disabled={!cot.contacto_email}
+                    onChange={e => setCanalCorreo(e.target.checked)} />
+                  Correo{!cot.contacto_email && ' (sin email registrado)'}
+                </label>
+                <label className={`flex items-center gap-2 text-sm ${cot.contacto_telefono ? 'text-gray-700' : 'text-gray-300'}`}>
+                  <input type="checkbox" checked={canalWhatsapp} disabled={!cot.contacto_telefono}
+                    onChange={e => setCanalWhatsapp(e.target.checked)} />
+                  WhatsApp{!cot.contacto_telefono && ' (sin teléfono registrado)'}
+                </label>
+                <button onClick={enviarCotizacion} disabled={enviando || (!canalCorreo && !canalWhatsapp)}
+                  className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50 mt-1">
+                  {enviando ? 'Enviando…' : 'Enviar cotización'}
+                </button>
+              </div>
             )}
             <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
             <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
