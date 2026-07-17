@@ -67,4 +67,38 @@ async function enviarLista(telefonoE164, mensaje, opciones) {
   }
 }
 
-module.exports = { enviar, enviarLista };
+// Documento (ej. PDF de una cotización) enviado por link público — no requiere
+// subirlo antes a Meta. Solo funciona dentro de la ventana de 24 h de servicio
+// al cliente (igual que un mensaje de texto libre).
+async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo) {
+  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    console.log(`[whatsapp] Sin credenciales configuradas; no se envió documento a ${telefonoE164}.`);
+    return { enviado: false, motivo: 'WhatsApp no configurado' };
+  }
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: telefonoE164.replace('+', ''),
+          type: 'document',
+          document: { link: urlDocumento, filename: nombreArchivo },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error('[whatsapp] Error enviando documento a', telefonoE164, ':', err);
+      return { enviado: false, motivo: err };
+    }
+    return { enviado: true };
+  } catch (e) {
+    console.error('[whatsapp] Error enviando documento a', telefonoE164, ':', e.message);
+    return { enviado: false, motivo: e.message };
+  }
+}
+
+module.exports = { enviar, enviarLista, enviarDocumento };

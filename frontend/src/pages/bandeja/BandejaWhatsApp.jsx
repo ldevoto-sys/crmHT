@@ -3,6 +3,7 @@ import api from '../../api';
 
 const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
 const ESTADOS = ['todos', 'nuevo', 'asignado', 'convertido', 'descartado'];
+const EMOJIS = ['😀', '😂', '🙂', '👍', '🙏', '👋', '✅', '❌', '📄', '📞', '⏳', '🎉'];
 
 export default function BandejaWhatsApp() {
   const [conversaciones, setConversaciones] = useState([]);
@@ -13,6 +14,7 @@ export default function BandejaWhatsApp() {
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
   const [texto, setTexto] = useState('');
+  const [mostrarEmojis, setMostrarEmojis] = useState(false);
   const [error, setError] = useState(''); const [errorEnvio, setErrorEnvio] = useState('');
   const hiloRef = useRef(null);
 
@@ -62,6 +64,14 @@ export default function BandejaWhatsApp() {
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el mensaje.'); }
+  };
+
+  const cerrarConversacion = async () => {
+    if (!window.confirm('¿Cerrar esta conversación? Se reabre sola si el cliente vuelve a escribir.')) return;
+    try {
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/cerrar`);
+      cargarConversaciones();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo cerrar la conversación.'); }
   };
 
   return (
@@ -115,6 +125,17 @@ export default function BandejaWhatsApp() {
           {!seleccionada && <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">Selecciona una conversación.</div>}
           {seleccionada && (
             <>
+              <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
+                <div className="text-sm text-ht-navy font-medium">
+                  {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
+                  <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
+                </div>
+                {conversacionActual?.abierta && (
+                  <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                    Cerrar conversación
+                  </button>
+                )}
+              </div>
               <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map(m => (
                   <div key={m.id} className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-navy text-white' : 'bg-slate-100 text-gray-800'}`}>
@@ -132,7 +153,20 @@ export default function BandejaWhatsApp() {
                     Conversación cerrada (pasaron más de 24 h desde el último mensaje del cliente): no se puede enviar texto libre.
                   </div>
                 )}
-                <div className="flex gap-2">
+                <div className="flex gap-2 relative">
+                  <button type="button" onClick={() => setMostrarEmojis(v => !v)}
+                    disabled={conversacionActual && !conversacionActual.abierta}
+                    className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                    😀
+                  </button>
+                  {mostrarEmojis && (
+                    <div className="absolute bottom-12 left-0 bg-white border border-gray-200 rounded-lg shadow-lg p-2 flex flex-wrap gap-1 w-64 z-10">
+                      {EMOJIS.map(em => (
+                        <button key={em} type="button" onClick={() => { setTexto(t => t + em); setMostrarEmojis(false); }}
+                          className="text-lg hover:bg-gray-100 rounded p-1">{em}</button>
+                      ))}
+                    </div>
+                  )}
                   <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribe una respuesta..."
                     disabled={conversacionActual && !conversacionActual.abierta}
                     className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:bg-gray-50" />

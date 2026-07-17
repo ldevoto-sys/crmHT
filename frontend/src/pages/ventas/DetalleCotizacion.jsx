@@ -72,6 +72,17 @@ export default function DetalleCotizacion() {
     finally { setEnviando(false); }
   };
 
+  const [enviandoWhatsapp, setEnviandoWhatsapp] = useState(false);
+  const enviarWhatsapp = async () => {
+    setError(''); setMsg(''); setEnviandoWhatsapp(true);
+    try {
+      const { data } = await api.post(`/cotizaciones/${id}/enviar-whatsapp`);
+      setMsg(data.message);
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo enviar por WhatsApp.'); }
+    finally { setEnviandoWhatsapp(false); }
+  };
+
   const accion = async (fn) => { setError(''); setMsg(''); try { await fn(); cargar(); } catch (err) { setError(err.response?.data?.error || 'Error.'); } };
 
   if (error && !cot) return <div className="p-6 text-red-600">{error}</div>;
@@ -149,6 +160,12 @@ export default function DetalleCotizacion() {
               <button onClick={enviarCorreo} disabled={enviando}
                 className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50">
                 {enviando ? 'Enviando…' : 'Enviar por correo'}
+              </button>
+            )}
+            {cot.puede_editar && cot.contacto_telefono && (
+              <button onClick={enviarWhatsapp} disabled={enviandoWhatsapp}
+                className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50">
+                {enviandoWhatsapp ? 'Enviando…' : 'Enviar por WhatsApp'}
               </button>
             )}
             <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>

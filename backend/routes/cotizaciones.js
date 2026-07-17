@@ -7,6 +7,8 @@ const { fetchCompleta } = require('../services/cotizacion_data');
 const { generarCotizacionPDF, generarCotizacionPDFBuffer } = require('../services/pdf');
 const timeline = require('../services/timeline');
 const email = require('../services/email');
+const whatsapp = require('../services/whatsapp');
+const mensajes = require('../services/whatsapp_mensajes');
 
 router.use(authenticate);
 
@@ -134,7 +136,7 @@ router.get('/:id', async (req, res) => {
       `SELECT c.*, n.titulo AS negocio_titulo, n.vendedor_id,
               n.etapa_id AS negocio_etapa_id, n.probabilidad_cierre AS negocio_probabilidad_cierre,
               pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
-              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
+              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.telefono_e164 AS contacto_telefono,
               e.razon_social AS empresa_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
@@ -197,6 +199,39 @@ router.post('/:id/enviar', async (req, res) => {
   } catch (err) {
     console.error('[cotizaciones/:id/enviar]', err);
     res.status(500).json({ error: 'Error al enviar el correo' });
+  }
+});
+
+// POST /api/cotizaciones/:id/enviar-whatsapp — envía el PDF por WhatsApp al contacto
+router.post('/:id/enviar-whatsapp', async (req, res) => {
+  try {
+    const data = await fetchCompleta({ id: req.params.id });
+    if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeEditar({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    if (data.cot.estado === 'reemplazada') return res.status(409).json({ error: 'Esta versión fue reemplazada por una más nueva' });
+    if (!data.cliente.contacto_telefono) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
+
+    const nombreArchivo = `${data.cot.numero}-v${data.cot.version}.pdf`;
+    const urlPdf = `${process.env.APP_URL || ''}/api/public/cotizacion/${data.cot.token_publico}/pdf`;
+    const resultado = await whatsapp.enviarDocumento(data.cliente.contacto_telefono, urlPdf, nombreArchivo);
+    if (!resultado.enviado) {
+      return res.status(502).json({ error: `No se pudo enviar por WhatsApp: ${resultado.motivo || 'error desconocido'}` });
+    }
+
+    const lead = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [data.cliente.contacto_id]);
+    await mensajes.registrar({
+      contacto_id: data.cliente.contacto_id, lead_id: lead?.id ?? null,
+      direccion: 'saliente', texto: `📄 Cotización ${data.cot.numero} (v${data.cot.version}) enviada`, enviado_por_id: req.user.id,
+    });
+    await db.run(
+      `UPDATE cotizaciones SET fecha_envio = now(), estado = CASE WHEN estado = 'borrador' THEN 'enviada' ELSE estado END
+       WHERE id = $1`,
+      [req.params.id]
+    );
+    res.json({ message: 'Cotización enviada por WhatsApp a ' + data.cliente.contacto_telefono });
+  } catch (err) {
+    console.error('[cotizaciones/:id/enviar-whatsapp]', err);
+    res.status(500).json({ error: 'Error al enviar por WhatsApp' });
   }
 });
 

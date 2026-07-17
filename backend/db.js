@@ -615,6 +615,18 @@ async function initDb() {
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_contacto ON whatsapp_mensajes (contacto_id, created_at)`);
 
+  // Cierre manual de conversación (además del cierre automático por 24h sin
+  // actividad, que se calcula al vuelo). Se reabre solo si el cliente vuelve a
+  // escribir (ver services/whatsapp_mensajes.js).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_conversaciones (
+      contacto_id INTEGER PRIMARY KEY REFERENCES contactos(id),
+      cerrada_manual BOOLEAN NOT NULL DEFAULT false,
+      cerrada_en TIMESTAMP,
+      cerrada_por_id INTEGER REFERENCES users(id)
+    )
+  `);
+
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta
   // simple de una pregunta (puntaje 0-10, estilo NPS) + comentario libre. Como
