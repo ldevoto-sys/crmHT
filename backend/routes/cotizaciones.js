@@ -9,6 +9,7 @@ const timeline = require('../services/timeline');
 const email = require('../services/email');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
+const { iniciarSecuenciaPostCotizacion } = require('../services/secuencias');
 
 router.use(authenticate);
 
@@ -137,6 +138,7 @@ router.get('/:id', async (req, res) => {
               n.etapa_id AS negocio_etapa_id, n.probabilidad_cierre AS negocio_probabilidad_cierre,
               pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
               ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.telefono_e164 AS contacto_telefono,
+              ct.email AS contacto_email,
               e.razon_social AS empresa_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
@@ -195,6 +197,8 @@ router.post('/:id/enviar', async (req, res) => {
        WHERE id = $1`,
       [req.params.id]
     );
+    const negocio = await negocioDe(req.params.id);
+    if (negocio) await iniciarSecuenciaPostCotizacion(negocio, req.user.id);
     res.json({ message: 'Cotización enviada por correo a ' + data.cliente.contacto_email });
   } catch (err) {
     console.error('[cotizaciones/:id/enviar]', err);
@@ -213,7 +217,8 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
 
     const nombreArchivo = `${data.cot.numero}-v${data.cot.version}.pdf`;
     const urlPdf = `${process.env.APP_URL || ''}/api/public/cotizacion/${data.cot.token_publico}/pdf`;
-    const resultado = await whatsapp.enviarDocumento(data.cliente.contacto_telefono, urlPdf, nombreArchivo);
+    const emisor = await db.get('SELECT mensaje_cotizacion_whatsapp FROM config_empresa WHERE id = 1');
+    const resultado = await whatsapp.enviarDocumento(data.cliente.contacto_telefono, urlPdf, nombreArchivo, emisor?.mensaje_cotizacion_whatsapp);
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar por WhatsApp: ${resultado.motivo || 'error desconocido'}` });
     }
@@ -228,6 +233,8 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
        WHERE id = $1`,
       [req.params.id]
     );
+    const negocio = await negocioDe(req.params.id);
+    if (negocio) await iniciarSecuenciaPostCotizacion(negocio, req.user.id);
     res.json({ message: 'Cotización enviada por WhatsApp a ' + data.cliente.contacto_telefono });
   } catch (err) {
     console.error('[cotizaciones/:id/enviar-whatsapp]', err);

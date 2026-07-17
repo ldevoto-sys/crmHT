@@ -333,20 +333,27 @@ async function initDb() {
       razon_social TEXT, rut TEXT, direccion TEXT, comuna TEXT, ciudad TEXT,
       telefono TEXT, whatsapp TEXT, email_ventas TEXT, email_cobranzas TEXT,
       sitio_web TEXT, banco TEXT, cuenta_tipo TEXT, cuenta_numero TEXT,
+      mensaje_cotizacion_whatsapp TEXT NOT NULL DEFAULT '',
       CONSTRAINT config_empresa_unica CHECK (id = 1)
     )
   `);
   const cfgExiste = await db.get('SELECT id FROM config_empresa WHERE id = 1');
   if (!cfgExiste) {
     await db.run(
-      `INSERT INTO config_empresa (id, razon_social, rut, direccion, comuna, ciudad, telefono, whatsapp, email_ventas, email_cobranzas, sitio_web, banco, cuenta_tipo, cuenta_numero)
-       VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      `INSERT INTO config_empresa (id, razon_social, rut, direccion, comuna, ciudad, telefono, whatsapp, email_ventas, email_cobranzas, sitio_web, banco, cuenta_tipo, cuenta_numero, mensaje_cotizacion_whatsapp)
+       VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       ['HidroTécnica SpA', '80.463.600-5', 'Manuel Tocornal 1906', 'Santiago', 'Santiago',
        '(56 2) 2327 6000', '+56 9 8106 2974', 'ventas@hidrotecnica.cl', 'cobranzas@hidrotecnica.cl',
-       'www.hidrotecnica.cl', 'Banco de Chile', 'Cuenta Corriente', '1510143209']
+       'www.hidrotecnica.cl', 'Banco de Chile', 'Cuenta Corriente', '1510143209',
+       'Adjunto la cotización según lo solicitado, quedo atento a cualquier consulta para que la revisemos juntos.']
     );
     console.log('[DB] Config de empresa (emisor) creada.');
   }
+  await db.run(`ALTER TABLE config_empresa ADD COLUMN IF NOT EXISTS mensaje_cotizacion_whatsapp TEXT NOT NULL DEFAULT ''`);
+  await db.run(
+    `UPDATE config_empresa SET mensaje_cotizacion_whatsapp=$1 WHERE id=1 AND mensaje_cotizacion_whatsapp=''`,
+    ['Adjunto la cotización según lo solicitado, quedo atento a cualquier consulta para que la revisemos juntos.']
+  );
 
   // === Etapa 2E — Leads y motor de asignación (§7.1, §9.4) ===
 
@@ -512,6 +519,16 @@ async function initDb() {
   // Si está marcada, un paso vencido fuera del horario de atención espera a
   // que abra en vez de generarse a cualquier hora (ver config_horario_atencion).
   await db.run(`ALTER TABLE secuencias ADD COLUMN IF NOT EXISTS respetar_horario BOOLEAN NOT NULL DEFAULT false`);
+
+  // Secuencia que se dispara sola al enviar una cotización (correo o
+  // WhatsApp): prevalece sobre cualquier otra secuencia que estuviera activa
+  // en el negocio, ya que se asume que el cliente respondió. Solo una puede
+  // estar marcada a la vez (índice único parcial).
+  await db.run(`ALTER TABLE secuencias ADD COLUMN IF NOT EXISTS es_default_post_cotizacion BOOLEAN NOT NULL DEFAULT false`);
+  await db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_secuencias_default_post_cotizacion
+    ON secuencias ((es_default_post_cotizacion)) WHERE es_default_post_cotizacion = true
+  `);
 
   // === Etapa 4 (preparación) — Bot de WhatsApp: horario, categorización y recontacto ===
   // El canal de WhatsApp en sí depende de credenciales de Meta (pendientes de
