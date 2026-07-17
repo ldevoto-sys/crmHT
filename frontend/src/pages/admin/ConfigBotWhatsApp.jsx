@@ -19,6 +19,8 @@ export default function ConfigBotWhatsApp() {
   const [mensajeFueraHorario, setMensajeFueraHorario] = useState('');
   const [mensajeCategorizacion, setMensajeCategorizacion] = useState('');
   const [opciones, setOpciones] = useState([opcionVacia()]);
+  const [mensajeConfirmacion, setMensajeConfirmacion] = useState('');
+  const [bandejaAcceso, setBandejaAcceso] = useState('todos');
   const [recontactoRespetaHorario, setRecontactoRespetaHorario] = useState(true);
   const [pasosRecontacto, setPasosRecontacto] = useState([pasoVacio()]);
 
@@ -31,6 +33,8 @@ export default function ConfigBotWhatsApp() {
         setMensajeFueraHorario(w.data.mensaje_fuera_horario);
         setMensajeCategorizacion(w.data.mensaje_categorizacion);
         setOpciones(w.data.opciones_categorizacion.length ? w.data.opciones_categorizacion : [opcionVacia()]);
+        setMensajeConfirmacion(w.data.mensaje_confirmacion);
+        setBandejaAcceso(w.data.bandeja_acceso);
         setRecontactoRespetaHorario(w.data.recontacto_respeta_horario);
         setPasosRecontacto(w.data.pasos_recontacto.map(p => ({ tiempo_espera_horas: p.tiempo_espera_horas, mensaje: p.mensaje })));
       })
@@ -57,6 +61,8 @@ export default function ConfigBotWhatsApp() {
         mensaje_fuera_horario: mensajeFueraHorario,
         mensaje_categorizacion: mensajeCategorizacion,
         opciones_categorizacion: opciones,
+        mensaje_confirmacion: mensajeConfirmacion,
+        bandeja_acceso: bandejaAcceso,
         recontacto_respeta_horario: recontactoRespetaHorario,
         pasos_recontacto: pasosRecontacto,
       });
@@ -141,6 +147,22 @@ export default function ConfigBotWhatsApp() {
             ))}
             <button type="button" onClick={agregarOpcion} className="text-sm text-ht-accent hover:underline">+ Agregar opción</button>
           </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Mensaje de confirmación (al elegir una opción)</label>
+            <textarea required rows={2} value={mensajeConfirmacion} onChange={e => setMensajeConfirmacion(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+        </section>
+
+        <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
+          <h2 className="font-semibold text-ht-navy">Bandeja WhatsApp</h2>
+          <label className="block text-sm text-gray-700 mb-1">¿Quién puede ver y responder las conversaciones?</label>
+          <select value={bandejaAcceso} onChange={e => setBandejaAcceso(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="todos">Cualquier vendedor puede ver y responder todas las conversaciones</option>
+            <option value="asignado">Solo el vendedor asignado al lead/negocio</option>
+          </select>
+          <p className="text-xs text-gray-400">Administrador y jefe comercial siempre ven todas las conversaciones, sin importar esta opción.</p>
         </section>
 
         <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">

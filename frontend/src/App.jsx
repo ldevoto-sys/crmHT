@@ -15,6 +15,7 @@ import ConfigSecuencias from './pages/admin/ConfigSecuencias';
 import ConfigBotWhatsApp from './pages/admin/ConfigBotWhatsApp';
 import ConfigEncuesta from './pages/admin/ConfigEncuesta';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
+import BandejaWhatsApp from './pages/bandeja/BandejaWhatsApp';
 import Empresas from './pages/maestros/Empresas';
 import ImportarEmpresas from './pages/maestros/ImportarEmpresas';
 import DetalleEmpresa from './pages/maestros/DetalleEmpresa';
@@ -34,7 +35,6 @@ import CotizacionPublica from './pages/publico/CotizacionPublica';
 import EncuestaPublica from './pages/publico/EncuestaPublica';
 import MisTareas from './pages/ventas/MisTareas';
 import Reportes from './pages/ventas/Reportes';
-import Placeholder from './pages/Placeholder';
 
 export default function App() {
   return (
@@ -100,7 +100,9 @@ export default function App() {
             } />
 
             {/* Etapa 4 — WhatsApp */}
-            <Route path="bandeja" element={<Placeholder title="Bandeja WhatsApp" />} />
+            <Route path="bandeja" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><BandejaWhatsApp /></ProtectedRoute>
+            } />
             <Route path="cola" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'callcenter']}><ColaAsignacion /></ProtectedRoute>
             } />

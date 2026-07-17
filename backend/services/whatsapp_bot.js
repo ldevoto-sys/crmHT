@@ -9,6 +9,7 @@
 const { db } = require('../db');
 const whatsapp = require('./whatsapp');
 const { esHorarioHabil } = require('./horario');
+const mensajes = require('./whatsapp_mensajes');
 
 // Avanza todos los leads en flujo de bot cuya próxima acción ya venció:
 // envía el siguiente mensaje de recontacto, o cierra el lead si ya se
@@ -40,6 +41,7 @@ async function avanzarRecontactosPendientes() {
 
     const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [lead.contacto_id]);
     if (contacto?.telefono_e164) await whatsapp.enviar(contacto.telefono_e164, paso.mensaje);
+    await mensajes.registrar({ contacto_id: lead.contacto_id, lead_id: lead.id, direccion: 'saliente', texto: paso.mensaje });
 
     const esUltimoPaso = lead.bot_paso_recontacto + 1 >= pasos.length;
     if (esUltimoPaso) {
