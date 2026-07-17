@@ -101,7 +101,7 @@ export default function App() {
 
             {/* Etapa 4 — WhatsApp */}
             <Route path="bandeja" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><BandejaWhatsApp /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia']}><BandejaWhatsApp /></ProtectedRoute>
             } />
             <Route path="cola" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'callcenter']}><ColaAsignacion /></ProtectedRoute>

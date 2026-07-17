@@ -9,11 +9,12 @@ const mensajes = require('../services/whatsapp_mensajes');
 
 router.use(authenticate);
 
-// Administrador y jefe_comercial siempre ven todas las conversaciones; el
-// resto de roles depende de whatsapp_bot_config.bandeja_acceso ('todos' o
-// 'asignado' = solo las conversaciones de sus propios leads).
+// Administrador, jefe_comercial, callcenter y gerencia siempre ven todas las
+// conversaciones (no son dueños de leads, necesitan visión completa para
+// triage/supervisión). El toggle bandeja_acceso solo restringe a vendedor:
+// 'todos' = ve todas, 'asignado' = solo las de sus propios leads.
 async function puedeVerTodo(req) {
-  if (['administrador', 'jefe_comercial'].includes(req.user.rol)) return true;
+  if (req.user.rol !== 'vendedor') return true;
   const cfg = await db.get('SELECT bandeja_acceso FROM whatsapp_bot_config WHERE id = 1');
   return cfg?.bandeja_acceso !== 'asignado';
 }

@@ -43,6 +43,7 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Cola de asignación', to: '/cola' },
     { label: 'Mis Tareas', to: '/tareas' },
+    { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
   ],
@@ -50,6 +51,7 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Bandeja WhatsApp', to: '/bandeja' },
   ],
 };
 
