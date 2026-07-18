@@ -94,15 +94,30 @@ async function generarCotizacionPDF(data, stream) {
     const sub = [it.marca, it.sku].filter(Boolean).join(' · ');
     const imagenBuf = imagenes[idx];
     const fichaPublica = esImagenPublica(it.ficha_tecnica_url) ? it.ficha_tecnica_url : null;
+    const descripcionCompleta = (it.mostrar_descripcion !== false && it.descripcion_completa) ? it.descripcion_completa : null;
     const textoX = imagenBuf ? M + 34 : M + 8;
     const textoAncho = imagenBuf ? 274 : 300;
-    const h = (sub && fichaPublica) ? 42 : (sub || fichaPublica || imagenBuf) ? 34 : 26;
 
+    let contenidoH = 18;
+    if (sub) contenidoH += 11;
+    let descAltura = 0;
+    if (descripcionCompleta) {
+      descAltura = doc.font('Helvetica').fontSize(7.5).heightOfString(descripcionCompleta, { width: textoAncho });
+      contenidoH += descAltura + 4;
+    }
+    if (fichaPublica) contenidoH += 11;
+    const h = Math.max(contenidoH + 8, imagenBuf ? 34 : 26);
+
+    if (y + h > 780) { doc.addPage(); y = 40; }
     if (idx % 2 === 1) doc.rect(M, y, 515, h).fill('#f7f9fc');
     if (imagenBuf) { try { doc.image(imagenBuf, M + 6, y + 5, { fit: [24, 24] }); } catch { /* imagen inválida, se omite */ } }
     doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text(nombre, textoX, y + 6, { width: textoAncho });
     let subY = y + 18;
     if (sub) { doc.fillColor(GRAY).font('Helvetica').fontSize(8).text(sub, textoX, subY, { width: textoAncho }); subY += 11; }
+    if (descripcionCompleta) {
+      doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text(descripcionCompleta, textoX, subY, { width: textoAncho });
+      subY += descAltura + 4;
+    }
     if (fichaPublica) {
       doc.fillColor(CYAN).font('Helvetica').fontSize(8)
         .text('Ficha técnica (PDF) ↗', textoX, subY, { width: textoAncho, underline: true, link: fichaPublica });

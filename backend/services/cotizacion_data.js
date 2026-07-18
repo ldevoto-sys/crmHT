@@ -21,7 +21,7 @@ async function fetchCompleta({ id, token }) {
   if (!cot) return null;
   const items = await db.all(
     `SELECT ci.*, p.nombre AS producto_nombre, p.sku, p.url_imagen, p.ficha_tecnica_url,
-            p.marca, p.categoria
+            p.marca, p.categoria, p.descripcion_completa
      FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
      WHERE ci.cotizacion_id = $1 ORDER BY ci.id`, [cot.id]);
   const emisor = await db.get('SELECT * FROM config_empresa WHERE id = 1') || {};

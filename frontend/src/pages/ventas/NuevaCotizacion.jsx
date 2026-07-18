@@ -79,8 +79,8 @@ export default function NuevaCotizacion() {
     api.get('/productos', { params: { ids: productosPreseleccionados } }).then(r => {
       setItems(r.data.map(p => ({
         producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
-        mostrar_imagen: true,
-        producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen },
+        mostrar_imagen: true, mostrar_descripcion: true,
+        producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen, descripcion_completa: p.descripcion_completa },
       })));
     }).catch(() => {});
     // eslint-disable-next-line
@@ -97,8 +97,10 @@ export default function NuevaCotizacion() {
         setItems(c.items.map(it => ({
           producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre,
           cantidad: it.cantidad, precio_unitario: it.precio_unitario,
-          mostrar_imagen: it.mostrar_imagen !== false,
-          producto_meta: it.producto_id ? { sku: it.sku, marca: it.marca, categoria: it.categoria, url_imagen: it.url_imagen } : null,
+          mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
+          producto_meta: it.producto_id
+            ? { sku: it.sku, marca: it.marca, categoria: it.categoria, url_imagen: it.url_imagen, descripcion_completa: it.descripcion_completa }
+            : null,
         })));
         api.get(`/negocios/${c.negocio_id}`).then(rn => setNegocio(rn.data)).finally(() => setCargando(false));
       }).catch(() => { setError('No se pudo cargar la cotización.'); setCargando(false); });
@@ -117,10 +119,13 @@ export default function NuevaCotizacion() {
   const agregarProducto = (i, p) => {
     setItems(is => is.map((it, idx) => idx === i ? {
       ...it, producto_id: p.id, descripcion: p.nombre, precio_unitario: Number(p.precio_lista) || 0,
-      producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen },
+      producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen, descripcion_completa: p.descripcion_completa },
     } : it));
   };
-  const agregarLibre = () => setItems(is => [...is, { producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0, mostrar_imagen: true, producto_meta: null }]);
+  const agregarLibre = () => setItems(is => [...is, {
+    producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0,
+    mostrar_imagen: true, mostrar_descripcion: true, producto_meta: null,
+  }]);
   const setItem = (i, campo, val) => setItems(is => is.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const quitar = i => setItems(is => is.filter((_, idx) => idx !== i));
 
@@ -150,7 +155,8 @@ export default function NuevaCotizacion() {
         validez_dias: Number(validez) || 15, condiciones, titulo,
         items: items.map(it => ({
           producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad),
-          precio_unitario: Number(it.precio_unitario), mostrar_imagen: it.mostrar_imagen !== false,
+          precio_unitario: Number(it.precio_unitario),
+          mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
         })),
       };
       if (modoEdicion) {
@@ -216,6 +222,7 @@ export default function NuevaCotizacion() {
               <th className="text-right py-1 font-medium w-32">P. unitario</th>
               <th className="text-right py-1 font-medium w-28">Total</th>
               <th className="text-center py-1 font-medium w-16">Imagen</th>
+              <th className="text-center py-1 font-medium w-16">Descripción completa</th>
               <th className="w-8"></th>
             </tr>
           </thead>
@@ -252,10 +259,21 @@ export default function NuevaCotizacion() {
                     );
                   })()}
                 </td>
+                <td className="py-2 text-center">
+                  {(() => {
+                    const tieneDescripcion = !!(it.producto_id && it.producto_meta?.descripcion_completa);
+                    return (
+                      <input type="checkbox" checked={tieneDescripcion && it.mostrar_descripcion !== false}
+                        disabled={!tieneDescripcion}
+                        onChange={e => setItem(i, 'mostrar_descripcion', e.target.checked)}
+                        title={tieneDescripcion ? 'Incluir la descripción completa del producto en el PDF y la vista del cliente' : 'Sin efecto: la línea no tiene producto o descripción cargada'} />
+                    );
+                  })()}
+                </td>
                 <td className="py-2 text-right"><button onClick={() => quitar(i)} className="text-red-400 hover:text-red-600">✕</button></td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={7} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
           </tbody>
         </table>
         <button onClick={agregarLibre} className="mt-2 text-sm text-ht-accent hover:underline">+ Agregar línea</button>

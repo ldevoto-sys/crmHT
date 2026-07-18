@@ -32,6 +32,7 @@ router.get('/cotizacion/:token', async (req, res) => {
         cantidad: it.cantidad, precio_unitario: it.precio_unitario, total_linea: it.total_linea,
         imagen: (it.mostrar_imagen !== false && esImagenPublica(it.url_imagen)) ? it.url_imagen : null,
         ficha: esImagenPublica(it.ficha_tecnica_url) ? it.ficha_tecnica_url : null,
+        descripcion_completa: (it.mostrar_descripcion !== false && it.descripcion_completa) ? it.descripcion_completa : null,
       })),
     });
   } catch (err) {

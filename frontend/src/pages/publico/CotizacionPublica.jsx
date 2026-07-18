@@ -106,6 +106,9 @@ export default function CotizacionPublica() {
                     <div><span className="text-gray-500">Cantidad: </span><span className="font-bold" style={{ color: NAVY }}>{Number(it.cantidad)}</span></div>
                     <div><span className="text-gray-500">P. Unit.: </span><span className="font-bold" style={{ color: NAVY }}>{money(it.precio_unitario)}</span></div>
                   </div>
+                  {it.descripcion_completa && (
+                    <p className="mt-2 text-[11px] text-gray-600 leading-snug">{it.descripcion_completa}</p>
+                  )}
                   {it.ficha && (
                     <a href={it.ficha} target="_blank" rel="noreferrer" className="inline-block mt-2 text-[11px]" style={{ color: CYAN }}>Ficha técnica (PDF) ↗</a>
                   )}
