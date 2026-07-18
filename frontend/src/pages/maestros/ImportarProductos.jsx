@@ -10,6 +10,23 @@ export default function ImportarProductos() {
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
 
+  const [sobrescribirR2, setSobrescribirR2] = useState(false);
+  const [resultadoR2, setResultadoR2] = useState(null);
+  const [errorR2, setErrorR2] = useState('');
+  const [cargandoR2, setCargandoR2] = useState(false);
+
+  const aplicarR2 = async () => {
+    if (!window.confirm(sobrescribirR2
+      ? '¿Reemplazar la URL de imagen y ficha de TODOS los productos con código, aunque ya tengan una cargada?'
+      : '¿Completar la URL de imagen y ficha solo en los productos que todavía no tienen una?')) return;
+    setErrorR2(''); setResultadoR2(null); setCargandoR2(true);
+    try {
+      const { data } = await api.post('/productos/aplicar-r2', { sobrescribir: sobrescribirR2 });
+      setResultadoR2(data);
+    } catch (err) { setErrorR2(err.response?.data?.error || 'No se pudo aplicar.'); }
+    finally { setCargandoR2(false); }
+  };
+
   const analizar = async e => {
     e.preventDefault();
     if (!archivo) return;
@@ -166,6 +183,33 @@ export default function ImportarProductos() {
           </button>
         </div>
       )}
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 mt-8 max-w-2xl">
+        <h2 className="font-semibold text-ht-navy mb-1">Imágenes y fichas técnicas (Cloudflare R2)</h2>
+        <p className="text-gray-500 text-sm mb-3">
+          Sube las imágenes y fichas PDF directo a Cloudflare (fuera del CRM), nombrando cada archivo con el
+          <strong> código del producto</strong> (ej. <code>BAC-1500.jpg</code>, <code>BAC-1500.pdf</code>). Esta
+          acción no sube nada — solo completa la URL de cada producto según ese nombre de archivo.
+        </p>
+        {errorR2 && <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorR2}</div>}
+        {resultadoR2 && (
+          <div className="mb-3 p-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
+            <ul className="list-disc pl-5">
+              <li>Imágenes actualizadas: {resultadoR2.imagenes_actualizadas}</li>
+              <li>Fichas actualizadas: {resultadoR2.fichas_actualizadas}</li>
+              {resultadoR2.productos_sin_codigo > 0 && <li>Productos sin código (no se les pudo asignar URL): {resultadoR2.productos_sin_codigo}</li>}
+            </ul>
+          </div>
+        )}
+        <label className="flex items-center gap-2 text-sm text-gray-600 mb-3">
+          <input type="checkbox" checked={sobrescribirR2} onChange={e => setSobrescribirR2(e.target.checked)} />
+          Sobrescribir la URL aunque el producto ya tenga una cargada
+        </label>
+        <button onClick={aplicarR2} disabled={cargandoR2}
+          className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+          {cargandoR2 ? 'Aplicando…' : 'Aplicar URLs de Cloudflare por código'}
+        </button>
+      </div>
     </div>
   );
 }
