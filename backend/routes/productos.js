@@ -160,10 +160,12 @@ router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res
 
 // Imágenes y fichas técnicas se suben directo a Cloudflare R2 por fuera del
 // CRM (bucket público crm-ht-productos), en carpetas separadas "img/" y
-// "pdf/", con el código/SKU como nombre de archivo (ej. "img/BAC-1500.jpg",
-// "pdf/BAC-1500.pdf"). Esta acción no sube nada: solo completa
-// url_imagen/ficha_tecnica_url calculando la URL esperada según esa
-// convención, para los productos que tengan código.
+// "pdf/", con el código/SKU como parte del nombre de archivo según la
+// convención real usada al subirlas: "img/imagen1_{sku}.jpg" (prefijo fijo
+// "imagen1_") y "pdf/{sku}FT.pdf" (sufijo "FT" antes de la extensión).
+// Esta acción no sube nada: solo completa url_imagen/ficha_tecnica_url
+// calculando la URL esperada según esa convención, para los productos que
+// tengan código.
 // POST /api/productos/aplicar-r2 {sobrescribir}
 router.post('/aplicar-r2', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
@@ -175,11 +177,11 @@ router.post('/aplicar-r2', authorize('administrador', 'jefe_comercial'), async (
     const condicionFicha = sobrescribir ? '' : `AND (ficha_tecnica_url IS NULL OR ficha_tecnica_url = '')`;
 
     const imagenes = await db.run(
-      `UPDATE productos SET url_imagen = $1 || '/img/' || sku || '.jpg' WHERE sku IS NOT NULL AND sku != '' ${condicionImagen}`,
+      `UPDATE productos SET url_imagen = $1 || '/img/imagen1_' || sku || '.jpg' WHERE sku IS NOT NULL AND sku != '' ${condicionImagen}`,
       [base]
     );
     const fichas = await db.run(
-      `UPDATE productos SET ficha_tecnica_url = $1 || '/pdf/' || sku || '.pdf' WHERE sku IS NOT NULL AND sku != '' ${condicionFicha}`,
+      `UPDATE productos SET ficha_tecnica_url = $1 || '/pdf/' || sku || 'FT.pdf' WHERE sku IS NOT NULL AND sku != '' ${condicionFicha}`,
       [base]
     );
     const sinCodigo = await db.get(`SELECT count(*)::int AS n FROM productos WHERE sku IS NULL OR sku = ''`);

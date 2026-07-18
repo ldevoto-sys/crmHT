@@ -188,8 +188,9 @@ export default function ImportarProductos() {
         <h2 className="font-semibold text-ht-navy mb-1">Imágenes y fichas técnicas (Cloudflare R2)</h2>
         <p className="text-gray-500 text-sm mb-3">
           Sube las imágenes a la carpeta <code>img/</code> y las fichas PDF a la carpeta <code>pdf/</code> del bucket
-          de Cloudflare (fuera del CRM), nombrando cada archivo con el <strong>código del producto</strong>
-          (ej. <code>img/BAC-1500.jpg</code>, <code>pdf/BAC-1500.pdf</code>). Esta acción no sube nada — solo
+          de Cloudflare (fuera del CRM), nombrando cada archivo según el <strong>código del producto</strong>:
+          las imágenes con el prefijo <code>imagen1_</code> (ej. <code>img/imagen1_BAC-1500.jpg</code>) y las
+          fichas con el sufijo <code>FT</code> (ej. <code>pdf/BAC-1500FT.pdf</code>). Esta acción no sube nada — solo
           completa la URL de cada producto según ese nombre de archivo.
         </p>
         {errorR2 && <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorR2}</div>}
