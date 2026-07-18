@@ -168,11 +168,20 @@ export default function BandejaWhatsApp() {
                   {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
                   <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
                 </div>
-                {conversacionActual?.abierta && (
-                  <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
-                    Cerrar conversación
-                  </button>
-                )}
+                <div className="flex items-center gap-2">
+                  <a target="_blank" rel="noreferrer"
+                    href={conversacionActual?.negocio_id
+                      ? `/negocios/${conversacionActual.negocio_id}/cotizar`
+                      : `/cotizaciones/nueva?contacto_id=${conversacionActual?.contacto_id}`}
+                    className="text-xs text-ht-navy border border-ht-accent rounded px-2 py-1 hover:bg-ht-accent/5">
+                    Crear cotización ↗
+                  </a>
+                  {conversacionActual?.abierta && (
+                    <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                      Cerrar conversación
+                    </button>
+                  )}
+                </div>
               </div>
               <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map(m => (

@@ -48,7 +48,7 @@ router.get('/conversaciones', async (req, res) => {
 
     const conversaciones = await db.all(
       `SELECT c.id AS contacto_id, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido, c.telefono_e164,
-              l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, u.nombre AS vendedor_nombre,
+              l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
               COALESCE(abierta.abierta, false) AS abierta
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
