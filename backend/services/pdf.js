@@ -93,7 +93,7 @@ async function generarCotizacionPDF(data, stream) {
     const nombre = it.descripcion || it.producto_nombre || '—';
     const sub = [it.marca, it.sku].filter(Boolean).join(' · ');
     const imagenBuf = imagenes[idx];
-    const fichaPublica = esImagenPublica(it.ficha_tecnica_url) ? it.ficha_tecnica_url : null;
+    const fichaPublica = (it.mostrar_ficha !== false && esImagenPublica(it.ficha_tecnica_url)) ? it.ficha_tecnica_url : null;
     const descripcionCompleta = (it.mostrar_descripcion !== false && it.descripcion_completa) ? it.descripcion_completa : null;
     const textoX = imagenBuf ? M + 34 : M + 8;
     const textoAncho = imagenBuf ? 274 : 300;

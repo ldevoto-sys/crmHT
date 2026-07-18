@@ -336,6 +336,8 @@ async function initDb() {
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_imagen BOOLEAN NOT NULL DEFAULT true`);
   // Igual que mostrar_imagen, pero para la descripción larga del producto.
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_descripcion BOOLEAN NOT NULL DEFAULT true`);
+  // Igual que mostrar_imagen, pero para el link de la ficha técnica (PDF).
+  await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_ficha BOOLEAN NOT NULL DEFAULT true`);
 
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`
