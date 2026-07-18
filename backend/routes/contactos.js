@@ -8,6 +8,7 @@ const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
 const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
 const { toCSV } = require('../utils/csv');
+const { mayusculas } = require('../utils/texto');
 
 const PUEDE_EDITAR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
 const PUEDE_IMPORTAR = ['administrador', 'jefe_comercial'];
@@ -329,7 +330,8 @@ router.get('/:id', async (req, res) => {
 // POST /api/contactos
 router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
-    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, origen, vendedor_id } = req.body;
+    let { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, origen, vendedor_id } = req.body;
+    nombre = mayusculas(nombre); apellido = mayusculas(apellido);
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
     if (rut_comprador && !validarRut(rut_comprador)) return res.status(400).json({ error: 'RUT inválido' });
 
@@ -366,7 +368,8 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
 router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, activo, revisar_duplicado, vendedor_id } = req.body;
+    let { nombre, apellido, email, telefono, empresa_id, rut_comprador, cargo, activo, revisar_duplicado, vendedor_id } = req.body;
+    nombre = mayusculas(nombre); apellido = mayusculas(apellido);
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
     if (rut_comprador && !validarRut(rut_comprador)) return res.status(400).json({ error: 'RUT inválido' });
 

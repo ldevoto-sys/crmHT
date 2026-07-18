@@ -10,6 +10,7 @@ const email = require('../services/email');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
 const { iniciarSecuenciaPostCotizacion } = require('../services/secuencias');
+const { mayusculas } = require('../utils/texto');
 
 router.use(authenticate);
 
@@ -244,7 +245,8 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
-  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, titulo } = req.body;
+  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
+  const titulo = mayusculas(req.body.titulo);
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
   if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
@@ -288,7 +290,8 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
 
 // PUT /api/cotizaciones/:id — edita una cotización en estado 'borrador' (incl. luego de "nueva versión")
 router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
-  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, titulo } = req.body;
+  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
+  const titulo = mayusculas(req.body.titulo);
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
   if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
   if (iva_pct < 0 || iva_pct > 100) return res.status(400).json({ error: 'IVA inválido' });

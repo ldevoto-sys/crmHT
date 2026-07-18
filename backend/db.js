@@ -112,6 +112,11 @@ async function initDb() {
   // asignación). No se rellena retroactivamente: para contactos ya asignados
   // antes de este cambio queda NULL, porque no hay forma de saber cuándo ocurrió.
   await db.run(`ALTER TABLE contactos ADD COLUMN IF NOT EXISTS vendedor_asignado_en TIMESTAMP`);
+  // Estandariza a mayúsculas nombre/apellido cargados antes de este cambio
+  // (los vendedores suelen tipearlos en minúscula). Idempotente: solo toca
+  // las filas que todavía no estén en mayúsculas.
+  await db.run(`UPDATE contactos SET nombre = UPPER(TRIM(nombre)) WHERE nombre <> UPPER(TRIM(nombre))`);
+  await db.run(`UPDATE contactos SET apellido = UPPER(TRIM(apellido)) WHERE apellido IS NOT NULL AND apellido <> UPPER(TRIM(apellido))`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS productos (
