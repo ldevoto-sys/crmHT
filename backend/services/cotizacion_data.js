@@ -45,4 +45,12 @@ function esImagenPublica(url) {
   return /^https?:\/\//i.test(url) && !/sharepoint\.com/i.test(url);
 }
 
-module.exports = { fetchCompleta, esImagenPublica };
+// Número visible de una cotización: NNNNNN-VV (correlativo-versión, sin
+// prefijo de texto). Las cotizaciones emitidas antes de este cambio
+// conservan su "numero" viejo (COT-AAAA-NNNNN); esta función solo arma el
+// sufijo de versión, así que sigue funcionando igual para esas.
+function numeroCompleto(numero, version) {
+  return `${numero}-${String(version).padStart(2, '0')}`;
+}
+
+module.exports = { fetchCompleta, esImagenPublica, numeroCompleto };

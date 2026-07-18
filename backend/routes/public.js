@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
-const { fetchCompleta, esImagenPublica } = require('../services/cotizacion_data');
+const { fetchCompleta, esImagenPublica, numeroCompleto } = require('../services/cotizacion_data');
 const { generarCotizacionPDF } = require('../services/pdf');
 
 // Rutas SIN autenticación (link enviado al cliente). HT-AP-03 §7.5.
@@ -47,7 +47,7 @@ router.get('/cotizacion/:token/pdf', async (req, res) => {
     const data = await fetchCompleta({ token: req.params.token });
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${data.cot.numero}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${numeroCompleto(data.cot.numero, data.cot.version)}.pdf"`);
     await generarCotizacionPDF(data, res);
   } catch (err) {
     console.error('[public/cotizacion/pdf]', err);

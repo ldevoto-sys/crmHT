@@ -262,10 +262,25 @@ async function initDb() {
 
   // === Etapa 2B — Cotizaciones ===
 
-  // Correlativo global por año: COT-AAAA-NNNNN.
+  // Correlativo por año (COT-AAAA-NNNNN): formato reemplazado por el
+  // correlativo global de abajo. Se deja la tabla sin usar (no se borra)
+  // porque las cotizaciones ya emitidas con ese formato siguen existiendo.
   await db.run(`
     CREATE TABLE IF NOT EXISTS cotizacion_correlativo (
       anio INTEGER PRIMARY KEY,
+      ultimo INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Correlativo global sin año, formato NNNNNN (6 dígitos). El número final
+  // de una cotización se muestra como NNNNNN-VV (versión, 2 dígitos), sin
+  // prefijo de texto. COTIZACION_CORRELATIVO_INICIAL solo se usa la primera
+  // vez que se genera una cotización tras este cambio (define desde qué
+  // número seguir contando); llamadas siguientes ignoran esa variable y
+  // solo incrementan lo que ya hay guardado.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_correlativo_global (
+      id INTEGER PRIMARY KEY DEFAULT 1,
       ultimo INTEGER NOT NULL DEFAULT 0
     )
   `);

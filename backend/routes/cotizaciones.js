@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
-const { fetchCompleta } = require('../services/cotizacion_data');
+const { fetchCompleta, numeroCompleto } = require('../services/cotizacion_data');
 const { generarCotizacionPDF, generarCotizacionPDFBuffer } = require('../services/pdf');
 const timeline = require('../services/timeline');
 const email = require('../services/email');
@@ -72,16 +72,18 @@ function calcular(items, descuento_pct, iva_pct) {
   return { subtotal, total };
 }
 
-// Correlativo COT-AAAA-NNNNN, seguro ante concurrencia (dentro de la transacción).
+// Correlativo global NNNNNN (6 dígitos, sin año ni prefijo), seguro ante
+// concurrencia (dentro de la transacción). COTIZACION_CORRELATIVO_INICIAL
+// solo se usa al insertar la fila por primera vez.
 async function proximoNumero(client) {
-  const anio = new Date().getFullYear();
+  const inicial = parseInt(process.env.COTIZACION_CORRELATIVO_INICIAL || '0', 10) || 0;
   const r = await client.query(
-    `INSERT INTO cotizacion_correlativo (anio, ultimo) VALUES ($1, 1)
-     ON CONFLICT (anio) DO UPDATE SET ultimo = cotizacion_correlativo.ultimo + 1
-     RETURNING ultimo`, [anio]
+    `INSERT INTO cotizacion_correlativo_global (id, ultimo) VALUES (1, $1)
+     ON CONFLICT (id) DO UPDATE SET ultimo = cotizacion_correlativo_global.ultimo + 1
+     RETURNING ultimo`,
+    [inicial + 1]
   );
-  const n = r.rows[0].ultimo;
-  return `COT-${anio}-${String(n).padStart(5, '0')}`;
+  return String(r.rows[0].ultimo).padStart(6, '0');
 }
 
 function itemsValidos(items) {
@@ -168,7 +170,7 @@ router.get('/:id/pdf', async (req, res) => {
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
     if (!puedeVer({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${data.cot.numero}-v${data.cot.version}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${numeroCompleto(data.cot.numero, data.cot.version)}.pdf"`);
     await generarCotizacionPDF(data, res);
   } catch (err) {
     console.error('[cotizaciones/:id/pdf]', err);
@@ -216,7 +218,7 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
     if (data.cot.estado === 'reemplazada') return res.status(409).json({ error: 'Esta versión fue reemplazada por una más nueva' });
     if (!data.cliente.contacto_telefono) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
-    const nombreArchivo = `${data.cot.numero}-v${data.cot.version}.pdf`;
+    const nombreArchivo = `${numeroCompleto(data.cot.numero, data.cot.version)}.pdf`;
     const urlPdf = `${process.env.APP_URL || ''}/api/public/cotizacion/${data.cot.token_publico}/pdf`;
     const emisor = await db.get('SELECT mensaje_cotizacion_whatsapp FROM config_empresa WHERE id = 1');
     const resultado = await whatsapp.enviarDocumento(data.cliente.contacto_telefono, urlPdf, nombreArchivo, emisor?.mensaje_cotizacion_whatsapp);
@@ -227,7 +229,7 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
     const lead = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [data.cliente.contacto_id]);
     await mensajes.registrar({
       contacto_id: data.cliente.contacto_id, lead_id: lead?.id ?? null,
-      direccion: 'saliente', texto: `📄 Cotización ${data.cot.numero} (v${data.cot.version}) enviada`, enviado_por_id: req.user.id,
+      direccion: 'saliente', texto: `📄 Cotización ${numeroCompleto(data.cot.numero, data.cot.version)} enviada`, enviado_por_id: req.user.id,
     });
     await db.run(
       `UPDATE cotizaciones SET fecha_envio = now(), estado = CASE WHEN estado = 'borrador' THEN 'enviada' ELSE estado END
