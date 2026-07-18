@@ -34,7 +34,7 @@ async function descargarImagen(url) {
 
 async function generarCotizacionPDF(data, stream) {
   const { cot, items, cliente, vendedor, emisor = {} } = data;
-  const imagenes = await Promise.all(items.map(it => descargarImagen(it.url_imagen)));
+  const imagenes = await Promise.all(items.map(it => it.mostrar_imagen !== false ? descargarImagen(it.url_imagen) : null));
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(stream);
   const M = 40;

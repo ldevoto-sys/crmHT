@@ -326,6 +326,11 @@ async function initDb() {
   // Título/descripción general de la cotización (ej. "Sistema hidroneumático Edificio X").
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS titulo TEXT`);
 
+  // El vendedor decide por línea si se muestra la imagen del producto en el
+  // PDF/vista pública. Tildado por defecto; sin efecto si la línea no tiene
+  // producto asociado o el producto no tiene imagen cargada.
+  await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_imagen BOOLEAN NOT NULL DEFAULT true`);
+
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`
     CREATE TABLE IF NOT EXISTS config_empresa (
