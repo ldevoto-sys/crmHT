@@ -79,8 +79,11 @@ export default function NuevaCotizacion() {
     api.get('/productos', { params: { ids: productosPreseleccionados } }).then(r => {
       setItems(r.data.map(p => ({
         producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
-        mostrar_imagen: true, mostrar_descripcion: true,
-        producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen, descripcion_completa: p.descripcion_completa },
+        mostrar_imagen: true, mostrar_descripcion: true, mostrar_ficha: true,
+        producto_meta: {
+          sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen,
+          descripcion_completa: p.descripcion_completa, ficha_tecnica_url: p.ficha_tecnica_url,
+        },
       })));
     }).catch(() => {});
     // eslint-disable-next-line
@@ -98,8 +101,12 @@ export default function NuevaCotizacion() {
           producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre,
           cantidad: it.cantidad, precio_unitario: it.precio_unitario,
           mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
+          mostrar_ficha: it.mostrar_ficha !== false,
           producto_meta: it.producto_id
-            ? { sku: it.sku, marca: it.marca, categoria: it.categoria, url_imagen: it.url_imagen, descripcion_completa: it.descripcion_completa }
+            ? {
+                sku: it.sku, marca: it.marca, categoria: it.categoria, url_imagen: it.url_imagen,
+                descripcion_completa: it.descripcion_completa, ficha_tecnica_url: it.ficha_tecnica_url,
+              }
             : null,
         })));
         api.get(`/negocios/${c.negocio_id}`).then(rn => setNegocio(rn.data)).finally(() => setCargando(false));
@@ -119,12 +126,15 @@ export default function NuevaCotizacion() {
   const agregarProducto = (i, p) => {
     setItems(is => is.map((it, idx) => idx === i ? {
       ...it, producto_id: p.id, descripcion: p.nombre, precio_unitario: Number(p.precio_lista) || 0,
-      producto_meta: { sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen, descripcion_completa: p.descripcion_completa },
+      producto_meta: {
+        sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen,
+        descripcion_completa: p.descripcion_completa, ficha_tecnica_url: p.ficha_tecnica_url,
+      },
     } : it));
   };
   const agregarLibre = () => setItems(is => [...is, {
     producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0,
-    mostrar_imagen: true, mostrar_descripcion: true, producto_meta: null,
+    mostrar_imagen: true, mostrar_descripcion: true, mostrar_ficha: true, producto_meta: null,
   }]);
   const setItem = (i, campo, val) => setItems(is => is.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const quitar = i => setItems(is => is.filter((_, idx) => idx !== i));
@@ -157,6 +167,7 @@ export default function NuevaCotizacion() {
           producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad),
           precio_unitario: Number(it.precio_unitario),
           mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
+          mostrar_ficha: it.mostrar_ficha !== false,
         })),
       };
       if (modoEdicion) {
@@ -223,6 +234,7 @@ export default function NuevaCotizacion() {
               <th className="text-right py-1 font-medium w-28">Total</th>
               <th className="text-center py-1 font-medium w-16">Imagen</th>
               <th className="text-center py-1 font-medium w-16">Descripción completa</th>
+              <th className="text-center py-1 font-medium w-16">Ficha técnica</th>
               <th className="w-8"></th>
             </tr>
           </thead>
@@ -270,10 +282,21 @@ export default function NuevaCotizacion() {
                     );
                   })()}
                 </td>
+                <td className="py-2 text-center">
+                  {(() => {
+                    const tieneFicha = !!(it.producto_id && it.producto_meta?.ficha_tecnica_url);
+                    return (
+                      <input type="checkbox" checked={tieneFicha && it.mostrar_ficha !== false}
+                        disabled={!tieneFicha}
+                        onChange={e => setItem(i, 'mostrar_ficha', e.target.checked)}
+                        title={tieneFicha ? 'Incluir el link de la ficha técnica en el PDF y la vista del cliente' : 'Sin efecto: la línea no tiene producto o ficha cargada'} />
+                    );
+                  })()}
+                </td>
                 <td className="py-2 text-right"><button onClick={() => quitar(i)} className="text-red-400 hover:text-red-600">✕</button></td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={7} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={8} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
           </tbody>
         </table>
         <button onClick={agregarLibre} className="mt-2 text-sm text-ht-accent hover:underline">+ Agregar línea</button>

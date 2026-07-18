@@ -292,13 +292,28 @@ router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'),
 
     for (const { producto, stockProveedor } of validos) {
       const gestionadoProveedor = stockProveedor !== null && stockProveedor !== undefined;
+      // Al actualizar un producto existente, si la URL nueva (imagen o ficha)
+      // es de SharePoint y la que ya estaba cargada es pública (Cloudflare
+      // R2 u otro host), no se pisa: el catálogo técnico en Excel todavía
+      // trae enlaces de SharePoint para muchos productos cuya URL real ya
+      // se corrigió a R2 mediante "Aplicar URLs de Cloudflare por código".
       const r = await client.query(
         `INSERT INTO productos (sku, nombre, marca, categoria, precio_lista, url_imagen, ficha_tecnica_url, descripcion_completa, atributos, stock_gestionado_por_proveedor)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (sku) DO UPDATE SET
            nombre=EXCLUDED.nombre, marca=EXCLUDED.marca, categoria=EXCLUDED.categoria,
-           precio_lista=EXCLUDED.precio_lista, url_imagen=EXCLUDED.url_imagen,
-           ficha_tecnica_url=EXCLUDED.ficha_tecnica_url, descripcion_completa=EXCLUDED.descripcion_completa,
+           precio_lista=EXCLUDED.precio_lista,
+           url_imagen=CASE
+             WHEN EXCLUDED.url_imagen ILIKE '%sharepoint.com%'
+               AND productos.url_imagen IS NOT NULL AND productos.url_imagen != ''
+               AND productos.url_imagen NOT ILIKE '%sharepoint.com%'
+             THEN productos.url_imagen ELSE EXCLUDED.url_imagen END,
+           ficha_tecnica_url=CASE
+             WHEN EXCLUDED.ficha_tecnica_url ILIKE '%sharepoint.com%'
+               AND productos.ficha_tecnica_url IS NOT NULL AND productos.ficha_tecnica_url != ''
+               AND productos.ficha_tecnica_url NOT ILIKE '%sharepoint.com%'
+             THEN productos.ficha_tecnica_url ELSE EXCLUDED.ficha_tecnica_url END,
+           descripcion_completa=EXCLUDED.descripcion_completa,
            atributos=EXCLUDED.atributos,
            stock_gestionado_por_proveedor=(productos.stock_gestionado_por_proveedor OR EXCLUDED.stock_gestionado_por_proveedor),
            activo=true
