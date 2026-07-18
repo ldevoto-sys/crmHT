@@ -12,7 +12,7 @@ router.use(authenticate);
 
 const SELECT_CON_STOCK = `
   SELECT p.id, p.sku, p.nombre, p.marca, p.categoria, p.precio_lista, p.descripcion, p.ficha_tecnica_url,
-         p.stock_gestionado_por_proveedor, p.url_imagen, p.activo,
+         p.descripcion_completa, p.stock_gestionado_por_proveedor, p.url_imagen, p.activo,
          sp.stock AS stock_prov, sp.precio AS precio_prov, sp.fecha_carga AS stock_fecha
   FROM productos p
   LEFT JOIN LATERAL (
@@ -293,18 +293,19 @@ router.post('/importar/confirmar', authorize('administrador', 'jefe_comercial'),
     for (const { producto, stockProveedor } of validos) {
       const gestionadoProveedor = stockProveedor !== null && stockProveedor !== undefined;
       const r = await client.query(
-        `INSERT INTO productos (sku, nombre, marca, categoria, precio_lista, url_imagen, ficha_tecnica_url, atributos, stock_gestionado_por_proveedor)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `INSERT INTO productos (sku, nombre, marca, categoria, precio_lista, url_imagen, ficha_tecnica_url, descripcion_completa, atributos, stock_gestionado_por_proveedor)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (sku) DO UPDATE SET
            nombre=EXCLUDED.nombre, marca=EXCLUDED.marca, categoria=EXCLUDED.categoria,
            precio_lista=EXCLUDED.precio_lista, url_imagen=EXCLUDED.url_imagen,
-           ficha_tecnica_url=EXCLUDED.ficha_tecnica_url, atributos=EXCLUDED.atributos,
+           ficha_tecnica_url=EXCLUDED.ficha_tecnica_url, descripcion_completa=EXCLUDED.descripcion_completa,
+           atributos=EXCLUDED.atributos,
            stock_gestionado_por_proveedor=(productos.stock_gestionado_por_proveedor OR EXCLUDED.stock_gestionado_por_proveedor),
            activo=true
          RETURNING id, (xmax = 0) AS insertado`,
         [producto.sku, producto.nombre, producto.marca || null, producto.categoria || null,
          producto.precio_lista || null, producto.url_imagen || null, producto.ficha_tecnica_url || null,
-         producto.atributos || {}, gestionadoProveedor]
+         producto.descripcion_completa || null, producto.atributos || {}, gestionadoProveedor]
       );
       const row = r.rows[0];
       if (row.insertado) insertados++; else actualizados++;

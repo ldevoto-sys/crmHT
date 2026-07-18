@@ -9,6 +9,8 @@ const MAPA_NUCLEO = {
   'precio neto ($)': 'precio_lista', 'precio neto': 'precio_lista', 'precio': 'precio_lista',
   'url imagen': 'url_imagen', 'imagen': 'url_imagen',
   'url ficha pdf': 'ficha_tecnica_url', 'url ficha': 'ficha_tecnica_url', 'ficha': 'ficha_tecnica_url',
+  'descripción': 'descripcion_completa', 'descripcion': 'descripcion_completa',
+  'descripción completa': 'descripcion_completa', 'descripcion completa': 'descripcion_completa',
 };
 
 // Cabeceras que van a atributos con una clave "limpia".
@@ -144,7 +146,7 @@ const PLANTILLA_HEADERS = [
   'URL Imagen', 'URL Ficha PDF',
   'Q1', 'H1', 'Q2', 'H2', 'Q3', 'H3', 'Q4', 'H4', 'Q5', 'H5', 'Q6', 'H6',
   'Fuente curva', 'Verificado', 'Sustitutos', 'Notas',
-  'Stock (sitio)', 'Diámetro pozo (pulg)',
+  'Stock (sitio)', 'Diámetro pozo (pulg)', 'Descripción',
 ];
 
 // Plantillas de las otras dos hojas del Excel, que no traen columna Tipo

@@ -137,6 +137,10 @@ async function initDb() {
   await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS marca TEXT`);
   await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS url_imagen TEXT`);
   await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS atributos JSONB DEFAULT '{}'::jsonb`);
+  // Descripción larga (marketing) del catálogo técnico, para mostrar al
+  // cliente en la cotización si el vendedor lo pide. Distinta de
+  // "descripcion" (campo interno, sin uso en pantalla hoy).
+  await db.run(`ALTER TABLE productos ADD COLUMN IF NOT EXISTS descripcion_completa TEXT`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS stock_proveedor (
@@ -330,6 +334,8 @@ async function initDb() {
   // PDF/vista pública. Tildado por defecto; sin efecto si la línea no tiene
   // producto asociado o el producto no tiene imagen cargada.
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_imagen BOOLEAN NOT NULL DEFAULT true`);
+  // Igual que mostrar_imagen, pero para la descripción larga del producto.
+  await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_descripcion BOOLEAN NOT NULL DEFAULT true`);
 
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`
