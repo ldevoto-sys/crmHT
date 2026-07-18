@@ -101,17 +101,21 @@ async function rankingVendedores(req) {
   );
 }
 
-// Cotizaciones generadas por día (fecha de creación de cada versión), con su monto total.
+// Cotizaciones generadas por día (fecha de creación de la última versión de
+// cada una), con su monto total. Las versiones anteriores no cuentan: no son
+// una oportunidad aparte, evita duplicar/triplicar lo que se ve generado.
 async function cotizacionesPorDia(req) {
   const vendedorId = vendedorFiltro(req);
   const { desde, hasta } = req.query;
-  const clauses = [];
+  const clauses = [
+    `c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)`,
+  ];
   const params = [];
   let i = 1;
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
   if (desde) { clauses.push(`c.created_at >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
-  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  const where = `WHERE ${clauses.join(' AND ')}`;
   return db.all(
     `SELECT to_char(date(c.created_at), 'YYYY-MM-DD') AS fecha, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
      FROM cotizaciones c
@@ -149,6 +153,7 @@ async function cotizacionesPorDiaDetalle(req) {
        SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
        FROM cotizaciones c JOIN negocios n ON n.id = c.negocio_id
        WHERE date(c.created_at) = $1::date ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
+         AND c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)
        GROUP BY n.vendedor_id
      ) cg ON cg.vendedor_id = u.id
      LEFT JOIN (

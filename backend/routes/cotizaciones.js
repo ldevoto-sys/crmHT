@@ -101,6 +101,11 @@ router.get('/', async (req, res) => {
     const clauses = [];
     const params = [];
     let i = 1;
+    // Cada cotización cuenta una sola vez: solo su última versión. Las
+    // versiones anteriores de un mismo número no se listan (no son una
+    // oportunidad aparte, evita duplicar/triplicar lo que se ve como
+    // negocio cotizado).
+    clauses.push(`c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)`);
     if (negocio_id) { clauses.push(`c.negocio_id = $${i++}`); params.push(negocio_id); }
     // Un vendedor solo ve las suyas, sin importar qué vendedor_id se pida.
     if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
