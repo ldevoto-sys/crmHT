@@ -269,9 +269,9 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     for (const it of items) {
       const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario));
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea, it.mostrar_imagen !== false]
       );
     }
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
@@ -314,9 +314,9 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
     for (const it of items) {
       const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario));
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea, it.mostrar_imagen !== false]
       );
     }
     await client.query('COMMIT');
@@ -351,8 +351,8 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
     );
     const nuevaId = r.rows[0].id;
     await client.query(
-      `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea)
-       SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea FROM cotizacion_items WHERE cotizacion_id=$2`,
+      `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen)
+       SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen FROM cotizacion_items WHERE cotizacion_id=$2`,
       [nuevaId, req.params.id]
     );
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
