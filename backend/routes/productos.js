@@ -158,6 +158,42 @@ router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res
   }
 });
 
+// Imágenes y fichas técnicas se suben directo a Cloudflare R2 por fuera del
+// CRM (bucket público crm-ht-productos), con el código/SKU como nombre de
+// archivo (ej. "BAC-1500.jpg", "BAC-1500.pdf"). Esta acción no sube nada:
+// solo completa url_imagen/ficha_tecnica_url calculando la URL esperada según
+// esa convención, para los productos que tengan código.
+// POST /api/productos/aplicar-r2 {sobrescribir}
+router.post('/aplicar-r2', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const base = (process.env.R2_PRODUCTOS_PUBLIC_URL || '').replace(/\/$/, '');
+    if (!base) return res.status(503).json({ error: 'Falta configurar R2_PRODUCTOS_PUBLIC_URL' });
+    const sobrescribir = req.body.sobrescribir === true;
+
+    const condicionImagen = sobrescribir ? '' : `AND (url_imagen IS NULL OR url_imagen = '')`;
+    const condicionFicha = sobrescribir ? '' : `AND (ficha_tecnica_url IS NULL OR ficha_tecnica_url = '')`;
+
+    const imagenes = await db.run(
+      `UPDATE productos SET url_imagen = $1 || '/' || sku || '.jpg' WHERE sku IS NOT NULL AND sku != '' ${condicionImagen}`,
+      [base]
+    );
+    const fichas = await db.run(
+      `UPDATE productos SET ficha_tecnica_url = $1 || '/' || sku || '.pdf' WHERE sku IS NOT NULL AND sku != '' ${condicionFicha}`,
+      [base]
+    );
+    const sinCodigo = await db.get(`SELECT count(*)::int AS n FROM productos WHERE sku IS NULL OR sku = ''`);
+
+    res.json({
+      imagenes_actualizadas: imagenes.rowCount,
+      fichas_actualizadas: fichas.rowCount,
+      productos_sin_codigo: sinCodigo.n,
+    });
+  } catch (err) {
+    console.error('[productos/POST /aplicar-r2]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // --- Importador CSV ---
 
 // GET /api/productos/importar/plantilla?tipo=bombas|hidroneumatico|filtro_arena
