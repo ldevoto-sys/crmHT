@@ -7,6 +7,7 @@ const { normalizarTelefono } = require('../services/dedup');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
 const { mapearEmpresas, PLANTILLA_HEADERS } = require('../services/import_empresas');
+const { mayusculas } = require('../utils/texto');
 
 // Roles que pueden crear/editar maestros. Gerencia es solo lectura (§5).
 const PUEDE_EDITAR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
@@ -168,7 +169,8 @@ router.get('/:id', async (req, res) => {
 // POST /api/empresas
 router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
-    const { razon_social, rut, dominio_correo, giro, direccion, comuna, ciudad, telefono, vendedor_id } = req.body;
+    let { razon_social, rut, dominio_correo, giro, direccion, comuna, ciudad, telefono, vendedor_id } = req.body;
+    razon_social = mayusculas(razon_social);
     if (!razon_social) return res.status(400).json({ error: 'Razón social requerida' });
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
 
@@ -194,7 +196,8 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
 router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
   try {
     const { id } = req.params;
-    const { razon_social, rut, dominio_correo, giro, direccion, comuna, ciudad, telefono, vendedor_id, activo } = req.body;
+    let { razon_social, rut, dominio_correo, giro, direccion, comuna, ciudad, telefono, vendedor_id, activo } = req.body;
+    razon_social = mayusculas(razon_social);
     if (!razon_social) return res.status(400).json({ error: 'Razón social requerida' });
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
 
