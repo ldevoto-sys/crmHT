@@ -186,6 +186,9 @@ export default function BandejaWhatsApp() {
               <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map(m => (
                   <div key={m.id} className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-navy text-white' : 'bg-slate-100 text-gray-800'}`}>
+                    {m.enviado_por_nombre && (
+                      <div className={`text-xs font-bold mb-1 ${m.direccion === 'saliente' ? 'text-white/90' : 'text-ht-navy'}`}>{m.enviado_por_nombre}</div>
+                    )}
                     {m.tiene_archivo && m.tipo === 'imagen' && (
                       mediaUrls[m.id]
                         ? <img src={mediaUrls[m.id]} alt={m.archivo_nombre || 'imagen'} className="max-w-full rounded mb-1" />
@@ -208,7 +211,7 @@ export default function BandejaWhatsApp() {
                     )}
                     <div>{m.texto}</div>
                     <div className={`text-[10px] mt-1 ${m.direccion === 'saliente' ? 'text-white/60' : 'text-gray-400'}`}>
-                      {m.enviado_por_nombre ? `${m.enviado_por_nombre} · ` : ''}{fecha(m.created_at)}
+                      {fecha(m.created_at)}
                     </div>
                   </div>
                 ))}
