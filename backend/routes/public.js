@@ -121,6 +121,32 @@ const { sugerirVendedor } = require('../services/asignacion');
 const { esHorarioHabil } = require('../services/horario');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
+const r2 = require('../services/r2');
+
+const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document: 'documento' };
+
+// Registra un mensaje entrante; si trae media (foto/audio/video/documento),
+// lo descarga de Meta (URL temporal, requiere el token) y lo sube a R2 antes
+// de guardar la referencia. Si algo falla en la descarga/subida, igual se
+// registra el mensaje (con su texto/caption) para no perder el hilo.
+async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante }) {
+  if (!tipoMedia || !mediaId) {
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante });
+    return;
+  }
+  const descarga = await whatsapp.descargarMedia(mediaId);
+  if (!descarga) {
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia });
+    return;
+  }
+  const ext = (descarga.mimeType || '').split('/')[1]?.split(';')[0] || 'bin';
+  const key = `whatsapp/${contacto.id}/${Date.now()}-${mediaId}.${ext}`;
+  await r2.subir(key, descarga.buffer, descarga.mimeType);
+  await mensajes.registrar({
+    contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante,
+    tipo: tipoMedia, archivo_key: key, archivo_mime: descarga.mimeType,
+  });
+}
 
 // GET /api/public/whatsapp/webhook — verificación (handshake de Meta al configurar el webhook)
 router.get('/whatsapp/webhook', (req, res) => {
@@ -158,14 +184,17 @@ async function procesarMensaje(m) {
     contacto = r.rows[0];
   }
 
-  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? '[mensaje no soportado]';
+  const tipoMedia = MEDIA_TIPOS[m.type];
+  const mediaId = tipoMedia ? m[m.type]?.id : null;
+  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title
+    ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : '[mensaje no soportado]');
   const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
   const ultimoLead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
 
   // El bot ya entregó esta conversación a un vendedor: no vuelve a intervenir,
   // solo se registra el mensaje para que se vea en la Bandeja de WhatsApp.
   if (ultimoLead && ultimoLead.bot_estado === 'derivado') {
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: ultimoLead.id, direccion: 'entrante', texto: textoEntrante });
+    await registrarEntrante({ contacto, leadId: ultimoLead.id, tipoMedia, mediaId, textoEntrante });
     return;
   }
 
@@ -211,7 +240,7 @@ async function procesarMensaje(m) {
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadId = r.rows[0].id;
     }
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante });
+    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante });
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'saliente', texto: cfg.mensaje_fuera_horario });
     return;
   }
@@ -225,14 +254,14 @@ async function procesarMensaje(m) {
       [contacto.id, primerPaso ? new Date(Date.now() + primerPaso.tiempo_espera_horas * 3600000) : null]
     );
     await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'entrante', texto: textoEntrante });
+    await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante });
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'saliente', texto: cfg.mensaje_categorizacion });
   } else {
-    // Ya hay un lead esperando categoría y el cliente escribió texto libre en
-    // vez de elegir una opción de la lista: se registra el mensaje y se deja
-    // la pregunta activa (no se interpreta texto libre) — el recontacto la
-    // reintenta más tarde.
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante });
+    // Ya hay un lead esperando categoría y el cliente escribió texto libre (o
+    // mandó un archivo) en vez de elegir una opción de la lista: se registra
+    // el mensaje y se deja la pregunta activa — el recontacto la reintenta
+    // más tarde.
+    await registrarEntrante({ contacto, leadId: lead.id, tipoMedia, mediaId, textoEntrante });
   }
 }
 

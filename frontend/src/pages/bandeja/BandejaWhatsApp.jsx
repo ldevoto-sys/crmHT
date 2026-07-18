@@ -15,8 +15,11 @@ export default function BandejaWhatsApp() {
   const [hilo, setHilo] = useState([]);
   const [texto, setTexto] = useState('');
   const [mostrarEmojis, setMostrarEmojis] = useState(false);
+  const [enviandoArchivo, setEnviandoArchivo] = useState(false);
+  const [mediaUrls, setMediaUrls] = useState({}); // mensaje id -> blob URL
   const [error, setError] = useState(''); const [errorEnvio, setErrorEnvio] = useState('');
   const hiloRef = useRef(null);
+  const archivoInputRef = useRef(null);
 
   const cargarConversaciones = async () => {
     try {
@@ -52,6 +55,26 @@ export default function BandejaWhatsApp() {
 
   useEffect(() => { hiloRef.current?.scrollTo(0, hiloRef.current.scrollHeight); }, [hilo]);
 
+  // Los medios (foto/audio/video/documento) requieren el token de la sesión,
+  // así que no se pueden poner directo en un <img src>: se descargan como blob
+  // (mismo patrón que la descarga de PDF) y se cachean por mensaje.
+  useEffect(() => {
+    const pendientes = hilo.filter(m => m.tiene_archivo && !mediaUrls[m.id]);
+    if (!pendientes.length) return;
+    let cancelado = false;
+    (async () => {
+      const nuevas = {};
+      for (const m of pendientes) {
+        try {
+          const { data } = await api.get(`/whatsapp/mensajes/${m.id}/archivo`, { responseType: 'blob' });
+          nuevas[m.id] = URL.createObjectURL(data);
+        } catch { /* se muestra solo el texto/nombre si falla */ }
+      }
+      if (!cancelado) setMediaUrls(prev => ({ ...prev, ...nuevas }));
+    })();
+    return () => { cancelado = true; };
+  }, [hilo]);
+
   const conversacionActual = conversaciones.find(c => c.contacto_id === seleccionada);
 
   const enviar = async (e) => {
@@ -64,6 +87,21 @@ export default function BandejaWhatsApp() {
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el mensaje.'); }
+  };
+
+  const adjuntarArchivo = async (e) => {
+    const archivo = e.target.files[0];
+    e.target.value = ''; // permite volver a elegir el mismo archivo después
+    if (!archivo) return;
+    setErrorEnvio(''); setEnviandoArchivo(true);
+    try {
+      const form = new FormData();
+      form.append('archivo', archivo);
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/adjuntos`, form);
+      cargarHilo(seleccionada);
+      cargarConversaciones();
+    } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el adjunto.'); }
+    finally { setEnviandoArchivo(false); }
   };
 
   const cerrarConversacion = async () => {
@@ -139,6 +177,26 @@ export default function BandejaWhatsApp() {
               <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map(m => (
                   <div key={m.id} className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-navy text-white' : 'bg-slate-100 text-gray-800'}`}>
+                    {m.tiene_archivo && m.tipo === 'imagen' && (
+                      mediaUrls[m.id]
+                        ? <img src={mediaUrls[m.id]} alt={m.archivo_nombre || 'imagen'} className="max-w-full rounded mb-1" />
+                        : <div className="text-xs italic opacity-70 mb-1">Cargando imagen…</div>
+                    )}
+                    {m.tiene_archivo && m.tipo === 'audio' && (
+                      mediaUrls[m.id]
+                        ? <audio controls src={mediaUrls[m.id]} className="max-w-full mb-1" />
+                        : <div className="text-xs italic opacity-70 mb-1">Cargando audio…</div>
+                    )}
+                    {m.tiene_archivo && m.tipo === 'video' && (
+                      mediaUrls[m.id]
+                        ? <video controls src={mediaUrls[m.id]} className="max-w-full rounded mb-1" />
+                        : <div className="text-xs italic opacity-70 mb-1">Cargando video…</div>
+                    )}
+                    {m.tiene_archivo && m.tipo === 'documento' && (
+                      mediaUrls[m.id]
+                        ? <a href={mediaUrls[m.id]} download={m.archivo_nombre} className="underline block mb-1">📎 {m.archivo_nombre || 'Documento'}</a>
+                        : <div className="text-xs italic opacity-70 mb-1">Cargando documento…</div>
+                    )}
                     <div>{m.texto}</div>
                     <div className={`text-[10px] mt-1 ${m.direccion === 'saliente' ? 'text-white/60' : 'text-gray-400'}`}>
                       {m.enviado_por_nombre ? `${m.enviado_por_nombre} · ` : ''}{fecha(m.created_at)}
@@ -154,6 +212,13 @@ export default function BandejaWhatsApp() {
                   </div>
                 )}
                 <div className="flex gap-2 relative">
+                  <input type="file" ref={archivoInputRef} onChange={adjuntarArchivo} className="hidden" />
+                  <button type="button" onClick={() => archivoInputRef.current?.click()}
+                    disabled={(conversacionActual && !conversacionActual.abierta) || enviandoArchivo}
+                    title="Adjuntar archivo"
+                    className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">
+                    {enviandoArchivo ? '…' : '📎'}
+                  </button>
                   <button type="button" onClick={() => setMostrarEmojis(v => !v)}
                     disabled={conversacionActual && !conversacionActual.abierta}
                     className="border border-gray-300 rounded px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-40">

@@ -632,6 +632,14 @@ async function initDb() {
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_contacto ON whatsapp_mensajes (contacto_id, created_at)`);
 
+  // Adjuntos y medios (fotos/audio/video/documentos que manda el cliente, o
+  // que sube un vendedor para enviar). El archivo en sí se guarda en R2
+  // (services/r2.js); acá solo queda la referencia (key, nombre, mime).
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'texto' CHECK (tipo IN ('texto','imagen','video','audio','documento'))`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS archivo_key TEXT`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS archivo_nombre TEXT`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS archivo_mime TEXT`);
+
   // Cierre manual de conversación (además del cierre automático por 24h sin
   // actividad, que se calcula al vuelo). Se reabre solo si el cliente vuelve a
   // escribir (ver services/whatsapp_mensajes.js).
