@@ -1,7 +1,7 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
-const { esImagenPublica } = require('./cotizacion_data');
+const { esImagenPublica, numeroCompleto } = require('./cotizacion_data');
 
 // Documento al cliente: paleta corporativa (navy + celeste), no el acento de app.
 const NAVY = '#112548';
@@ -43,7 +43,7 @@ async function generarCotizacionPDF(data, stream) {
   doc.rect(0, 0, 595, 96).fill(NAVY);
   if (fs.existsSync(LOGO)) { try { doc.image(LOGO, M, 20, { height: 30 }); } catch { /* opcional */ } }
   doc.fillColor(CYAN).fontSize(20).font('Helvetica-Bold').text('COTIZACIÓN', 355, 22, { width: 200, align: 'right' });
-  doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold').text(`N° ${cot.numero}  ·  v${cot.version}`, 355, 46, { width: 200, align: 'right' });
+  doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold').text(`N° ${numeroCompleto(cot.numero, cot.version)}`, 355, 46, { width: 200, align: 'right' });
   const emLinea = [emisor.direccion && `${emisor.direccion}, ${emisor.comuna || ''}`, emisor.rut && `RUT ${emisor.rut}`,
                    emisor.telefono && `T ${emisor.telefono}`, emisor.whatsapp && `WhatsApp ${emisor.whatsapp}`, emisor.email_ventas]
                    .filter(Boolean).join('   ·   ');

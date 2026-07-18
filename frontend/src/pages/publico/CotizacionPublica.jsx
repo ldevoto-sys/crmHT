@@ -4,6 +4,7 @@ import api from '../../api';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
+const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 const NAVY = '#112548', CYAN = '#34B3DE';
 
@@ -35,7 +36,7 @@ export default function CotizacionPublica() {
             <img src="/Hidrotecnica.jpg" alt="HidroTécnica" className="h-11 bg-white rounded px-2 py-1 object-contain" />
             <div className="text-right">
               <div className="text-2xl font-bold tracking-wide uppercase" style={{ color: CYAN }}>Cotización</div>
-              <div className="text-white text-sm font-bold opacity-90 mt-1">N° {cot.numero} · v{cot.version}</div>
+              <div className="text-white text-sm font-bold opacity-90 mt-1">N° {numeroCompleto(cot.numero, cot.version)}</div>
             </div>
           </div>
           <div className="border-t border-white/15 py-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/75">

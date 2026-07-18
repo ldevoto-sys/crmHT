@@ -4,6 +4,7 @@ import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 export default function DetalleCotizacion() {
   const { id } = useParams();
@@ -94,7 +95,7 @@ export default function DetalleCotizacion() {
     <div>
       <Link to={`/negocios/${cot.negocio_id}`} className="text-sm text-ht-accent hover:underline">← {cot.negocio_titulo}</Link>
       <div className="flex items-center justify-between mt-2 mb-1">
-        <h1 className="text-2xl font-bold text-ht-navy">{cot.numero} <span className="text-gray-400 text-lg">v{cot.version}</span></h1>
+        <h1 className="text-2xl font-bold text-ht-navy">{numeroCompleto(cot.numero, cot.version)}</h1>
         <span className="text-sm px-3 py-1 rounded-full bg-ht-accent/15 text-ht-navy capitalize">{cot.estado}</span>
       </div>
       <p className="text-gray-600 text-sm mb-5 min-h-[1.25rem]">{cot.titulo}</p>

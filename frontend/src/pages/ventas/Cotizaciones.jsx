@@ -8,6 +8,7 @@ const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
+const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 const estadoColor = {
   borrador: 'bg-gray-100 text-gray-600', enviada: 'bg-blue-100 text-blue-700',
@@ -107,7 +108,7 @@ export default function Cotizaciones() {
             {cots.map(c => (
               <tr key={c.id} className="border-t border-gray-100">
                 <td className="px-4 py-2 text-ht-navy font-medium">
-                  <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{c.numero} <span className="text-gray-400">v{c.version}</span></Link>
+                  <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{numeroCompleto(c.numero, c.version)}</Link>
                 </td>
                 <td className="px-4 py-2 text-gray-600">
                   {c.negocio_titulo}

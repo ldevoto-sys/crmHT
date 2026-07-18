@@ -6,6 +6,7 @@ import SeguimientoNegocio from '../../components/SeguimientoNegocio';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 export default function DetalleNegocio() {
   const { id } = useParams();
@@ -87,7 +88,7 @@ export default function DetalleNegocio() {
                 <tbody>
                   {cots.map(c => (
                     <tr key={c.id} className="border-t border-gray-100">
-                      <td className="py-1.5"><Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{c.numero} v{c.version}</Link></td>
+                      <td className="py-1.5"><Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{numeroCompleto(c.numero, c.version)}</Link></td>
                       <td className="py-1.5 capitalize text-gray-500">{c.estado}</td>
                       <td className="py-1.5 text-right text-ht-navy">{money(c.total)}</td>
                     </tr>

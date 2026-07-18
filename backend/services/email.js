@@ -7,6 +7,7 @@
 // Graph queda para cuando esa integración esté disponible (ver nota de
 // cambio v1.8, §7).
 const nodemailer = require('nodemailer');
+const { numeroCompleto } = require('./cotizacion_data');
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
@@ -111,8 +112,8 @@ module.exports = {
   // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar.
   cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer) => enviar(
     destinatario,
-    `Cotización ${cot.numero} — HidroTecnica SpA`,
-    template(`Cotización ${cot.numero}`, `
+    `Cotización ${numeroCompleto(cot.numero, cot.version)} — HidroTecnica SpA`,
+    template(`Cotización ${numeroCompleto(cot.numero, cot.version)}`, `
       <p>Estimado(a) ${cot.contacto_nombre || ''},</p>
       <p>Junto con saludar, adjuntamos la cotización solicitada${cot.titulo ? `: <strong>${cot.titulo}</strong>` : ''}.</p>
       <p>También puedes revisarla en línea:</p>
@@ -122,7 +123,7 @@ module.exports = {
     `),
     {
       replyTo: vendedor?.email || undefined,
-      attachments: pdfBuffer ? [{ filename: `${cot.numero}.pdf`, content: pdfBuffer }] : [],
+      attachments: pdfBuffer ? [{ filename: `${numeroCompleto(cot.numero, cot.version)}.pdf`, content: pdfBuffer }] : [],
     }
   ),
 };
