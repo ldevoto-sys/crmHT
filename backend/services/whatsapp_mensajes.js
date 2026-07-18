@@ -3,10 +3,14 @@
 // solo se puede responder con plantillas pre-aprobadas, no con texto libre.
 const { db } = require('../db');
 
-async function registrar({ contacto_id, lead_id = null, direccion, texto, enviado_por_id = null }) {
+async function registrar({
+  contacto_id, lead_id = null, direccion, texto, enviado_por_id = null,
+  tipo = 'texto', archivo_key = null, archivo_nombre = null, archivo_mime = null,
+}) {
   await db.run(
-    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id) VALUES ($1,$2,$3,$4,$5)`,
-    [contacto_id, lead_id, direccion, texto, enviado_por_id]
+    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime]
   );
   // Un mensaje nuevo del cliente reabre la conversación, aunque se hubiera
   // cerrado a mano antes.

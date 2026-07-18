@@ -122,4 +122,75 @@ async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, captio
   }
 }
 
-module.exports = { enviar, enviarLista, enviarDocumento };
+const TIPO_WHATSAPP = { imagen: 'image', video: 'video', audio: 'audio', documento: 'document' };
+
+// Envío genérico de media por link público (imagen/video/audio/documento) —
+// usado para adjuntos que sube un vendedor desde la Bandeja. audio no admite
+// caption en la API de Meta.
+async function enviarMedia(telefonoE164, tipo, urlArchivo, { nombreArchivo, caption } = {}) {
+  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    console.log(`[whatsapp] Sin credenciales configuradas; no se envió ${tipo} a ${telefonoE164}.`);
+    return { enviado: false, motivo: 'WhatsApp no configurado' };
+  }
+  const tipoApi = TIPO_WHATSAPP[tipo];
+  if (!tipoApi) return { enviado: false, motivo: `Tipo de media no soportado: ${tipo}` };
+  const media = { link: urlArchivo };
+  if (tipoApi === 'document') media.filename = nombreArchivo;
+  if (caption && tipoApi !== 'audio') media.caption = caption;
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: telefonoE164.replace('+', ''),
+          type: tipoApi,
+          [tipoApi]: media,
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error(`[whatsapp] Error enviando ${tipo} a`, telefonoE164, ':', err);
+      return { enviado: false, motivo: errorAmigable(err) };
+    }
+    return { enviado: true };
+  } catch (e) {
+    console.error(`[whatsapp] Error enviando ${tipo} a`, telefonoE164, ':', e.message);
+    return { enviado: false, motivo: e.message };
+  }
+}
+
+// Descarga un media entrante (foto/audio/video/documento que mandó el
+// cliente): primero se consulta la URL temporal de Meta para ese media id,
+// luego se descarga el binario — ambos pasos requieren el mismo token.
+async function descargarMedia(mediaId) {
+  if (!process.env.WHATSAPP_ACCESS_TOKEN) {
+    console.log('[whatsapp] Sin credenciales configuradas; no se descargó el media', mediaId);
+    return null;
+  }
+  try {
+    const infoResp = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+    });
+    if (!infoResp.ok) {
+      console.error('[whatsapp] Error consultando media', mediaId, ':', await infoResp.text());
+      return null;
+    }
+    const info = await infoResp.json();
+    const binResp = await fetch(info.url, { headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` } });
+    if (!binResp.ok) {
+      console.error('[whatsapp] Error descargando media', mediaId, ':', await binResp.text());
+      return null;
+    }
+    const buffer = Buffer.from(await binResp.arrayBuffer());
+    return { buffer, mimeType: info.mime_type || binResp.headers.get('content-type') };
+  } catch (e) {
+    console.error('[whatsapp] Error descargando media', mediaId, ':', e.message);
+    return null;
+  }
+}
+
+module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, descargarMedia };
