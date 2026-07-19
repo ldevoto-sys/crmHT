@@ -107,7 +107,7 @@ export default function DetalleCotizacion() {
         <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800 flex items-center justify-between">
           <span>Descuento {Number(cot.descuento_pct)}% supera el tope ({cot.descuento_max}%). Requiere aprobación de un administrador para enviarse.</span>
           {user?.rol === 'administrador'
-            ? <button onClick={() => accion(() => api.post(`/cotizaciones/${id}/aprobar-descuento`))} className="ml-3 bg-ht-navy text-white px-3 py-1.5 rounded text-xs hover:bg-ht-navy/90">Aprobar</button>
+            ? <button onClick={() => accion(() => api.post(`/cotizaciones/${id}/aprobar-descuento`))} className="ml-3 bg-ht-accent text-ht-navy px-3 py-1.5 rounded text-xs hover:bg-ht-accent/90">Aprobar</button>
             : cot.puede_editar && <button onClick={() => accion(() => api.post(`/cotizaciones/${id}/solicitar-aprobacion-descuento`))} className="ml-3 border border-ht-navy text-ht-navy px-3 py-1.5 rounded text-xs">Solicitar aprobación</button>}
         </div>
       )}
@@ -158,7 +158,7 @@ export default function DetalleCotizacion() {
         <div className="space-y-6">
           <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-2">
             <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
-            <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Descargar PDF</button>
+            <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90">Descargar PDF</button>
             {cot.puede_editar && (
               <div className="border border-gray-200 rounded p-2 space-y-1.5">
                 <label className={`flex items-center gap-2 text-sm ${cot.contacto_email ? 'text-gray-700' : 'text-gray-300'}`}>
@@ -180,7 +180,7 @@ export default function DetalleCotizacion() {
             <button onClick={copiarLink} className="w-full text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Copiar link público</button>
             <a href={`/c/${cot.token_publico}`} target="_blank" rel="noreferrer" className="block w-full text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50">Ver como cliente</a>
             {cot.puede_editar && cot.estado === 'borrador' && (
-              <Link to={`/cotizaciones/${id}/editar`} className="block w-full text-center text-sm px-3 py-2 rounded bg-ht-navy text-white hover:bg-ht-navy/90">Editar</Link>
+              <Link to={`/cotizaciones/${id}/editar`} className="block w-full text-center text-sm px-3 py-2 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90">Editar</Link>
             )}
             {cot.puede_editar && (
               <button onClick={() => accion(async () => { const { data } = await api.post(`/cotizaciones/${id}/nueva-version`); navigate(`/cotizaciones/${data.id}/editar`); })}
@@ -229,7 +229,7 @@ export default function DetalleCotizacion() {
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
             <div className="flex gap-2">
               <button onClick={confirmarPerdido} disabled={!causaSel}
-                className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">Confirmar</button>
+                className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">Confirmar</button>
               <button onClick={() => setModalPerdido(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </div>

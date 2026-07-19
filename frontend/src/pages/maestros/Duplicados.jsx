@@ -90,7 +90,7 @@ function Grupo({ grupo, onFusionar }) {
         </tbody>
       </table>
       <button onClick={() => onFusionar(grupo, master)}
-        className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+        className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
         Fusionar en el maestro seleccionado
       </button>
     </div>

@@ -81,7 +81,7 @@ export default function DetalleNegocio() {
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-ht-navy">Cotizaciones</h2>
-              {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-navy text-white px-3 py-1.5 rounded hover:bg-ht-navy/90">+ Cotizar</Link>}
+              {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>}
             </div>
             {cots.length === 0 ? <p className="text-sm text-gray-400">Sin cotizaciones.</p> : (
               <table className="w-full text-sm">
@@ -146,7 +146,7 @@ export default function DetalleNegocio() {
                 {etapas.map(e => (
                   <button key={e.id} disabled={e.id === n.etapa_id}
                     onClick={() => e.tipo === 'perdida' ? (setModalPerdido(e), setCausaSel(''), setDetalle('')) : cambiarEtapa(e)}
-                    className={`text-sm px-3 py-2 rounded border text-left flex justify-between ${e.id === n.etapa_id ? 'bg-ht-navy text-white border-ht-navy' : 'border-gray-300 text-gray-700 hover:bg-slate-50'}`}>
+                    className={`text-sm px-3 py-2 rounded border text-left flex justify-between ${e.id === n.etapa_id ? 'bg-ht-accent text-ht-navy border-ht-accent' : 'border-gray-300 text-gray-700 hover:bg-slate-50'}`}>
                     <span>{e.nombre}</span><span className="opacity-70">{e.probabilidad_cierre}%</span>
                   </button>
                 ))}
@@ -162,7 +162,7 @@ export default function DetalleNegocio() {
                 onChange={e => setProb(e.target.value)}
                 className="w-24 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
               <span className="text-gray-500">%</span>
-              {n.puede_editar && <button onClick={guardarProb} className="ml-auto bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Guardar</button>}
+              {n.puede_editar && <button onClick={guardarProb} className="ml-auto bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Guardar</button>}
             </div>
           </div>
 
@@ -173,7 +173,7 @@ export default function DetalleNegocio() {
               <input type="date" value={fechaEstimada} disabled={!n.puede_editar}
                 onChange={e => setFechaEstimada(e.target.value)}
                 className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-              {n.puede_editar && <button onClick={guardarFechaEstimada} className="bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Guardar</button>}
+              {n.puede_editar && <button onClick={guardarFechaEstimada} className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Guardar</button>}
             </div>
           </div>
         </div>
@@ -193,7 +193,7 @@ export default function DetalleNegocio() {
             <div className="flex gap-2">
               <button disabled={!causaSel}
                 onClick={async () => { await cambiarEtapa(modalPerdido, { causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle }); setModalPerdido(null); }}
-                className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">Confirmar</button>
+                className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">Confirmar</button>
               <button onClick={() => setModalPerdido(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </div>

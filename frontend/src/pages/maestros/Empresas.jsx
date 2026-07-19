@@ -57,7 +57,7 @@ export default function Empresas() {
               Importar CSV
             </Link>
           )}
-          <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nueva empresa</button>
+          <button onClick={abrirNuevo} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nueva empresa</button>
         </div>
       </div>
 
@@ -140,7 +140,7 @@ export default function Empresas() {
               </select>
             </div>
             <div className="flex gap-2 pt-2">
-              <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Guardar</button>
+              <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </form>

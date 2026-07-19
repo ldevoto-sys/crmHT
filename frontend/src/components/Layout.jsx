@@ -85,12 +85,21 @@ function GearIcon() {
   );
 }
 
+function MenuIcon() {
+  return (
+    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+    </svg>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const menu = menuByRole[user?.rol] || [];
   const config = configByRole[user?.rol] || [];
   const [open, setOpen] = useState(false);
+  const [sidebarAbierto, setSidebarAbierto] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -104,17 +113,20 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <aside className="w-60 flex-shrink-0 bg-ht-navy flex flex-col">
-        <div className="px-5 py-4 border-b border-white/10 flex items-center gap-2">
-          <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-7 bg-white rounded px-1.5 py-1 object-contain" />
-          <span className="text-ht-accent font-semibold text-sm">CRM</span>
+      {sidebarAbierto && (
+        <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarAbierto(false)} />
+      )}
+      <aside className={`w-60 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col fixed inset-y-0 left-0 z-40 transform transition-transform duration-200 md:relative md:translate-x-0 ${sidebarAbierto ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center gap-2">
+          <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-7 object-contain" />
+          <span className="text-ht-navy font-semibold text-sm">CRM</span>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
           {menu.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'}
+            <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} onClick={() => setSidebarAbierto(false)}
               className={({ isActive }) =>
-                `block px-5 py-2.5 text-sm font-medium transition-colors ${
-                  isActive ? 'bg-ht-accent text-ht-navy' : 'text-white/80 hover:text-white hover:bg-white/10'}`}>
+                `block px-5 py-2.5 text-sm font-medium border-l-2 transition-colors ${
+                  isActive ? 'bg-ht-accent/10 border-ht-accent text-ht-navy' : 'border-transparent text-gray-600 hover:text-ht-navy hover:bg-gray-50'}`}>
               {item.label}
             </NavLink>
           ))}
@@ -122,12 +134,16 @@ export default function Layout() {
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-8 object-contain" />
-            <span className="text-ht-navy font-semibold text-sm">
+        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 flex-shrink-0">
+          <div className="flex items-center gap-3 md:gap-4">
+            <button onClick={() => setSidebarAbierto(o => !o)} aria-label="Abrir menú"
+              className="md:hidden flex items-center justify-center h-9 w-9 rounded text-gray-500 hover:text-ht-navy hover:bg-gray-100 transition-colors -ml-1">
+              <MenuIcon />
+            </button>
+            <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-8 object-contain hidden sm:block" />
+            <span className="text-ht-navy font-semibold text-sm truncate">
               {user?.nombre || user?.email}
-              <span className="ml-2 text-xs text-gray-400 font-normal capitalize">({user?.rol?.replace('_', ' ')})</span>
+              <span className="ml-2 text-xs text-gray-400 font-normal capitalize hidden sm:inline">({user?.rol?.replace('_', ' ')})</span>
             </span>
           </div>
 

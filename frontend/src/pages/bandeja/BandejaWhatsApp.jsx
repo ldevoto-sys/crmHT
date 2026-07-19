@@ -126,13 +126,13 @@ export default function BandejaWhatsApp() {
         <div className="flex gap-1">
           {ESTADOS.map(e => (
             <button key={e} onClick={() => setFiltroEstado(e)}
-              className={`text-sm px-3 py-1.5 rounded capitalize ${filtroEstado === e ? 'bg-ht-navy text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{e}</button>
+              className={`text-sm px-3 py-1.5 rounded capitalize ${filtroEstado === e ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{e}</button>
           ))}
         </div>
         <div className="flex gap-1">
           {['todas', 'abiertas', 'cerradas'].map(a => (
             <button key={a} onClick={() => setFiltroAbierta(a)}
-              className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-navy text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
+              className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
           ))}
         </div>
       </div>
@@ -248,7 +248,7 @@ export default function BandejaWhatsApp() {
                     disabled={conversacionActual && !conversacionActual.abierta}
                     className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:bg-gray-50" />
                   <button type="submit" disabled={conversacionActual && !conversacionActual.abierta}
-                    className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-40">
+                    className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-40">
                     Enviar
                   </button>
                 </div>

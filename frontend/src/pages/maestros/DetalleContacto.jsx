@@ -56,7 +56,7 @@ export default function DetalleContacto() {
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-ht-navy">Negocios ({c.negocios.length})</h2>
-              <button onClick={() => setShowNuevoNegocio(true)} className="text-sm bg-ht-navy text-white px-3 py-1.5 rounded hover:bg-ht-navy/90">+ Nuevo negocio</button>
+              <button onClick={() => setShowNuevoNegocio(true)} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Nuevo negocio</button>
             </div>
             {error && <div className="mb-3 text-sm text-red-600">{error}</div>}
             {showNuevoNegocio && (
@@ -65,7 +65,7 @@ export default function DetalleContacto() {
                   className="flex-1 min-w-[160px] border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
                 <input value={monto} onChange={e => setMonto(e.target.value)} type="number" min="0" placeholder="Monto estimado"
                   className="w-40 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-                <button type="submit" className="bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Crear</button>
+                <button type="submit" className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Crear</button>
                 <button type="button" onClick={() => setShowNuevoNegocio(false)} className="px-3 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
               </form>
             )}

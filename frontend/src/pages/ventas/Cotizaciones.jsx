@@ -72,7 +72,7 @@ export default function Cotizaciones() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Cotizaciones</h1>
         {PUEDE_COTIZAR.includes(user?.rol) && (
-          <button onClick={abrirSelector} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+          <button onClick={abrirSelector} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
             + Nueva cotización
           </button>
         )}

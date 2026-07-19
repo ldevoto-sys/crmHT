@@ -82,7 +82,7 @@ export default function ResetPassword() {
               )}
             </div>
             <button type="submit" disabled={!valid || loading}
-              className="w-full bg-ht-navy text-white py-2 rounded font-medium text-sm hover:bg-ht-navy/90 transition-colors disabled:opacity-50">
+              className="w-full bg-ht-accent text-ht-navy py-2 rounded font-medium text-sm hover:bg-ht-accent/90 transition-colors disabled:opacity-50">
               {loading ? 'Guardando...' : 'Restablecer contraseña'}
             </button>
             <div className="text-center">
