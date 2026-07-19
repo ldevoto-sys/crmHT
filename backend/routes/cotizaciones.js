@@ -111,14 +111,31 @@ router.get('/', async (req, res) => {
     if (req.user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(req.user.id); }
     else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
     if (q) {
-      clauses.push(`(
-        c.numero ILIKE $${i} OR ct.nombre ILIKE $${i} OR ct.apellido ILIKE $${i} OR e.razon_social ILIKE $${i}
-        OR EXISTS (
+      const condiciones = [
+        `c.numero ILIKE $${i}`, `ct.nombre ILIKE $${i}`, `ct.apellido ILIKE $${i}`, `e.razon_social ILIKE $${i}`,
+        `EXISTS (
           SELECT 1 FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
           WHERE ci.cotizacion_id = c.id AND (ci.descripcion ILIKE $${i} OR p.nombre ILIKE $${i} OR p.sku ILIKE $${i})
-        )
-      )`);
+        )`,
+      ];
       params.push(`%${q}%`); i++;
+      // Búsqueda exacta por número de cotización NNNNNN o NNNNNN-VV, sin
+      // que los ceros a la izquierda importen (p.ej. "501" o "501-02"
+      // encuentra la cotización 000501, versión 02 si se indicó).
+      const m = q.trim().match(/^0*(\d+)(?:-0*(\d+))?$/);
+      if (m) {
+        const numero = m[1].padStart(6, '0');
+        params.push(numero);
+        if (m[2]) {
+          params.push(parseInt(m[2], 10));
+          condiciones.push(`(c.numero = $${i} AND c.version = $${i + 1})`);
+          i += 2;
+        } else {
+          condiciones.push(`c.numero = $${i}`);
+          i += 1;
+        }
+      }
+      clauses.push(`(${condiciones.join(' OR ')})`);
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const cots = await db.all(
