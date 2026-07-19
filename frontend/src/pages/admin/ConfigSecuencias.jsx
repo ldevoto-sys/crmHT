@@ -82,7 +82,7 @@ export default function ConfigSecuencias() {
           </thead>
           <tbody>
             {secuencias.map(s => (
-              <tr key={s.id} className="border-t border-gray-100">
+              <tr key={s.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy">{s.nombre}</td>
                 <td className="px-4 py-2 text-gray-600">{s.total_pasos}</td>
                 <td className="px-4 py-2 text-gray-600">{s.respetar_horario ? 'Sí' : 'No'}</td>

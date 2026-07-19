@@ -52,7 +52,7 @@ export default function DetalleProducto() {
             <thead className="text-gray-500"><tr><th className="text-left py-1">Caudal (Q)</th><th className="text-left py-1">Altura (H)</th></tr></thead>
             <tbody>
               {curva.map((pt, i) => (
-                <tr key={i} className="border-t border-gray-100"><td className="py-1">{pt.q ?? '—'}</td><td className="py-1">{pt.h ?? '—'}</td></tr>
+                <tr key={i} className="border-t border-gray-100 hover:bg-gray-50"><td className="py-1">{pt.q ?? '—'}</td><td className="py-1">{pt.h ?? '—'}</td></tr>
               ))}
             </tbody>
           </table>

@@ -186,7 +186,7 @@ export default function Reportes() {
                             </thead>
                             <tbody>
                               {(detallePorDia[c.fecha] || []).map(v => (
-                                <tr key={v.vendedor_id} className="border-t border-gray-200">
+                                <tr key={v.vendedor_id} className="border-t border-gray-200 hover:bg-gray-50">
                                   <td className="py-1 text-ht-navy">{v.vendedor_nombre}</td>
                                   <td className="py-1 text-right text-gray-600">{v.contactos_asignados}</td>
                                   <td className="py-1 text-right text-gray-600">{v.cotizaciones_generadas}</td>
@@ -285,7 +285,7 @@ export default function Reportes() {
             </thead>
             <tbody>
               {causas.map(c => (
-                <tr key={c.causa} className="border-t border-gray-100">
+                <tr key={c.causa} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{c.causa}</td>
                   <td className="px-4 py-2 text-gray-600">{c.cantidad}</td>
                   <td className="px-4 py-2 text-right text-ht-navy">{money(c.monto_total)}</td>
@@ -304,7 +304,7 @@ export default function Reportes() {
             </thead>
             <tbody>
               {tiempos.map(t => (
-                <tr key={t.etapa_id} className="border-t border-gray-100">
+                <tr key={t.etapa_id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{t.etapa_nombre}</td>
                   <td className="px-4 py-2 text-gray-600">{t.dias_promedio}</td>
                   <td className="px-4 py-2 text-gray-600">{t.tramos}</td>
@@ -328,7 +328,7 @@ export default function Reportes() {
           </thead>
           <tbody>
             {ranking.map(r => (
-              <tr key={r.vendedor_id} className="border-t border-gray-100">
+              <tr key={r.vendedor_id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy">{r.vendedor_nombre}</td>
                 <td className="px-4 py-2 text-gray-600">{r.ganados}</td>
                 <td className="px-4 py-2 text-gray-600">{r.perdidos}</td>

@@ -187,7 +187,7 @@ export default function Usuarios() {
             </thead>
             <tbody>
               {users.map(u => (
-                <tr key={u.id} className="border-t border-gray-100">
+                <tr key={u.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{u.nombre}</td>
                   <td className="px-4 py-2 text-gray-600">{u.email}</td>
                   <td className="px-4 py-2 capitalize">{u.rol}</td>
