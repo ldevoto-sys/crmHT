@@ -53,7 +53,7 @@ export default function DetalleEmpresa() {
           </thead>
           <tbody>
             {empresa.contactos.map(c => (
-              <tr key={c.id} className="border-t border-gray-100">
+              <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy">{c.nombre} {c.apellido}</td>
                 <td className="px-4 py-2 text-gray-600">{c.cargo || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.email || '—'}</td>

@@ -76,7 +76,7 @@ function Grupo({ grupo, onFusionar }) {
         </thead>
         <tbody>
           {grupo.contactos.map(c => (
-            <tr key={c.id} className="border-t border-gray-100">
+            <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
               <td className="px-2 py-1 text-center">
                 <input type="radio" name={`master-${grupo.clave}`} checked={master === c.id} onChange={() => setMaster(c.id)} />
               </td>

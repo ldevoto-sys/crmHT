@@ -127,7 +127,7 @@ export default function DetalleCotizacion() {
             </tr></thead>
             <tbody>
               {cot.items.map(it => (
-                <tr key={it.id} className="border-t border-gray-100">
+                <tr key={it.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="py-1.5 text-ht-navy">{it.descripcion || it.producto_nombre}</td>
                   <td className="py-1.5 text-right">{Number(it.cantidad)}</td>
                   <td className="py-1.5 text-right">{money(it.precio_unitario)}</td>

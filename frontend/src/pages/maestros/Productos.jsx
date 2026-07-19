@@ -93,7 +93,7 @@ export default function Productos() {
           </thead>
           <tbody>
             {productos.map(p => (
-              <tr key={p.id} className="border-t border-gray-100">
+              <tr key={p.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-gray-500">{p.sku}</td>
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   <Link to={`/productos/${p.id}`} className="hover:underline">{p.nombre}</Link>

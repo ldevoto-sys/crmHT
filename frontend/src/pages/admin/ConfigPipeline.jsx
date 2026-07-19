@@ -61,7 +61,7 @@ export default function ConfigPipeline() {
           </thead>
           <tbody>
             {etapas.map(e => (
-              <tr key={e.id} className="border-t border-gray-100">
+              <tr key={e.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-gray-400">{e.orden}</td>
                 <td className="px-4 py-2">
                   <input value={e.nombre} onChange={ev => set(e.id, 'nombre', ev.target.value)}

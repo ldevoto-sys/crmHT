@@ -73,7 +73,7 @@ export default function DetalleContacto() {
               <table className="w-full text-sm">
                 <tbody>
                   {c.negocios.map(n => (
-                    <tr key={n.id} className="border-t border-gray-100">
+                    <tr key={n.id} className="border-t border-gray-100 hover:bg-gray-50">
                       <td className="py-1.5"><Link to={`/negocios/${n.id}`} className="text-ht-navy hover:underline">{n.titulo}</Link></td>
                       <td className="py-1.5 text-gray-500">{n.etapa_nombre}</td>
                       <td className="py-1.5 text-right text-ht-navy">{money(n.monto_estimado)}</td>

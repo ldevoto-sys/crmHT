@@ -93,7 +93,7 @@ export default function Empresas() {
           </thead>
           <tbody>
             {empresas.map(e => (
-              <tr key={e.id} className="border-t border-gray-100">
+              <tr key={e.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   <Link to={`/empresas/${e.id}`} className="hover:underline">{e.razon_social}</Link>
                 </td>

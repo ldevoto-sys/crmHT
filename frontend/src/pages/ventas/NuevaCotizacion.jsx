@@ -240,7 +240,7 @@ export default function NuevaCotizacion() {
           </thead>
           <tbody>
             {items.map((it, i) => (
-              <tr key={i} className="border-t border-gray-100 align-top">
+              <tr key={i} className="border-t border-gray-100 align-top hover:bg-gray-50">
                 <td className="py-2 pr-2">
                   <BuscadorProducto value={it.descripcion} onChange={val => setItem(i, 'descripcion', val)}
                     onElegir={p => agregarProducto(i, p)} categoria={categoria} marca={marca} />

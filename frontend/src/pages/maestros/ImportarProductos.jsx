@@ -143,7 +143,7 @@ export default function ImportarProductos() {
               </tr></thead>
               <tbody>
                 {preview.muestra.map((m, i) => (
-                  <tr key={i} className="border-t border-gray-100">
+                  <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-1 text-gray-500">{m.sku}</td>
                     <td className="px-4 py-1 text-ht-navy">{m.nombre}</td>
                     <td className="px-4 py-1 text-gray-600">{m.marca || '—'}</td>
@@ -166,7 +166,7 @@ export default function ImportarProductos() {
                 </tr></thead>
                 <tbody>
                   {preview.rechazos.map((r, i) => (
-                    <tr key={i} className="border-t border-gray-100">
+                    <tr key={i} className="border-t border-gray-100 hover:bg-gray-50">
                       <td className="px-4 py-1 text-gray-500">{r.fila}</td>
                       <td className="px-4 py-1 text-gray-600">{r.sku || '—'}</td>
                       <td className="px-4 py-1 text-amber-700">{r.motivo}</td>

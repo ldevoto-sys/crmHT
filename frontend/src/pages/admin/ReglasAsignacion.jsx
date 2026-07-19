@@ -57,7 +57,7 @@ export default function ReglasAsignacion() {
           </thead>
           <tbody>
             {reglas.map(r => (
-              <tr key={r.id} className="border-t border-gray-100">
+              <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy">{r.parametro}</td>
                 <td className="px-4 py-2 text-gray-600">{r.vendedor_nombre}</td>
                 <td className="px-4 py-2 text-right"><button onClick={() => eliminar(r.id)} className="text-red-500 hover:underline">Eliminar</button></td>

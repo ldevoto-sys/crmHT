@@ -69,7 +69,7 @@ export default function MisTareas() {
               const link = destino(t);
               const vencida = t.estado === 'pendiente' && t.fecha_vencimiento && new Date(t.fecha_vencimiento) < new Date();
               return (
-                <tr key={t.id} className="border-t border-gray-100">
+                <tr key={t.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{t.titulo}</td>
                   <td className="px-4 py-2 text-gray-600">
                     {link ? <Link to={link} className="text-ht-accent hover:underline">

@@ -106,7 +106,7 @@ export default function Cotizaciones() {
           </thead>
           <tbody>
             {cots.map(c => (
-              <tr key={c.id} className="border-t border-gray-100">
+              <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{numeroCompleto(c.numero, c.version)}</Link>
                 </td>
