@@ -33,11 +33,17 @@ export default function Pipeline() {
     catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la etapa.'); }
   };
 
+  // Compartido entre el drag-and-drop (desktop) y el selector "Mover a etapa"
+  // (mobile, donde arrastrar con el dedo sobre columnas no es viable).
+  const moverAEtapa = (negocio, etapa) => {
+    if (etapa.tipo === 'perdida') { setModalPerdido({ negocio, etapa }); setCausaSel(''); setDetalle(''); }
+    else mover(negocio, etapa);
+  };
+
   const onDrop = (etapa) => {
     if (!drag) return;
     const negocio = drag; setDrag(null);
-    if (etapa.tipo === 'perdida') { setModalPerdido({ negocio, etapa }); setCausaSel(''); setDetalle(''); }
-    else mover(negocio, etapa);
+    moverAEtapa(negocio, etapa);
   };
 
   const confirmarPerdido = async () => {
@@ -60,7 +66,7 @@ export default function Pipeline() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Pipeline</h1>
         <div className="flex gap-2">
           {PUEDE_EXPORTAR.includes(user?.rol) && (
@@ -107,6 +113,18 @@ export default function Pipeline() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{n.dias_sin_actividad}d</span>
                       )}
                     </div>
+                    {/* Arrastrar con el dedo entre columnas no es viable en mobile:
+                        se ofrece este selector como alternativa. Solo en pantallas
+                        chicas — en desktop se sigue usando drag-and-drop. */}
+                    <select value="" onChange={e => {
+                      const destino = etapas.find(x => String(x.id) === e.target.value);
+                      if (destino) moverAEtapa(n, destino);
+                    }} className="md:hidden w-full mt-2 text-xs border border-gray-300 rounded px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-ht-accent">
+                      <option value="">Mover a etapa…</option>
+                      {etapas.filter(x => x.id !== et.id).map(x => (
+                        <option key={x.id} value={x.id}>{x.nombre}</option>
+                      ))}
+                    </select>
                   </div>
                 ))}
               </div>

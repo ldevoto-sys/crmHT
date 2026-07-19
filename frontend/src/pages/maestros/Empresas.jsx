@@ -49,9 +49,9 @@ export default function Empresas() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Empresas</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(user?.rol === 'administrador' || user?.rol === 'jefe_comercial') && (
             <Link to="/empresas/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
               Importar CSV
@@ -80,7 +80,8 @@ export default function Empresas() {
       </form>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Razón social</th>
@@ -109,6 +110,7 @@ export default function Empresas() {
             {empresas.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin empresas.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showForm && (

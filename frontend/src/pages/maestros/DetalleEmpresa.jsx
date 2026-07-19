@@ -42,7 +42,8 @@ export default function DetalleEmpresa() {
 
       <h2 className="text-lg font-semibold text-ht-navy mb-3">Contactos ({empresa.contactos.length})</h2>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Nombre</th>
@@ -63,6 +64,7 @@ export default function DetalleEmpresa() {
             {empresa.contactos.length === 0 && <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div className="mt-6">

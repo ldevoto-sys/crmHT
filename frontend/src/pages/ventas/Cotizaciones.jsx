@@ -69,7 +69,7 @@ export default function Cotizaciones() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Cotizaciones</h1>
         {PUEDE_COTIZAR.includes(user?.rol) && (
           <button onClick={abrirSelector} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
@@ -79,7 +79,7 @@ export default function Cotizaciones() {
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
         <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
           placeholder="Buscar por número, cliente/empresa o producto…"
           className="w-full max-w-md border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
@@ -93,7 +93,8 @@ export default function Cotizaciones() {
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Número</th>
@@ -126,6 +127,7 @@ export default function Cotizaciones() {
             {cots.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin cotizaciones aún.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showSelector && (

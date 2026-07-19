@@ -128,7 +128,7 @@ export default function Reportes() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Reportes</h1>
         {puedeVerCotizacionesDia && (
           <button onClick={() => setMostrarCotizacionesDia(v => !v)}
