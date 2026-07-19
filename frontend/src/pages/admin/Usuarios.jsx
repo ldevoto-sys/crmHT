@@ -161,7 +161,7 @@ export default function Usuarios() {
           )}
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={loading}
-              className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-60">
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-60">
               {loading ? 'Guardando...' : editId ? 'Guardar' : 'Crear'}
             </button>
             {editId && (
@@ -222,7 +222,7 @@ export default function Usuarios() {
                 className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
             </div>
             <div className="flex gap-2">
-              <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Restablecer</button>
+              <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Restablecer</button>
               <button type="button" onClick={() => setResetPara(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </form>
@@ -254,7 +254,7 @@ export default function Usuarios() {
               </select>
             </div>
             <div className="flex gap-2 pt-1">
-              <button type="submit" disabled={!reasignarA} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+              <button type="submit" disabled={!reasignarA} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
                 Reasignar e inhabilitar
               </button>
               <button type="button" onClick={() => setDesactivarPara(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>

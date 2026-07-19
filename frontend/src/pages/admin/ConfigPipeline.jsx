@@ -100,7 +100,7 @@ export default function ConfigPipeline() {
             onChange={e => setNuevo({ ...nuevo, probabilidad_cierre: e.target.value })}
             className="w-24 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
-        <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Agregar</button>
+        <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Agregar</button>
       </form>
     </div>
   );

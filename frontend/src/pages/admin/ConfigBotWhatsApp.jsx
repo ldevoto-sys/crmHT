@@ -92,7 +92,7 @@ export default function ConfigBotWhatsApp() {
             <div className="flex gap-1.5">
               {DIAS.map(d => (
                 <button key={d.n} type="button" onClick={() => toggleDia(d.n)}
-                  className={`w-9 h-9 rounded-full text-sm font-medium border ${diasHabiles.includes(d.n) ? 'bg-ht-navy text-white border-ht-navy' : 'border-gray-300 text-gray-500'}`}>
+                  className={`w-9 h-9 rounded-full text-sm font-medium border ${diasHabiles.includes(d.n) ? 'bg-ht-accent text-ht-navy border-ht-accent' : 'border-gray-300 text-gray-500'}`}>
                   {d.lbl}
                 </button>
               ))}
@@ -194,7 +194,7 @@ export default function ConfigBotWhatsApp() {
           </div>
         </section>
 
-        <button type="submit" className="bg-ht-navy text-white px-5 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Guardar configuración</button>
+        <button type="submit" className="bg-ht-accent text-ht-navy px-5 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar configuración</button>
       </form>
     </div>
   );

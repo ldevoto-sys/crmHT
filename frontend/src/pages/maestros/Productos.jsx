@@ -45,7 +45,7 @@ export default function Productos() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Productos</h1>
         {esAdmin && tab === 'catalogo' && (
-          <Link to="/productos/importar" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+          <Link to="/productos/importar" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
             Importar catálogo (CSV)
           </Link>
         )}

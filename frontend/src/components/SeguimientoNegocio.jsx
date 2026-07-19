@@ -75,7 +75,7 @@ export default function SeguimientoNegocio({ negocioId, puedeEditar }) {
               <option value="">— Selecciona una secuencia —</option>
               {secuencias.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
             </select>
-            <button onClick={iniciar} disabled={!secuenciaSel} className="bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90 disabled:opacity-50">Iniciar</button>
+            <button onClick={iniciar} disabled={!secuenciaSel} className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90 disabled:opacity-50">Iniciar</button>
           </div>
         )
       )}
@@ -84,7 +84,7 @@ export default function SeguimientoNegocio({ negocioId, puedeEditar }) {
         <form onSubmit={registrarManual} className="flex gap-2 mt-4 pt-4 border-t border-gray-100">
           <input value={manual} onChange={e => setManual(e.target.value)} placeholder="Registrar seguimiento manual (llamada, visita…)"
             className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-          <button type="submit" className="bg-ht-navy text-white px-3 py-2 rounded text-sm hover:bg-ht-navy/90">Registrar</button>
+          <button type="submit" className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Registrar</button>
         </form>
       )}
     </div>

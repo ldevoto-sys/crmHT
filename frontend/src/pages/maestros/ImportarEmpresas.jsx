@@ -57,7 +57,7 @@ export default function ImportarEmpresas() {
       <form onSubmit={analizar} className="bg-white border border-gray-200 rounded-lg p-5 mb-6 flex items-center gap-3">
         <input type="file" accept=".csv" onChange={e => { setArchivo(e.target.files[0]); setPreview(null); setResultado(null); }} className="text-sm" />
         <button type="submit" disabled={!archivo || cargando}
-          className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+          className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
           {cargando ? 'Procesando…' : 'Previsualizar'}
         </button>
       </form>
@@ -128,7 +128,7 @@ export default function ImportarEmpresas() {
           )}
 
           <button onClick={confirmar} disabled={cargando || preview.resumen.total_filas_validas === 0}
-            className="bg-ht-navy text-white px-5 py-2 rounded text-sm font-medium hover:bg-ht-navy/90 disabled:opacity-50">
+            className="bg-ht-accent text-ht-navy px-5 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
             {cargando ? 'Importando…' : `Confirmar importación (${preview.resumen.total_filas_validas})`}
           </button>
         </div>

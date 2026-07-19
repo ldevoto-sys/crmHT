@@ -123,7 +123,7 @@ export default function Contactos() {
               Exportar CSV
             </button>
           )}
-          <button onClick={abrirNuevo} className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nuevo contacto</button>
+          <button onClick={abrirNuevo} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nuevo contacto</button>
         </div>
       </div>
 
@@ -156,7 +156,7 @@ export default function Contactos() {
               {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
             </select>
             <button disabled={!bulkEmpresa} onClick={() => bulk('asignar_empresa', { empresa_id: Number(bulkEmpresa) })}
-              className="text-sm px-3 py-1.5 rounded bg-ht-navy text-white hover:bg-ht-navy/90 disabled:opacity-50">Asignar</button>
+              className="text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50">Asignar</button>
           </div>
           <button onClick={() => bulk('marcar_revisado')} className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Marcar revisado</button>
           <button onClick={() => { if (window.confirm(`¿Desactivar ${sel.size} contacto(s)?`)) bulk('desactivar'); }}
@@ -253,7 +253,7 @@ export default function Contactos() {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Guardar</button>
+              <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
               <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
             </div>
           </form>

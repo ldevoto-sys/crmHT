@@ -47,7 +47,7 @@ export default function ReglasAsignacion() {
             {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
           </select>
         </div>
-        <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Agregar</button>
+        <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Agregar</button>
       </form>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden max-w-2xl">

@@ -332,7 +332,7 @@ export default function NuevaCotizacion() {
           {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{money(descMonto)}</span></div>}
           {Number(iva) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
           <div className="flex justify-between text-lg font-bold text-ht-navy border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{money(total)}</span></div>
-          <button onClick={guardar} className="w-full mt-4 bg-ht-navy text-white py-2 rounded text-sm font-medium hover:bg-ht-navy/90">
+          <button onClick={guardar} className="w-full mt-4 bg-ht-accent text-ht-navy py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
             {modoEdicion ? 'Guardar cambios' : 'Crear cotización'}
           </button>
         </div>

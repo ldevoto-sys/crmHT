@@ -4,9 +4,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Colores de marca (HT-AP-03 §4 + Anexo "Sistema de acentos por app").
-        'ht-navy': '#112548',   // Pantone 281 CVC — común a todas las apps HT
-        'ht-accent': '#E8833A', // Naranja HT — acento propio del CRM (HT-AP-03)
+        // Colores de marca (manual gráfico HidroTecnica: Pantone 281 CVC / 306 C).
+        'ht-navy': '#112548',   // Azul marino — énfasis alto: títulos, texto, logo.
+        'ht-accent': '#34B3DE', // Celeste — color de interacción principal (antes naranja).
       },
     },
   },

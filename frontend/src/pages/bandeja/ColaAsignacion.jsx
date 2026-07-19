@@ -45,7 +45,7 @@ export default function ColaAsignacion() {
       <div className="mb-4 flex gap-2">
         {['nuevo', 'asignado', 'convertido', 'todos'].map(e => (
           <button key={e} onClick={() => setEstado(e)}
-            className={`text-sm px-3 py-1.5 rounded capitalize ${estado === e ? 'bg-ht-navy text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{e}</button>
+            className={`text-sm px-3 py-1.5 rounded capitalize ${estado === e ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{e}</button>
         ))}
       </div>
 
@@ -74,7 +74,7 @@ export default function ColaAsignacion() {
                       {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                     </select>
                     <div className="flex gap-2">
-                      <button onClick={() => asignar(l)} className="flex-1 bg-ht-navy text-white text-sm py-1.5 rounded hover:bg-ht-navy/90">Asignar</button>
+                      <button onClick={() => asignar(l)} className="flex-1 bg-ht-accent text-ht-navy text-sm py-1.5 rounded hover:bg-ht-accent/90">Asignar</button>
                       <button onClick={() => descartar(l)} className="text-sm px-2 py-1.5 rounded border border-gray-300 text-gray-500 hover:bg-gray-50">✕</button>
                     </div>
                   </>
@@ -82,7 +82,7 @@ export default function ColaAsignacion() {
                 {l.estado === 'asignado' && (
                   <>
                     <div className="text-xs text-gray-500 mb-2">Asignado a <strong className="text-ht-navy">{l.asignado_nombre}</strong></div>
-                    <button onClick={() => convertir(l)} className="w-full bg-ht-navy text-white text-sm py-1.5 rounded hover:bg-ht-navy/90">Convertir a negocio</button>
+                    <button onClick={() => convertir(l)} className="w-full bg-ht-accent text-ht-navy text-sm py-1.5 rounded hover:bg-ht-accent/90">Convertir a negocio</button>
                   </>
                 )}
                 {l.estado === 'convertido' && (

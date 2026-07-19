@@ -117,7 +117,7 @@ export default function BusquedaEquivalentes() {
       {subTab === 'filtros' && <TabFiltros lista={filtrosArena} seleccion={seleccion} onToggle={toggleSel} />}
 
       {seleccion.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 bg-ht-navy text-white px-6 py-3 flex items-center justify-between shadow-lg z-40">
+        <div className="fixed bottom-0 left-0 right-0 bg-ht-accent text-ht-navy px-6 py-3 flex items-center justify-between shadow-lg z-40">
           <span className="text-sm">{seleccion.size} producto(s) seleccionado(s)</span>
           <div className="flex gap-3">
             <button onClick={() => setSeleccion(new Set())} className="text-sm text-white/70 hover:text-white underline">Limpiar</button>
@@ -380,7 +380,7 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
           <div className="flex gap-1">
             {[5, 10, 20, 30].map(v => (
               <button key={v} onClick={() => setTol(v)}
-                className={`text-xs px-2 py-1 rounded-full border ${tol === v ? 'bg-ht-navy text-white border-ht-navy' : 'border-gray-300 text-gray-500'}`}>
+                className={`text-xs px-2 py-1 rounded-full border ${tol === v ? 'bg-ht-accent text-ht-navy border-ht-accent' : 'border-gray-300 text-gray-500'}`}>
                 ±{v}%
               </button>
             ))}

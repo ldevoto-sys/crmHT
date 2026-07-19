@@ -52,7 +52,7 @@ export default function ForgotPassword() {
               {emailError && <p className="text-xs text-red-500 mt-1">{emailError}</p>}
             </div>
             <button type="submit" disabled={loading}
-              className="w-full bg-ht-navy text-white py-2 rounded font-medium text-sm hover:bg-ht-navy/90 transition-colors disabled:opacity-60">
+              className="w-full bg-ht-accent text-ht-navy py-2 rounded font-medium text-sm hover:bg-ht-accent/90 transition-colors disabled:opacity-60">
               {loading ? 'Enviando...' : 'Enviar instrucciones'}
             </button>
             <div className="text-center">

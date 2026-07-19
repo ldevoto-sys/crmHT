@@ -66,7 +66,7 @@ export default function ConfigSecuencias() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
 
-      <button onClick={nueva} className="mb-4 bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">+ Nueva secuencia</button>
+      <button onClick={nueva} className="mb-4 bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nueva secuencia</button>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
         <table className="w-full text-sm">
@@ -162,7 +162,7 @@ export default function ConfigSecuencias() {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <button type="submit" className="bg-ht-navy text-white px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/90">Guardar</button>
+            <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
           </div>
         </form>
