@@ -339,8 +339,8 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
   }, [lista, IDX, tipo, voltaje, marca, pmax, subQ, caudal, cauUnit, altura, altUnit, pot, potUnit, tol, srt]);
 
   return (
-    <div className="flex gap-5">
-      <div className="w-64 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+    <div className="flex flex-col md:flex-row gap-5">
+      <div className="w-full md:w-64 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
         <div>
           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Buscar modelo base (sustitutos)</label>
           <input value={subQ} onChange={e => setSubQ(e.target.value)} placeholder="Código o nombre…"
@@ -477,8 +477,8 @@ function TabHidroneumaticos({ lista, seleccion, onToggle }) {
   }, [lista, lt, bar, orient, marca]);
 
   return (
-    <div className="flex gap-5">
-      <div className="w-56 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+    <div className="flex flex-col md:flex-row gap-5">
+      <div className="w-full md:w-56 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
         <div>
           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Litros</label>
           <select value={lt} onChange={e => setLt(e.target.value)} className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm">
@@ -551,8 +551,8 @@ function TabFiltros({ lista, seleccion, onToggle }) {
   }, [lista, query, vol, marca]);
 
   return (
-    <div className="flex gap-5">
-      <div className="w-56 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+    <div className="flex flex-col md:flex-row gap-5">
+      <div className="w-full md:w-56 flex-shrink-0 bg-white border border-gray-200 rounded-lg p-4 space-y-3">
         <div>
           <label className="block text-[10px] font-bold text-gray-500 uppercase mb-1">Código / modelo</label>
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="ej: VC30, P450…"

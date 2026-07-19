@@ -123,13 +123,13 @@ export default function BandejaWhatsApp() {
           <option value="">Todos los vendedores</option>
           {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
         </select>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {ESTADOS.map(e => (
             <button key={e} onClick={() => setFiltroEstado(e)}
               className={`text-sm px-3 py-1.5 rounded capitalize ${filtroEstado === e ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{e}</button>
           ))}
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 flex-wrap">
           {['todas', 'abiertas', 'cerradas'].map(a => (
             <button key={a} onClick={() => setFiltroAbierta(a)}
               className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
@@ -138,7 +138,7 @@ export default function BandejaWhatsApp() {
       </div>
 
       <div className="flex gap-4 bg-white border border-gray-200 rounded-lg overflow-hidden" style={{ height: '65vh' }}>
-        <div className="w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto">
+        <div className={`w-full md:w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto ${seleccionada ? 'hidden md:block' : 'block'}`}>
           {conversaciones.map(c => (
             <button key={c.contacto_id} onClick={() => setSeleccionada(c.contacto_id)}
               className={`w-full text-left p-3 border-b border-gray-100 hover:bg-slate-50 ${seleccionada === c.contacto_id ? 'bg-ht-accent/10' : ''}`}>
@@ -159,14 +159,17 @@ export default function BandejaWhatsApp() {
           {conversaciones.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">Sin conversaciones.</div>}
         </div>
 
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className={`flex-1 flex-col min-w-0 ${seleccionada ? 'flex' : 'hidden md:flex'}`}>
           {!seleccionada && <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">Selecciona una conversación.</div>}
           {seleccionada && (
             <>
               <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
-                <div className="text-sm text-ht-navy font-medium">
-                  {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
-                  <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
+                <div className="flex items-center gap-2 min-w-0">
+                  <button onClick={() => setSeleccionada(null)} className="md:hidden text-ht-navy shrink-0" title="Volver a conversaciones">←</button>
+                  <div className="text-sm text-ht-navy font-medium truncate">
+                    {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
+                    <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <a target="_blank" rel="noreferrer"
