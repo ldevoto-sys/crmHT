@@ -175,7 +175,8 @@ export default function Usuarios() {
 
         {/* Tabla */}
         <div className="lg:col-span-2 bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-sm">
             <thead className="bg-slate-50 text-gray-600">
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Nombre</th>
@@ -208,6 +209,7 @@ export default function Usuarios() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 

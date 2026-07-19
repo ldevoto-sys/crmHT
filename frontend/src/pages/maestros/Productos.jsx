@@ -42,7 +42,7 @@ export default function Productos() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Productos</h1>
         {esAdmin && tab === 'catalogo' && (
           <Link to="/productos/importar" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
@@ -80,7 +80,8 @@ export default function Productos() {
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Código</th>
@@ -107,6 +108,7 @@ export default function Productos() {
             {productos.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin productos.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
       {productos.length === 500 && <p className="text-xs text-gray-400 mt-2">Mostrando los primeros 500. Afina la búsqueda o los filtros.</p>}
       </>}

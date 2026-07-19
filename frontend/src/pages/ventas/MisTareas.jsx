@@ -54,7 +54,8 @@ export default function MisTareas() {
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Tarea</th>
@@ -87,6 +88,7 @@ export default function MisTareas() {
             {tareas.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin tareas.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

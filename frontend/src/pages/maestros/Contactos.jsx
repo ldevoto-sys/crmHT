@@ -105,9 +105,9 @@ export default function Contactos() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">Contactos</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {puedeVerDuplicados && (
             <Link to="/duplicados" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
               Duplicados
@@ -130,11 +130,11 @@ export default function Contactos() {
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex items-center gap-2">
+      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex items-center gap-2 flex-wrap">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, email o teléfono…"
           className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="sm:ml-auto flex items-center gap-2">
           <label className="text-sm text-gray-600">Vendedor asignado</label>
           <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
             className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
@@ -166,7 +166,8 @@ export default function Contactos() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               {puedeEditar && <th className="px-4 py-2 w-8"><input type="checkbox" checked={todosSel} onChange={toggleTodos} /></th>}
@@ -198,6 +199,7 @@ export default function Contactos() {
             {contactos.length === 0 && <tr><td colSpan={puedeEditar ? 7 : 6} className="px-4 py-6 text-center text-gray-400">Sin contactos.</td></tr>}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showForm && (
