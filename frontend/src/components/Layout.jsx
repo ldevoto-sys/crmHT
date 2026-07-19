@@ -93,6 +93,50 @@ function MenuIcon() {
   );
 }
 
+// Íconos de línea (estilo Feather) para el menú lateral, uno por ruta.
+const navIcon = props => ({ className = 'h-4 w-4 flex-shrink-0', ...rest } = {}) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...rest}>
+    {props}
+  </svg>
+);
+
+const IconDashboard = navIcon(<>
+  <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+  <rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" />
+</>);
+const IconPipeline = navIcon(<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />);
+const IconCotizaciones = navIcon(<>
+  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+  <line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+</>);
+const IconTareas = navIcon(<>
+  <polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+</>);
+const IconBandeja = navIcon(<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />);
+const IconCola = navIcon(<>
+  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" />
+  <path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+</>);
+const IconEmpresas = navIcon(<>
+  <rect x="2" y="7" width="20" height="14" rx="2" ry="2" /><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+</>);
+const IconContactos = navIcon(<>
+  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+</>);
+const IconProductos = navIcon(<>
+  <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4a2 2 0 0 0 1-1.73z" />
+  <polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" />
+</>);
+const IconReportes = navIcon(<>
+  <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+</>);
+
+const ICONO_POR_RUTA = {
+  '/dashboard': IconDashboard, '/pipeline': IconPipeline, '/cotizaciones': IconCotizaciones,
+  '/tareas': IconTareas, '/bandeja': IconBandeja, '/cola': IconCola,
+  '/empresas': IconEmpresas, '/contactos': IconContactos, '/productos': IconProductos, '/reportes': IconReportes,
+};
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -122,14 +166,18 @@ export default function Layout() {
           <span className="text-ht-navy font-semibold text-sm">CRM</span>
         </div>
         <nav className="flex-1 overflow-y-auto py-2">
-          {menu.map(item => (
-            <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} onClick={() => setSidebarAbierto(false)}
-              className={({ isActive }) =>
-                `block px-5 py-2.5 text-sm font-medium border-l-2 transition-colors ${
-                  isActive ? 'bg-ht-accent/10 border-ht-accent text-ht-navy' : 'border-transparent text-gray-600 hover:text-ht-navy hover:bg-gray-50'}`}>
-              {item.label}
-            </NavLink>
-          ))}
+          {menu.map(item => {
+            const Icon = ICONO_POR_RUTA[item.to];
+            return (
+              <NavLink key={item.to} to={item.to} end={item.to === '/dashboard'} onClick={() => setSidebarAbierto(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-5 py-2.5 text-sm font-medium border-l-2 transition-colors ${
+                    isActive ? 'bg-ht-accent/10 border-ht-accent text-ht-navy' : 'border-transparent text-gray-600 hover:text-ht-navy hover:bg-gray-50'}`}>
+                {Icon && <Icon />}
+                {item.label}
+              </NavLink>
+            );
+          })}
         </nav>
       </aside>
 
@@ -140,7 +188,6 @@ export default function Layout() {
               className="md:hidden flex items-center justify-center h-9 w-9 rounded text-gray-500 hover:text-ht-navy hover:bg-gray-100 transition-colors -ml-1">
               <MenuIcon />
             </button>
-            <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-8 object-contain hidden sm:block" />
             <span className="text-ht-navy font-semibold text-sm truncate">
               {user?.nombre || user?.email}
               <span className="ml-2 text-xs text-gray-400 font-normal capitalize hidden sm:inline">({user?.rol?.replace('_', ' ')})</span>
