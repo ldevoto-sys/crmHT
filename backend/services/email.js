@@ -6,21 +6,48 @@
 // directo a él. El envío "nativo" desde el buzón del vendedor vía Microsoft
 // Graph queda para cuando esa integración esté disponible (ver nota de
 // cambio v1.8, §7).
+const net = require('net');
+const dns = require('dns').promises;
 const nodemailer = require('nodemailer');
 const { numeroCompleto } = require('./cotizacion_data');
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp-relay.brevo.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
+
+// nodemailer resuelve A y AAAA del host SMTP y elige una dirección al azar
+// entre ambas para el primer intento (no hay forma de forzar solo IPv4 vía
+// opciones de configuración). Railway no tiene salida IPv6 utilizable, así
+// que cuando cae en una IPv6 la conexión falla con ENETUNREACH. Para
+// evitarlo, resolvemos nosotros el registro A (IPv4) y se lo pasamos a
+// nodemailer como host literal — al ser una IP, nodemailer no vuelve a
+// resolver nada. El nombre real se mantiene en `tls.servername` para que la
+// verificación del certificado siga siendo correcta.
+async function crearTransporter() {
+  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+  const port = parseInt(process.env.SMTP_PORT || '587');
+  let connectHost = host;
+  if (!net.isIP(host)) {
+    try {
+      const ips = await dns.resolve4(host);
+      if (ips.length) {
+        connectHost = ips[0];
+        console.log(`[email] ${host} resuelto a IPv4 ${connectHost}`);
+      }
+    } catch (e) {
+      console.warn(`[email] No se pudo resolver IPv4 de ${host} (${e.message}); se usa la resolución por defecto de nodemailer.`);
+    }
+  }
+  return nodemailer.createTransport({
+    host: connectHost,
+    port,
+    secure: false,
+    tls: connectHost !== host ? { servername: host } : undefined,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
 
 async function enviar(to, subject, html, opts = {}) {
   if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
@@ -31,6 +58,7 @@ async function enviar(to, subject, html, opts = {}) {
   const port = parseInt(process.env.SMTP_PORT || '587');
   console.log(`[email] Enviando a ${to} — asunto: "${subject}" (host=${host}, puerto=${port}, usuario=${process.env.SMTP_USER})`);
   try {
+    const transporter = await crearTransporter();
     const info = await transporter.sendMail({ from: FROM, to, subject, html, replyTo: opts.replyTo, attachments: opts.attachments });
     console.log(`[email] Enviado a ${to} — messageId=${info.messageId}, respuesta SMTP: ${info.response}`);
     return { enviado: true };
