@@ -189,6 +189,49 @@ export default function BusquedaEquivalentes() {
   );
 }
 
+// === Tarjeta del producto de origen (buscado), para comparar contra las alternativas ===
+function TarjetaOrigen({ p }) {
+  const specs = [
+    p.caudal_max != null && ['Caudal máx.', `${p.caudal_max} l/min`],
+    p.altura_max != null && ['Altura máx.', `${p.altura_max} m`],
+    p.hp != null && ['Potencia', `${p.hp} HP`],
+    p.voltaje && ['Voltaje', p.voltaje],
+    p.conexion && ['Conexión', p.conexion],
+    p.litros != null && ['Capacidad', `${p.litros} L`],
+    p.bar_max != null && ['Presión máx.', `${p.bar_max} bar`],
+    p.orientacion && ['Orientación', p.orientacion],
+    p.m3h_max != null && ['Caudal filtrado', `${p.m3h_max} m³/h`],
+    p.volumen_piscina_m3 != null && ['Volumen piscina', `${p.volumen_piscina_m3} m³`],
+    p.diametro_mm != null && ['Diámetro', `${p.diametro_mm} mm`],
+  ].filter(Boolean);
+
+  return (
+    <div className="bg-slate-50 border border-gray-200 rounded-lg p-3 mb-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+      <div className="w-20 h-20 bg-white rounded border border-gray-100 flex items-center justify-center flex-shrink-0">
+        {p.url_imagen
+          ? <img src={p.url_imagen} alt={p.codigo} className="max-h-16 max-w-[85%] object-contain" onError={e => { e.target.style.display = 'none'; }} />
+          : <span className="text-[10px] text-gray-300">{p.codigo}</span>}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Producto de origen</div>
+        <div className="text-sm font-semibold text-ht-navy">{p.nombre}</div>
+        <div className="text-xs text-gray-500 mb-1">{p.marca} · <span className="font-mono">{p.codigo}</span></div>
+        {specs.length > 0 && (
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-600">
+            {specs.map(([k, v]) => <span key={k}>{k}: <span className="text-gray-800">{v}</span></span>)}
+          </div>
+        )}
+      </div>
+      <div className="text-left sm:text-right flex-shrink-0">
+        <div className="text-sm font-semibold text-ht-navy mb-1">{money(p.precio)}</div>
+        {p.ficha_tecnica_url && (
+          <a href={p.ficha_tecnica_url} target="_blank" rel="noreferrer" className="text-xs text-ht-accent hover:underline">📄 Ficha técnica</a>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // === Tarjeta genérica de resultado (bombas) ===
 function TarjetaBomba({ p, best, approx, declarado, seleccionado, onToggle, onBuscarModelo }) {
   const specs = [
@@ -418,6 +461,7 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
       </div>
 
       <div className="flex-1 min-w-0">
+        {resultado.base && <TarjetaOrigen p={resultado.base} />}
         <div className="flex items-center justify-between mb-3">
           <div>
             <div className="text-sm font-semibold text-ht-navy">
@@ -425,7 +469,6 @@ function TabBombas({ lista, IDX, seleccion, onToggle }) {
                 ? (resultado.mensaje || 'Sin resultados')
                 : `${resultado.declared.length + resultado.calculados.length} alternativa(s) encontrada(s)`}
             </div>
-            {resultado.base && <div className="text-xs text-gray-500">Sustitutos de: {resultado.base.nombre.slice(0, 50)}</div>}
           </div>
           <select value={srt} onChange={e => setSrt(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-xs">
             <option value="score">Mejor coincidencia</option>
@@ -574,8 +617,9 @@ function TabFiltros({ lista, seleccion, onToggle }) {
         </div>
       </div>
       <div className="flex-1 min-w-0">
+        {base && <TarjetaOrigen p={base} />}
         <p className="text-sm text-gray-500 mb-3">
-          {base ? `${resultados.length} equivalente(s) para ${base.nombre.slice(0, 40)} (±30% volumen)` : `${resultados.length} filtro(s) encontrado(s)`}
+          {base ? `${resultados.length} equivalente(s) (±30% volumen)` : `${resultados.length} filtro(s) encontrado(s)`}
         </p>
         <div className="space-y-2">
           {resultados.map(p => (
