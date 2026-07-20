@@ -23,12 +23,22 @@ const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.c
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
 
 async function enviar(to, subject, html, opts = {}) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return { enviado: false, motivo: 'SMTP no configurado' };
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    console.warn(`[email] SMTP no configurado (falta SMTP_USER o SMTP_PASS) — no se envía a ${to}: "${subject}"`);
+    return { enviado: false, motivo: 'SMTP no configurado' };
+  }
+  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
+  const port = parseInt(process.env.SMTP_PORT || '587');
+  console.log(`[email] Enviando a ${to} — asunto: "${subject}" (host=${host}, puerto=${port}, usuario=${process.env.SMTP_USER})`);
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html, replyTo: opts.replyTo, attachments: opts.attachments });
+    const info = await transporter.sendMail({ from: FROM, to, subject, html, replyTo: opts.replyTo, attachments: opts.attachments });
+    console.log(`[email] Enviado a ${to} — messageId=${info.messageId}, respuesta SMTP: ${info.response}`);
     return { enviado: true };
   } catch (e) {
-    console.error('[email] Error enviando a', to, ':', e.message);
+    console.error(
+      `[email] Error enviando a ${to}: ${e.message}`,
+      `| code=${e.code || '—'} responseCode=${e.responseCode || '—'} response=${e.response || '—'} command=${e.command || '—'}`
+    );
     return { enviado: false, motivo: e.message };
   }
 }
