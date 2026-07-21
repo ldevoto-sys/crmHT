@@ -1,72 +1,62 @@
 // Correos transaccionales del sistema (bienvenida, reset, cambio de contraseña)
-// y envío de cotizaciones al cliente. Usa Brevo vía SMTP, igual que
-// GastosHT/EPP (HT-AP-03 §3, §15). El correo llega desde una dirección
+// y envío de cotizaciones al cliente. Usa la API HTTP de Brevo, no SMTP: se
+// confirmó que Railway no deja completar conexiones salientes por el puerto
+// 587 hacia ningún proveedor (mismo ETIMEDOUT probado contra Microsoft 365 y
+// contra el propio Brevo) — la API HTTP evita el problema por completo porque
+// va sobre HTTPS/443, que sí funciona. El correo llega desde una dirección
 // genérica (no desde el buzón real del vendedor), pero con "Responder a"
 // apuntando al vendedor para que las respuestas del cliente le lleguen
 // directo a él. El envío "nativo" desde el buzón del vendedor vía Microsoft
 // Graph queda para cuando esa integración esté disponible (ver nota de
 // cambio v1.8, §7).
-const net = require('net');
-const dns = require('dns').promises;
-const nodemailer = require('nodemailer');
 const { numeroCompleto } = require('./cotizacion_data');
 
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
 
-// nodemailer resuelve A y AAAA del host SMTP y elige una dirección al azar
-// entre ambas para el primer intento (no hay forma de forzar solo IPv4 vía
-// opciones de configuración). Railway no tiene salida IPv6 utilizable, así
-// que cuando cae en una IPv6 la conexión falla con ENETUNREACH. Para
-// evitarlo, resolvemos nosotros el registro A (IPv4) y se lo pasamos a
-// nodemailer como host literal — al ser una IP, nodemailer no vuelve a
-// resolver nada. El nombre real se mantiene en `tls.servername` para que la
-// verificación del certificado siga siendo correcta.
-async function crearTransporter() {
-  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-  const port = parseInt(process.env.SMTP_PORT || '587');
-  let connectHost = host;
-  if (!net.isIP(host)) {
-    try {
-      const ips = await dns.resolve4(host);
-      if (ips.length) {
-        connectHost = ips[0];
-        console.log(`[email] ${host} resuelto a IPv4 ${connectHost}`);
-      }
-    } catch (e) {
-      console.warn(`[email] No se pudo resolver IPv4 de ${host} (${e.message}); se usa la resolución por defecto de nodemailer.`);
-    }
-  }
-  return nodemailer.createTransport({
-    host: connectHost,
-    port,
-    secure: false,
-    tls: connectHost !== host ? { servername: host } : undefined,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+// "Nombre <correo@dominio>" -> {name, email}. Acepta también un correo solo.
+function parseRemitente(str) {
+  const m = String(str).match(/^(.*)<(.+)>$/);
+  if (m) return { name: m[1].trim() || undefined, email: m[2].trim() };
+  return { email: String(str).trim() };
 }
 
 async function enviar(to, subject, html, opts = {}) {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    console.warn(`[email] SMTP no configurado (falta SMTP_USER o SMTP_PASS) — no se envía a ${to}: "${subject}"`);
-    return { enviado: false, motivo: 'SMTP no configurado' };
+  const apiKey = process.env.BREVO_API_KEY;
+  if (!apiKey) {
+    console.warn(`[email] BREVO_API_KEY no configurada — no se envía a ${to}: "${subject}"`);
+    return { enviado: false, motivo: 'BREVO_API_KEY no configurada' };
   }
-  const host = process.env.SMTP_HOST || 'smtp-relay.brevo.com';
-  const port = parseInt(process.env.SMTP_PORT || '587');
-  console.log(`[email] Enviando a ${to} — asunto: "${subject}" (host=${host}, puerto=${port}, usuario=${process.env.SMTP_USER})`);
+  const body = {
+    sender: parseRemitente(FROM),
+    to: [{ email: to }],
+    subject,
+    htmlContent: html,
+  };
+  if (opts.replyTo) body.replyTo = { email: opts.replyTo };
+  if (opts.attachments && opts.attachments.length) {
+    body.attachment = opts.attachments.map(a => ({
+      name: a.filename,
+      content: (Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content)).toString('base64'),
+    }));
+  }
+  console.log(`[email] Enviando a ${to} — asunto: "${subject}" (vía Brevo API)`);
   try {
-    const transporter = await crearTransporter();
-    const info = await transporter.sendMail({ from: FROM, to, subject, html, replyTo: opts.replyTo, attachments: opts.attachments });
-    console.log(`[email] Enviado a ${to} — messageId=${info.messageId}, respuesta SMTP: ${info.response}`);
+    const res = await fetch(BREVO_API_URL, {
+      method: 'POST',
+      headers: { 'api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error(`[email] Error enviando a ${to}: HTTP ${res.status} — ${JSON.stringify(data)}`);
+      return { enviado: false, motivo: data.message || `HTTP ${res.status}` };
+    }
+    console.log(`[email] Enviado a ${to} — messageId=${data.messageId}`);
     return { enviado: true };
   } catch (e) {
-    console.error(
-      `[email] Error enviando a ${to}: ${e.message}`,
-      `| code=${e.code || '—'} responseCode=${e.responseCode || '—'} response=${e.response || '—'} command=${e.command || '—'}`
-    );
+    console.error(`[email] Error enviando a ${to}: ${e.message}`);
     return { enviado: false, motivo: e.message };
   }
 }
