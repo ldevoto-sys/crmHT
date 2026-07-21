@@ -173,9 +173,10 @@ router.put('/empresa', authorize('administrador', 'jefe_comercial'), async (req,
   try {
     const campos = ['razon_social', 'rut', 'direccion', 'comuna', 'ciudad', 'telefono', 'whatsapp',
                     'email_ventas', 'email_cobranzas', 'sitio_web', 'banco', 'cuenta_tipo', 'cuenta_numero',
-                    'mensaje_cotizacion_whatsapp'];
+                    'mensaje_cotizacion_whatsapp', 'mensaje_cotizacion_email',
+                    'incluir_whatsapp_email', 'mensaje_whatsapp_email'];
     const sets = campos.map((c, i) => `${c}=$${i + 1}`).join(', ');
-    const vals = campos.map(c => req.body[c] ?? null);
+    const vals = campos.map(c => c === 'incluir_whatsapp_email' ? req.body[c] === true : (req.body[c] ?? null));
     await db.run(
       `INSERT INTO config_empresa (id, ${campos.join(', ')}) VALUES (1, ${campos.map((_, i) => `$${i + 1}`).join(', ')})
        ON CONFLICT (id) DO UPDATE SET ${sets}`, vals);

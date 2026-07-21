@@ -201,7 +201,7 @@ router.get('/:id/pdf', async (req, res) => {
 });
 
 // POST /api/cotizaciones/:id/enviar — envía la cotización al contacto por correo
-// (SMTP existente), con el vendedor como "Responder a" y el PDF adjunto.
+// (API de Brevo), con el vendedor como "Responder a" y el PDF adjunto.
 router.post('/:id/enviar', async (req, res) => {
   try {
     const data = await fetchCompleta({ id: req.params.id });
@@ -212,9 +212,9 @@ router.post('/:id/enviar', async (req, res) => {
 
     const pdfBuffer = await generarCotizacionPDFBuffer(data);
     const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
-    const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer);
+    const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer, data.emisor);
     if (!resultado?.enviado) {
-      return res.status(502).json({ error: 'No se pudo enviar el correo. Revisa la configuración SMTP.' });
+      return res.status(502).json({ error: 'No se pudo enviar el correo. Revisa la configuración de envío de correo.' });
     }
 
     await db.run(

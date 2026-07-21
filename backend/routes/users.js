@@ -41,7 +41,7 @@ router.get('/vendedores', async (req, res) => {
 });
 
 // POST /api/users {password?} — si no se indica password, se genera una temporal.
-// Mientras el envío de correo no esté configurado (SMTP_USER/SMTP_PASS), la
+// Mientras el envío de correo no esté configurado (BREVO_API_KEY), la
 // respuesta siempre incluye password_temporal para que el administrador la
 // pueda copiar y entregar a mano.
 router.post('/', authorize('administrador'), async (req, res) => {
