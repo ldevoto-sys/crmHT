@@ -14,6 +14,11 @@ const { numeroCompleto } = require('./cotizacion_data');
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
+// Logo servido desde Cloudflare R2 (mismo bucket público que las imágenes de
+// producto) en vez de desde el propio backend: evita depender de que el
+// cliente de correo del destinatario pueda cargar una imagen desde el
+// dominio de Railway (helmet/CORP, o que el build no la incluya).
+const LOGO_URL = 'https://pub-354d750346d14b9babdf055dedadd63f.r2.dev/Hidrotecnica.jpg';
 
 // "Nombre <correo@dominio>" -> {name, email}. Acepta también un correo solo.
 function parseRemitente(str) {
@@ -69,7 +74,7 @@ function template(titulo, contenido) {
   return `
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background:#FFFFFF; color:#1a1a1a;">
       <div style="padding: 20px 24px 12px; border-bottom: 2px solid #34B3DE;">
-        <img src="${APP_URL}/Hidrotecnica.jpg" alt="HidroTecnica SpA" width="160" style="display:block; height:auto; border:0;" />
+        <img src="${LOGO_URL}" alt="HidroTecnica SpA" width="160" style="display:block; height:auto; border:0;" />
       </div>
       <div style="padding: 24px;">
         <h2 style="color: #112548; margin-top: 0;">${titulo}</h2>
