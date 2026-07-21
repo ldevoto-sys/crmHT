@@ -63,7 +63,18 @@ app.use('/api/whatsapp', require('./routes/whatsapp'));
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
 const frontendDist = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(path.join(frontendDist, 'index.html'))) {
-  app.use(express.static(frontendDist));
+  // Helmet pone "Cross-Origin-Resource-Policy: same-origin" por defecto en
+  // toda respuesta, lo que bloquea que un cliente de correo (otro origen,
+  // ej. Outlook Web) cargue el logo embebido en los correos. Se relaja solo
+  // para las imágenes públicas del frontend (logo, favicon), que de por sí
+  // no tienen nada sensible.
+  app.use(express.static(frontendDist, {
+    setHeaders: (res, filePath) => {
+      if (/\.(jpg|jpeg|png|svg|ico|webp)$/i.test(filePath)) {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      }
+    },
+  }));
   app.get('*', (req, res) => {
     if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'No encontrado' });
     res.sendFile(path.join(frontendDist, 'index.html'));
