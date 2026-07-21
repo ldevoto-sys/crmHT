@@ -387,6 +387,19 @@ async function initDb() {
     `UPDATE config_empresa SET mensaje_cotizacion_whatsapp=$1 WHERE id=1 AND mensaje_cotizacion_whatsapp=''`,
     ['Adjunto la cotización según lo solicitado, quedo atento a cualquier consulta para que la revisemos juntos.']
   );
+  // Texto del correo de envío de cotización, y bloque opcional de WhatsApp
+  // dentro de ese correo (mismo patrón que el mensaje de WhatsApp de arriba).
+  await db.run(`ALTER TABLE config_empresa ADD COLUMN IF NOT EXISTS mensaje_cotizacion_email TEXT NOT NULL DEFAULT ''`);
+  await db.run(`ALTER TABLE config_empresa ADD COLUMN IF NOT EXISTS incluir_whatsapp_email BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE config_empresa ADD COLUMN IF NOT EXISTS mensaje_whatsapp_email TEXT NOT NULL DEFAULT ''`);
+  await db.run(
+    `UPDATE config_empresa SET mensaje_cotizacion_email=$1 WHERE id=1 AND mensaje_cotizacion_email=''`,
+    ['Junto con saludar, adjuntamos la cotización solicitada']
+  );
+  await db.run(
+    `UPDATE config_empresa SET mensaje_whatsapp_email=$1 WHERE id=1 AND mensaje_whatsapp_email=''`,
+    ['Cualquier consulta sobre esta cotización o sobre otro tema, puede responder este correo o escribirnos a nuestro whatsapp.']
+  );
 
   // === Etapa 2E — Leads y motor de asignación (§7.1, §9.4) ===
 

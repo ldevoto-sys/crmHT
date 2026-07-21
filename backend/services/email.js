@@ -61,15 +61,17 @@ async function enviar(to, subject, html, opts = {}) {
   }
 }
 
-// Plantilla base con colores de marca (navy #112548 / cyan #34B3DE / gris #555).
+// Plantilla base: fondos claros y texto oscuro en todo el correo (mejor
+// lectura si el cliente de correo no aplica el CSS, y evita la barra oscura
+// que se veía mal en Outlook). Colores de marca solo como acento (navy en
+// títulos, celeste en el botón principal).
 function template(titulo, contenido) {
   return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-      <div style="background: #112548; color: #FFFFFF; padding: 20px 24px;">
-        <h1 style="margin: 0; font-size: 18px;">HidroTecnica SpA</h1>
-        <p style="margin: 4px 0 0; font-size: 13px; color: #34B3DE;">CRM Comercial</p>
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background:#FFFFFF; color:#1a1a1a;">
+      <div style="padding: 20px 24px 12px; border-bottom: 2px solid #34B3DE;">
+        <img src="${APP_URL}/Hidrotecnica.jpg" alt="HidroTecnica SpA" width="160" style="display:block; height:auto; border:0;" />
       </div>
-      <div style="padding: 24px; border: 1px solid #e5e7eb; border-top: none;">
+      <div style="padding: 24px;">
         <h2 style="color: #112548; margin-top: 0;">${titulo}</h2>
         ${contenido}
         <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
@@ -81,8 +83,20 @@ function template(titulo, contenido) {
   `;
 }
 
-function boton(url, texto) {
-  return `<a href="${url}" style="display:inline-block;background:#112548;color:#FFFFFF;padding:10px 20px;border-radius:4px;text-decoration:none;margin-top:8px;">${texto}</a>`;
+// Botón "a prueba de Outlook": el color de fondo va en la celda de la tabla,
+// no solo en el <a> — Outlook de escritorio (motor Word) ignora
+// background/border-radius en enlaces sueltos, pero sí respeta el fondo de
+// una celda de tabla.
+function boton(url, texto, { fondo = '#34B3DE', color = '#112548' } = {}) {
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;">
+      <tr>
+        <td style="background:${fondo}; border-radius:4px;">
+          <a href="${url}" target="_blank" style="display:inline-block; padding:10px 22px; font-family:Arial,sans-serif; font-size:14px; font-weight:bold; color:${color}; text-decoration:none;">${texto}</a>
+        </td>
+      </tr>
+    </table>
+  `;
 }
 
 module.exports = {
@@ -137,21 +151,33 @@ module.exports = {
 
   // Envío de una cotización al cliente. destinatario: email del contacto;
   // vendedor: {nombre,email} (se usa como "Responder a"); cot: fila de
-  // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar.
-  cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer) => enviar(
-    destinatario,
-    `Cotización ${numeroCompleto(cot.numero, cot.version)} — HidroTecnica SpA`,
-    template(`Cotización ${numeroCompleto(cot.numero, cot.version)}`, `
-      <p>Estimado(a) ${cot.contacto_nombre || ''},</p>
-      <p>Junto con saludar, adjuntamos la cotización solicitada${cot.titulo ? `: <strong>${cot.titulo}</strong>` : ''}.</p>
-      <p>También puedes revisarla en línea:</p>
-      ${boton(linkPublico, 'Ver cotización online')}
-      <p style="margin-top:20px;">Quedamos atentos a tus consultas.</p>
-      <p>Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
-    `),
-    {
-      replyTo: vendedor?.email || undefined,
-      attachments: pdfBuffer ? [{ filename: `${numeroCompleto(cot.numero, cot.version)}.pdf`, content: pdfBuffer }] : [],
-    }
-  ),
+  // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar;
+  // emisor: fila de config_empresa (mensaje_cotizacion_email,
+  // incluir_whatsapp_email, mensaje_whatsapp_email, whatsapp).
+  cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer, emisor = {}) => {
+    const mensaje = emisor.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada';
+    const numeroWa = (emisor.whatsapp || '').replace(/\D/g, '');
+    const incluirWhatsapp = emisor.incluir_whatsapp_email !== false && numeroWa;
+    return enviar(
+      destinatario,
+      `Cotización ${numeroCompleto(cot.numero, cot.version)} — HidroTecnica SpA`,
+      template(`Cotización ${numeroCompleto(cot.numero, cot.version)}`, `
+        <p>Estimado(a) ${cot.contacto_nombre || ''},</p>
+        <p>${mensaje}${cot.titulo ? `: <strong>${cot.titulo}</strong>` : ''}.</p>
+        <p>También puedes revisarla en línea:</p>
+        ${boton(linkPublico, 'Ver cotización online')}
+        <p style="margin-top:20px;">Quedamos atentos a tus consultas.</p>
+        <p>Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
+        ${incluirWhatsapp ? `
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 20px 0;">
+        <p style="margin-bottom:0;">${emisor.mensaje_whatsapp_email || ''}</p>
+        <p style="margin-top:10px;"><a href="https://wa.me/${numeroWa}" target="_blank" style="color:#112548; font-weight:bold; text-decoration:underline;">Escríbenos por WhatsApp</a></p>
+        ` : ''}
+      `),
+      {
+        replyTo: vendedor?.email || undefined,
+        attachments: pdfBuffer ? [{ filename: `${numeroCompleto(cot.numero, cot.version)}.pdf`, content: pdfBuffer }] : [],
+      }
+    );
+  },
 };

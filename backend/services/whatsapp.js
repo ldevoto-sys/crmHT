@@ -1,6 +1,6 @@
 // Envío de mensajes de WhatsApp vía la API de Meta (WhatsApp Cloud API).
 // Sin credenciales configuradas, no falla: registra y no hace nada, igual que
-// services/email.js con SMTP. Se activa cuando existan WHATSAPP_ACCESS_TOKEN
+// services/email.js sin BREVO_API_KEY. Se activa cuando existan WHATSAPP_ACCESS_TOKEN
 // y WHATSAPP_PHONE_NUMBER_ID (nota de cambio v1.8 §7 — pendiente de IT/Meta).
 
 // Traduce los errores más comunes de la Cloud API a un mensaje entendible
