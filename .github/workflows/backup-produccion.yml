@@ -13,12 +13,12 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Instalar cliente de PostgreSQL reciente
+      - name: Instalar cliente de PostgreSQL 18 (misma versión que produccion)
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y postgresql-client-17
+          sudo apt-get install -y postgresql-client-18
 
       - name: Respaldar base de datos de producción
         env:
@@ -26,7 +26,9 @@ jobs:
         run: |
           FECHA=$(date +%Y-%m-%d)
           echo "FECHA=$FECHA" >> "$GITHUB_ENV"
-          pg_dump "$DATABASE_URL" -Fc -f "crmht-${FECHA}.dump"
+          # Se usa el binario versionado explícito (no "pg_dump" a secas) porque
+          # el runner de GitHub ya trae una versión más antigua preinstalada.
+          /usr/lib/postgresql/18/bin/pg_dump "$DATABASE_URL" -Fc -f "crmht-${FECHA}.dump"
 
       - name: Subir respaldo a Cloudflare R2
         env:
