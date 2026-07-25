@@ -1,0 +1,39 @@
+name: Respaldo diario de producción a R2
+
+# Corre todos los días de madrugada y también se puede lanzar a mano desde la
+# pestaña Actions de GitHub (botón "Run workflow") para probarlo o forzar un
+# respaldo puntual. No requiere acceso a Railway: se conecta directo al
+# Postgres de producción vía su URL pública.
+on:
+  schedule:
+    - cron: '0 8 * * *'  # ~04:00-05:00 hora Chile (varía con el horario de verano)
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar cliente de PostgreSQL reciente
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+
+      - name: Respaldar base de datos de producción
+        env:
+          DATABASE_URL: ${{ secrets.CRM_PROD_DATABASE_URL }}
+        run: |
+          FECHA=$(date +%Y-%m-%d)
+          echo "FECHA=$FECHA" >> "$GITHUB_ENV"
+          pg_dump "$DATABASE_URL" -Fc -f "crmht-${FECHA}.dump"
+
+      - name: Subir respaldo a Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          aws s3 cp "crmht-${FECHA}.dump" \
+            "s3://${{ secrets.R2_BACKUP_BUCKET }}/crmht-${FECHA}.dump" \
+            --endpoint-url "https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
