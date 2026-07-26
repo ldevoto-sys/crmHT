@@ -33,6 +33,23 @@ export default function ConfigPipeline() {
     catch (err) { setError(err.response?.data?.error || 'Error al eliminar.'); }
   };
 
+  // Reordenar solo tiene sentido entre las etapas "abiertas" — las
+  // terminales (Ganado/Perdido) siempre quedan fijas al final.
+  const moverOrden = async (etapa, direccion) => {
+    const abiertas = etapas.filter(x => x.tipo === 'abierta').sort((a, b) => a.orden - b.orden);
+    const idx = abiertas.findIndex(x => x.id === etapa.id);
+    const vecino = direccion === 'arriba' ? abiertas[idx - 1] : abiertas[idx + 1];
+    if (!vecino) return;
+    setError(''); setMsg('');
+    try {
+      await Promise.all([
+        api.put(`/config/pipeline-etapas/${etapa.id}`, { nombre: etapa.nombre, probabilidad_cierre: Number(etapa.probabilidad_cierre), activo: etapa.activo, orden: vecino.orden }),
+        api.put(`/config/pipeline-etapas/${vecino.id}`, { nombre: vecino.nombre, probabilidad_cierre: Number(vecino.probabilidad_cierre), activo: vecino.activo, orden: etapa.orden }),
+      ]);
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo reordenar.'); }
+  };
+
   const crear = async (ev) => {
     ev.preventDefault(); setError(''); setMsg('');
     try {
@@ -82,9 +99,24 @@ export default function ConfigPipeline() {
             </tr>
           </thead>
           <tbody>
-            {etapas.map(e => (
+            {etapas.map(e => {
+              const abiertas = etapas.filter(x => x.tipo === 'abierta').sort((a, b) => a.orden - b.orden);
+              const idx = abiertas.findIndex(x => x.id === e.id);
+              return (
               <tr key={e.id} className="border-t border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-2 text-gray-400">{e.orden}</td>
+                <td className="px-4 py-2 text-gray-400">
+                  <div className="flex items-center gap-1">
+                    <span>{e.orden}</span>
+                    {e.tipo === 'abierta' && (
+                      <span className="flex flex-col leading-none ml-1">
+                        <button type="button" onClick={() => moverOrden(e, 'arriba')} disabled={idx === 0}
+                          title="Subir" className="text-gray-400 hover:text-ht-navy disabled:opacity-20 disabled:hover:text-gray-400">▲</button>
+                        <button type="button" onClick={() => moverOrden(e, 'abajo')} disabled={idx === abiertas.length - 1}
+                          title="Bajar" className="text-gray-400 hover:text-ht-navy disabled:opacity-20 disabled:hover:text-gray-400">▼</button>
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-2">
                   <input value={e.nombre} onChange={ev => set(e.id, 'nombre', ev.target.value)}
                     className="border border-gray-300 rounded px-2 py-1 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
@@ -105,7 +137,8 @@ export default function ConfigPipeline() {
                   {e.tipo === 'abierta' && <button onClick={() => eliminar(e)} className="text-red-500 hover:underline">Eliminar</button>}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
