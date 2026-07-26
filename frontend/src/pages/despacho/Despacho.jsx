@@ -10,6 +10,9 @@ const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
 const ESTADOS = ['programado', 'en_ruta', 'completado', 'cancelado'];
+// "Completado" no se elige a mano: sale solo cuando todas las paradas quedan
+// completadas (cada una ya exige su foto de respaldo antes de eso).
+const ESTADOS_EDITABLES = ['programado', 'en_ruta', 'cancelado'];
 const badgeEstado = e => ({
   programado: 'bg-gray-100 text-gray-600',
   en_ruta: 'bg-ht-accent/15 text-ht-navy',
@@ -427,9 +430,17 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
   const [nuevoPunto, setNuevoPunto] = useState(puntoVacio());
   const [editandoId, setEditandoId] = useState(null);
   const [formEdicion, setFormEdicion] = useState(null);
+  const [guardado, setGuardado] = useState(false);
+
+  // Aviso breve "Guardado ✓" tras cada acción, para que quede claro que se
+  // guardó sin necesitar un botón de guardar aparte para cada campo suelto.
+  const avisarGuardado = () => {
+    setGuardado(true);
+    setTimeout(() => setGuardado(false), 1500);
+  };
 
   const completar = async (punto, completado) => {
-    try { await api.put(`/despachos/puntos/${punto.id}/completar`, { completado }); onCambio(); }
+    try { await api.put(`/despachos/puntos/${punto.id}/completar`, { completado }); onCambio(); avisarGuardado(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo actualizar la parada.'); }
   };
 
@@ -442,18 +453,18 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
         ...formEdicion,
         duracion_estimada_min: formEdicion.duracion_estimada_min ? Number(formEdicion.duracion_estimada_min) : undefined,
       });
-      cancelarEdicion(); onCambio();
+      cancelarEdicion(); onCambio(); avisarGuardado();
     } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la parada.'); }
   };
 
   const cambiarEstado = async estado => {
-    try { await api.put(`/despachos/${despacho.id}`, { estado }); onCambio(); }
+    try { await api.put(`/despachos/${despacho.id}`, { estado }); onCambio(); avisarGuardado(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo actualizar el estado.'); }
   };
 
   const eliminarPunto = async punto => {
     if (!window.confirm('¿Eliminar esta parada?')) return;
-    try { await api.delete(`/despachos/puntos/${punto.id}`); onCambio(); }
+    try { await api.delete(`/despachos/puntos/${punto.id}`); onCambio(); avisarGuardado(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo eliminar la parada.'); }
   };
 
@@ -464,22 +475,25 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
         ...nuevoPunto,
         duracion_estimada_min: nuevoPunto.duracion_estimada_min ? Number(nuevoPunto.duracion_estimada_min) : undefined,
       });
-      setMostrarAgregar(false); setNuevoPunto(puntoVacio()); onCambio();
+      setMostrarAgregar(false); setNuevoPunto(puntoVacio()); onCambio(); avisarGuardado();
     } catch (err) { setError(err.response?.data?.error || 'No se pudo agregar la parada.'); }
   };
 
   return (
     <Modal onClose={onClose} ancho="max-w-2xl">
-      <div className="flex items-start justify-between mb-1">
+      <div className="flex items-start justify-between mb-1 gap-2">
         <h2 className="font-semibold text-ht-navy text-lg">{despacho.titulo}</h2>
-        {puedeGestionar ? (
-          <select value={despacho.estado} onChange={e => cambiarEstado(e.target.value)}
-            className="text-xs border border-gray-300 rounded px-2 py-1 capitalize focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            {ESTADOS.map(e => <option key={e} value={e}>{e.replace('_', ' ')}</option>)}
-          </select>
-        ) : (
-          <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${badgeEstado(despacho.estado)}`}>{despacho.estado.replace('_', ' ')}</span>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {guardado && <span className="text-xs text-green-600">Guardado ✓</span>}
+          {puedeGestionar && despacho.estado !== 'completado' ? (
+            <select value={despacho.estado} onChange={e => cambiarEstado(e.target.value)}
+              className="text-xs border border-gray-300 rounded px-2 py-1 capitalize focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              {ESTADOS_EDITABLES.map(e => <option key={e} value={e}>{e.replace('_', ' ')}</option>)}
+            </select>
+          ) : (
+            <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${badgeEstado(despacho.estado)}`}>{despacho.estado.replace('_', ' ')}</span>
+          )}
+        </div>
       </div>
       {(despacho.negocio_titulo || despacho.caso_postventa_titulo) && (
         <p className="text-xs text-gray-400 mb-3">
@@ -562,6 +576,10 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
           )}
         </div>
       )}
+
+      <div className="mt-4 border-t border-gray-100 pt-3 flex justify-end">
+        <button onClick={onClose} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cerrar</button>
+      </div>
     </Modal>
   );
 }

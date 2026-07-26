@@ -230,8 +230,10 @@ router.put('/:id', async (req, res) => {
     const despacho = await db.get('SELECT * FROM despachos WHERE id = $1', [req.params.id]);
     if (!despacho) return res.status(404).json({ error: 'Despacho no encontrado' });
     const { titulo, estado } = req.body;
-    if (estado && !['programado', 'en_ruta', 'completado', 'cancelado'].includes(estado)) {
-      return res.status(400).json({ error: 'Estado inválido' });
+    if (estado && !['programado', 'en_ruta', 'cancelado'].includes(estado)) {
+      // "completado" no se elige a mano: sale solo cuando todas las paradas
+      // quedan completadas (ver PUT /puntos/:id/completar).
+      return res.status(400).json({ error: 'El estado "Completado" se determina automáticamente cuando todas las paradas están completadas.' });
     }
     await db.run(
       `UPDATE despachos SET titulo=$1, estado=$2, ultima_actividad=now() WHERE id=$3`,
@@ -261,6 +263,9 @@ router.post('/:id/puntos', async (req, res) => {
       [req.params.id, (maxOrden.m || 0) + 1, p.tipo, p.direccion, p.comuna, p.fecha, p.contacto_nombre,
        p.contacto_telefono || null, p.documento_tipo, p.documento_numero || null, p.duracion_estimada_min || null]
     );
+    // La parada nueva nace sin completar — si la ruta ya estaba "Completado",
+    // deja de estarlo hasta que también se complete esta parada.
+    await db.run(`UPDATE despachos SET estado = 'en_ruta' WHERE id = $1 AND estado = 'completado'`, [req.params.id]);
     await db.run('UPDATE despachos SET ultima_actividad = now() WHERE id = $1', [req.params.id]);
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -309,6 +314,26 @@ router.put('/puntos/:id/completar', async (req, res) => {
       'UPDATE despacho_puntos SET completado=$1, completado_en=$2 WHERE id=$3',
       [completado, completado ? new Date().toISOString() : null, req.params.id]
     );
+
+    // El estado general de la ruta refleja el avance de sus paradas — no se
+    // elige "Completado" a mano (ver PUT /:id). Si una ruta fue cancelada a
+    // mano, se respeta esa decisión y no se revierte sola.
+    const despacho = await db.get('SELECT estado FROM despachos WHERE id = $1', [punto.despacho_id]);
+    if (despacho.estado !== 'cancelado') {
+      const resumen = await db.get(
+        `SELECT count(*) AS total, count(*) FILTER (WHERE completado) AS completadas
+         FROM despacho_puntos WHERE despacho_id = $1`,
+        [punto.despacho_id]
+      );
+      const todasCompletadas = Number(resumen.total) > 0 && Number(resumen.completadas) === Number(resumen.total);
+      let nuevoEstado = despacho.estado;
+      if (todasCompletadas) nuevoEstado = 'completado';
+      else if (despacho.estado === 'completado') nuevoEstado = 'en_ruta';
+      if (nuevoEstado !== despacho.estado) {
+        await db.run('UPDATE despachos SET estado = $1 WHERE id = $2', [nuevoEstado, punto.despacho_id]);
+      }
+    }
+
     await db.run('UPDATE despachos SET ultima_actividad = now() WHERE id = $1', [punto.despacho_id]);
     res.json({ message: 'Parada actualizada' });
   } catch (err) {
@@ -321,9 +346,22 @@ router.put('/puntos/:id/completar', async (req, res) => {
 router.delete('/puntos/:id', async (req, res) => {
   try {
     if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
-    const punto = await db.get('SELECT id FROM despacho_puntos WHERE id = $1', [req.params.id]);
+    const punto = await db.get('SELECT id, despacho_id FROM despacho_puntos WHERE id = $1', [req.params.id]);
     if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
     await db.run('DELETE FROM despacho_puntos WHERE id = $1', [req.params.id]);
+    // Si al eliminar esta parada las que quedan están todas completadas, la
+    // ruta pasa a "Completado" sola (mismo criterio que al marcar una parada).
+    const despacho = await db.get('SELECT estado FROM despachos WHERE id = $1', [punto.despacho_id]);
+    if (despacho && despacho.estado !== 'cancelado') {
+      const resumen = await db.get(
+        `SELECT count(*) AS total, count(*) FILTER (WHERE completado) AS completadas
+         FROM despacho_puntos WHERE despacho_id = $1`,
+        [punto.despacho_id]
+      );
+      if (Number(resumen.total) > 0 && Number(resumen.completadas) === Number(resumen.total) && despacho.estado !== 'completado') {
+        await db.run(`UPDATE despachos SET estado = 'completado' WHERE id = $1`, [punto.despacho_id]);
+      }
+    }
     res.json({ message: 'Parada eliminada' });
   } catch (err) {
     console.error('[despachos DELETE /puntos/:id]', err);
