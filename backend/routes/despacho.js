@@ -22,6 +22,77 @@ function filtroVisibilidad(user) {
   return { where: 'WHERE d.creado_por_id = $1', params: [user.id] };
 }
 
+// --- Lugares frecuentes de retiro/entrega (config) ---
+
+// GET /api/despachos/lugares-frecuentes — cualquier usuario autenticado
+// puede leerlos (los necesita para autocompletar una nueva parada).
+router.get('/lugares-frecuentes', async (req, res) => {
+  try {
+    const lugares = await db.all(
+      'SELECT * FROM despacho_lugares_frecuentes WHERE activo = true ORDER BY nombre'
+    );
+    res.json(lugares);
+  } catch (err) {
+    console.error('[despachos/lugares-frecuentes GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/despachos/lugares-frecuentes — solo quien gestiona despacho
+router.post('/lugares-frecuentes', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const { nombre, direccion, comuna, contacto_nombre, contacto_telefono } = req.body;
+    if (!nombre || !direccion || !comuna) return res.status(400).json({ error: 'Nombre, dirección y comuna son requeridos' });
+    const r = await db.run(
+      `INSERT INTO despacho_lugares_frecuentes (nombre, direccion, comuna, contacto_nombre, contacto_telefono)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [nombre, direccion, comuna, contacto_nombre || null, contacto_telefono || null]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[despachos/lugares-frecuentes POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/despachos/lugares-frecuentes/:id
+router.put('/lugares-frecuentes/:id', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const lugar = await db.get('SELECT * FROM despacho_lugares_frecuentes WHERE id = $1', [req.params.id]);
+    if (!lugar) return res.status(404).json({ error: 'Lugar no encontrado' });
+    const { nombre, direccion, comuna, contacto_nombre, contacto_telefono, activo } = req.body;
+    await db.run(
+      `UPDATE despacho_lugares_frecuentes SET nombre=$1, direccion=$2, comuna=$3, contacto_nombre=$4, contacto_telefono=$5, activo=$6
+       WHERE id=$7`,
+      [nombre || lugar.nombre, direccion || lugar.direccion, comuna || lugar.comuna,
+       contacto_nombre !== undefined ? (contacto_nombre || null) : lugar.contacto_nombre,
+       contacto_telefono !== undefined ? (contacto_telefono || null) : lugar.contacto_telefono,
+       activo !== undefined ? activo === true : lugar.activo, req.params.id]
+    );
+    res.json({ message: 'Lugar actualizado' });
+  } catch (err) {
+    console.error('[despachos/lugares-frecuentes PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/despachos/lugares-frecuentes/:id — desactiva (no borra, por si
+// alguna parada ya creada lo referencia en su historial de auditoría).
+router.delete('/lugares-frecuentes/:id', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const lugar = await db.get('SELECT id FROM despacho_lugares_frecuentes WHERE id = $1', [req.params.id]);
+    if (!lugar) return res.status(404).json({ error: 'Lugar no encontrado' });
+    await db.run('UPDATE despacho_lugares_frecuentes SET activo = false WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Lugar desactivado' });
+  } catch (err) {
+    console.error('[despachos/lugares-frecuentes DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 async function cargarPuntos(despachoId) {
   return db.all(
     `SELECT id, despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono,

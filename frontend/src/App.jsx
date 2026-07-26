@@ -38,6 +38,7 @@ import Reportes from './pages/ventas/Reportes';
 import Postventa from './pages/postventa/Postventa';
 import ConfigPostventaEtapas from './pages/postventa/ConfigPostventaEtapas';
 import Despacho from './pages/despacho/Despacho';
+import ConfigLugaresDespacho from './pages/despacho/ConfigLugaresDespacho';
 
 export default function App() {
   return (
@@ -113,6 +114,9 @@ export default function App() {
             {/* Despacho */}
             <Route path="despacho" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']} flag="es_encargado_despacho"><Despacho /></ProtectedRoute>
+            } />
+            <Route path="config/lugares-despacho" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']} flag="es_encargado_despacho"><ConfigLugaresDespacho /></ProtectedRoute>
             } />
 
             {/* Etapa 4 — WhatsApp */}

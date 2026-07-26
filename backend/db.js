@@ -409,6 +409,23 @@ async function initDb() {
   // completo (agrega/edita paradas, las marca completadas, sube fotos).
   await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS es_encargado_despacho BOOLEAN NOT NULL DEFAULT false`);
 
+  // Lugares frecuentes de retiro/entrega (ej. "Vulcano", "Koslan"): solo
+  // dirección/comuna/contacto — el tipo (retiro/entrega) y el documento se
+  // siguen eligiendo en cada parada porque un mismo lugar puede usarse para
+  // ambos casos.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS despacho_lugares_frecuentes (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      direccion TEXT NOT NULL,
+      comuna TEXT NOT NULL,
+      contacto_nombre TEXT,
+      contacto_telefono TEXT,
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
   // === Etapa 2B — Cotizaciones ===
 
   // Correlativo por año (COT-AAAA-NNNNN): formato reemplazado por el

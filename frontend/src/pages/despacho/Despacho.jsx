@@ -45,6 +45,8 @@ export default function Despacho() {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
+  const [lugares, setLugares] = useState([]);
+  useEffect(() => { api.get('/despachos/lugares-frecuentes').then(r => setLugares(r.data)).catch(() => {}); }, []);
 
   const cargar = async () => {
     try {
@@ -134,12 +136,12 @@ export default function Despacho() {
       </div>
 
       {showNuevo && (
-        <NuevoDespacho negocioIdInicial={searchParams.get('negocio_id')} casoPostventaIdInicial={searchParams.get('caso_postventa_id')}
+        <NuevoDespacho negocioIdInicial={searchParams.get('negocio_id')} casoPostventaIdInicial={searchParams.get('caso_postventa_id')} lugares={lugares}
           onClose={() => setShowNuevo(false)} onCreado={() => { setShowNuevo(false); cargar(); }} />
       )}
 
       {detalle && (
-        <DetalleDespacho despacho={detalle} puedeGestionar={puedeGestionar}
+        <DetalleDespacho despacho={detalle} puedeGestionar={puedeGestionar} lugares={lugares}
           onClose={() => setDetalle(null)}
           onCambio={async () => { await cargar(); const r = await api.get(`/despachos/${detalle.id}`); setDetalle(r.data); }} />
       )}
@@ -155,10 +157,30 @@ function Modal({ children, onClose, ancho = 'max-w-lg' }) {
   );
 }
 
-function CamposPunto({ punto, onChange }) {
+function CamposPunto({ punto, onChange, lugares = [] }) {
   const set = (campo, val) => onChange({ ...punto, [campo]: val });
+  const elegirLugar = id => {
+    const lugar = lugares.find(l => String(l.id) === id);
+    if (!lugar) return;
+    onChange({
+      ...punto,
+      direccion: lugar.direccion, comuna: lugar.comuna,
+      contacto_nombre: lugar.contacto_nombre || punto.contacto_nombre,
+      contacto_telefono: lugar.contacto_telefono || punto.contacto_telefono,
+    });
+  };
   return (
     <div className="border border-gray-200 rounded p-3 space-y-2">
+      {lugares.length > 0 && (
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Lugar frecuente <span className="text-gray-400">(opcional, autocompleta)</span></label>
+          <select value="" onChange={e => elegirLugar(e.target.value)}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">— Elegir un lugar —</option>
+            {lugares.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+          </select>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-600 mb-1">Tipo</label>
@@ -218,7 +240,7 @@ function CamposPunto({ punto, onChange }) {
   );
 }
 
-function NuevoDespacho({ negocioIdInicial, casoPostventaIdInicial, onClose, onCreado }) {
+function NuevoDespacho({ negocioIdInicial, casoPostventaIdInicial, lugares, onClose, onCreado }) {
   const [titulo, setTitulo] = useState('');
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
   const [negocio, setNegocio] = useState(null);
@@ -306,7 +328,7 @@ function NuevoDespacho({ negocioIdInicial, casoPostventaIdInicial, onClose, onCr
           <div className="space-y-3">
             {puntos.map((p, i) => (
               <div key={i} className="relative">
-                <CamposPunto punto={p} onChange={n => cambiarPunto(i, n)} />
+                <CamposPunto punto={p} onChange={n => cambiarPunto(i, n)} lugares={lugares} />
                 {puntos.length > 1 && (
                   <button type="button" onClick={() => quitarPunto(i)}
                     className="absolute top-2 right-2 text-xs text-red-500 hover:underline">Quitar</button>
@@ -375,14 +397,39 @@ function FotoPunto({ punto, onSubida }) {
   );
 }
 
-function DetalleDespacho({ despacho, puedeGestionar, onClose, onCambio }) {
+// Adapta una parada tal como llega del backend (fecha ISO completa,
+// duración numérica o null) al formato que espera CamposPunto (fecha
+// AAAA-MM-DD, duración como string para el input).
+const puntoParaEditar = p => ({
+  tipo: p.tipo, direccion: p.direccion, comuna: p.comuna, fecha: p.fecha.slice(0, 10),
+  contacto_nombre: p.contacto_nombre, contacto_telefono: p.contacto_telefono || '',
+  documento_tipo: p.documento_tipo, documento_numero: p.documento_numero || '',
+  duracion_estimada_min: p.duracion_estimada_min ?? '',
+});
+
+function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio }) {
   const [error, setError] = useState('');
   const [mostrarAgregar, setMostrarAgregar] = useState(false);
   const [nuevoPunto, setNuevoPunto] = useState(puntoVacio());
+  const [editandoId, setEditandoId] = useState(null);
+  const [formEdicion, setFormEdicion] = useState(null);
 
   const completar = async (punto, completado) => {
     try { await api.put(`/despachos/puntos/${punto.id}/completar`, { completado }); onCambio(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo actualizar la parada.'); }
+  };
+
+  const empezarEdicion = punto => { setEditandoId(punto.id); setFormEdicion(puntoParaEditar(punto)); };
+  const cancelarEdicion = () => { setEditandoId(null); setFormEdicion(null); };
+  const guardarEdicion = async e => {
+    e.preventDefault();
+    try {
+      await api.put(`/despachos/puntos/${editandoId}`, {
+        ...formEdicion,
+        duracion_estimada_min: formEdicion.duracion_estimada_min ? Number(formEdicion.duracion_estimada_min) : undefined,
+      });
+      cancelarEdicion(); onCambio();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la parada.'); }
   };
 
   const cambiarEstado = async estado => {
@@ -433,29 +480,44 @@ function DetalleDespacho({ despacho, puedeGestionar, onClose, onCambio }) {
       <div className="space-y-3">
         {despacho.puntos.map(p => (
           <div key={p.id} className="border border-gray-200 rounded p-3">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy capitalize mr-2">{p.tipo}</span>
-                <span className="text-sm font-medium text-ht-navy">{p.direccion}, {p.comuna}</span>
-              </div>
-              {puedeGestionar && (
-                <button onClick={() => eliminarPunto(p)} className="text-xs text-red-500 hover:underline flex-shrink-0">Eliminar</button>
-              )}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">{fecha(p.fecha)} · {p.contacto_nombre}{p.contacto_telefono ? ` · ${p.contacto_telefono}` : ''}</div>
-            <div className="text-xs text-gray-500">
-              {TIPOS_DOCUMENTO.find(t => t.value === p.documento_tipo)?.label}{p.documento_numero ? ` ${p.documento_numero}` : ''}
-              {p.duracion_estimada_min ? ` · ~${p.duracion_estimada_min} min` : ''}
-            </div>
-            {puedeGestionar ? (
-              <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
-                <input type="checkbox" checked={p.completado} onChange={e => completar(p, e.target.checked)} />
-                Parada completada
-              </label>
+            {editandoId === p.id ? (
+              <form onSubmit={guardarEdicion} className="space-y-2">
+                <CamposPunto punto={formEdicion} onChange={setFormEdicion} lugares={lugares} />
+                <div className="flex gap-2">
+                  <button type="submit" className="bg-ht-accent text-ht-navy px-3 py-1.5 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
+                  <button type="button" onClick={cancelarEdicion} className="px-3 py-1.5 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+                </div>
+              </form>
             ) : (
-              <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>
+              <>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy capitalize mr-2">{p.tipo}</span>
+                    <span className="text-sm font-medium text-ht-navy">{p.direccion}, {p.comuna}</span>
+                  </div>
+                  {puedeGestionar && (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={() => empezarEdicion(p)} className="text-xs text-ht-accent hover:underline">Editar</button>
+                      <button onClick={() => eliminarPunto(p)} className="text-xs text-red-500 hover:underline">Eliminar</button>
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">{fecha(p.fecha)} · {p.contacto_nombre}{p.contacto_telefono ? ` · ${p.contacto_telefono}` : ''}</div>
+                <div className="text-xs text-gray-500">
+                  {TIPOS_DOCUMENTO.find(t => t.value === p.documento_tipo)?.label}{p.documento_numero ? ` ${p.documento_numero}` : ''}
+                  {p.duracion_estimada_min ? ` · ~${p.duracion_estimada_min} min` : ''}
+                </div>
+                {puedeGestionar ? (
+                  <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
+                    <input type="checkbox" checked={p.completado} onChange={e => completar(p, e.target.checked)} />
+                    Parada completada
+                  </label>
+                ) : (
+                  <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>
+                )}
+                <FotoPunto punto={p} onSubida={onCambio} />
+              </>
             )}
-            <FotoPunto punto={p} onSubida={onCambio} />
           </div>
         ))}
       </div>
@@ -464,7 +526,7 @@ function DetalleDespacho({ despacho, puedeGestionar, onClose, onCambio }) {
         <div className="mt-3 border-t border-gray-100 pt-3">
           {mostrarAgregar ? (
             <form onSubmit={agregarPunto} className="space-y-2">
-              <CamposPunto punto={nuevoPunto} onChange={setNuevoPunto} />
+              <CamposPunto punto={nuevoPunto} onChange={setNuevoPunto} lugares={lugares} />
               <div className="flex gap-2">
                 <button type="submit" className="bg-ht-accent text-ht-navy px-3 py-1.5 rounded text-sm font-medium hover:bg-ht-accent/90">Agregar</button>
                 <button type="button" onClick={() => setMostrarAgregar(false)} className="px-3 py-1.5 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>

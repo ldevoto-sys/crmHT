@@ -86,6 +86,8 @@ const configByRole = {
 // (además de administrador/jefe comercial, que ya la ven de por sí).
 configByRole.administrador.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
 configByRole.jefe_comercial.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
+configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
+configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
 
 function GearIcon() {
   return (
@@ -167,9 +169,11 @@ export default function Layout() {
     ...(user?.es_encargado_despacho && !tieneDespachoEnMenu ? [{ label: 'Despacho', to: '/despacho' }] : []),
   ];
   const tieneConfigPostventa = (configByRole[user?.rol] || []).some(i => i.to === '/config/postventa-etapas');
+  const tieneConfigDespacho = (configByRole[user?.rol] || []).some(i => i.to === '/config/lugares-despacho');
   const config = [
     ...(configByRole[user?.rol] || []),
     ...(user?.es_encargado_postventa && !tieneConfigPostventa ? [{ label: 'Config Postventa', to: '/config/postventa-etapas' }] : []),
+    ...(user?.es_encargado_despacho && !tieneConfigDespacho ? [{ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' }] : []),
   ];
   const [open, setOpen] = useState(false);
   const [sidebarAbierto, setSidebarAbierto] = useState(false);
