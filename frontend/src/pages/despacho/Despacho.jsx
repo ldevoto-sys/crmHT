@@ -349,7 +349,9 @@ function NuevoDespacho({ negocioIdInicial, casoPostventaIdInicial, lugares, onCl
   );
 }
 
-function FotoPunto({ punto, onSubida }) {
+// puedeSubir: si además de ver la foto puede subir/reemplazarla (gestor) —
+// en ese caso se muestra como botones apilados a la derecha, no como links.
+function FotoPunto({ punto, onSubida, puedeSubir }) {
   const [url, setUrl] = useState(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
@@ -375,23 +377,35 @@ function FotoPunto({ punto, onSubida }) {
     finally { setCargando(false); e.target.value = ''; }
   };
 
+  if (url) {
+    return <img src={url} alt="Foto de respaldo" className="max-h-40 rounded border border-gray-200 mt-1" />;
+  }
+
+  if (puedeSubir) {
+    return (
+      <div className="flex flex-col items-end gap-1.5 max-w-[140px]">
+        {error && <p className="text-xs text-red-600 text-right">{error}</p>}
+        {punto.tiene_foto && (
+          <button type="button" onClick={verFoto} disabled={cargando}
+            className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-60">
+            {cargando ? 'Cargando...' : 'Ver foto'}
+          </button>
+        )}
+        <label className="text-xs px-2 py-1 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/10 cursor-pointer whitespace-nowrap">
+          {punto.tiene_foto ? 'Reemplazar foto' : 'Subir foto'}
+          <input type="file" accept="image/*" onChange={subirFoto} className="hidden" disabled={cargando} />
+        </label>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-1">
       {error && <p className="text-xs text-red-600">{error}</p>}
-      {url ? (
-        <img src={url} alt="Foto de respaldo" className="max-h-40 rounded border border-gray-200" />
-      ) : (
-        <div className="flex items-center gap-2">
-          {punto.tiene_foto && (
-            <button type="button" onClick={verFoto} disabled={cargando} className="text-xs text-ht-accent hover:underline">
-              {cargando ? 'Cargando...' : 'Ver foto de respaldo'}
-            </button>
-          )}
-          <label className="text-xs text-ht-accent hover:underline cursor-pointer">
-            {punto.tiene_foto ? 'Reemplazar foto' : 'Subir foto de respaldo'}
-            <input type="file" accept="image/*" onChange={subirFoto} className="hidden" disabled={cargando} />
-          </label>
-        </div>
+      {punto.tiene_foto && (
+        <button type="button" onClick={verFoto} disabled={cargando} className="text-xs text-ht-accent hover:underline">
+          {cargando ? 'Cargando...' : 'Ver foto de respaldo'}
+        </button>
       )}
     </div>
   );
@@ -496,9 +510,12 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                     <span className="text-sm font-medium text-ht-navy">{p.direccion}, {p.comuna}</span>
                   </div>
                   {puedeGestionar && (
-                    <div className="flex gap-2 flex-shrink-0">
-                      <button onClick={() => empezarEdicion(p)} className="text-xs text-ht-accent hover:underline">Editar</button>
-                      <button onClick={() => eliminarPunto(p)} className="text-xs text-red-500 hover:underline">Eliminar</button>
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      <div className="flex gap-2">
+                        <button onClick={() => empezarEdicion(p)} className="text-xs text-ht-accent hover:underline">Editar</button>
+                        <button onClick={() => eliminarPunto(p)} className="text-xs text-red-500 hover:underline">Eliminar</button>
+                      </div>
+                      <FotoPunto punto={p} onSubida={onCambio} puedeSubir />
                     </div>
                   )}
                 </div>
@@ -513,9 +530,11 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                     Parada completada
                   </label>
                 ) : (
-                  <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>
+                  <>
+                    <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>
+                    <FotoPunto punto={p} onSubida={onCambio} puedeSubir={false} />
+                  </>
                 )}
-                <FotoPunto punto={p} onSubida={onCambio} />
               </>
             )}
           </div>
