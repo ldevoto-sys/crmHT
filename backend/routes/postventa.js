@@ -164,6 +164,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
   try {
     const { negocio_id, titulo, descripcion, producto_id, detalle_equipo, prioridad, fecha_limite_respuesta } = req.body;
     if (!negocio_id || !titulo) return res.status(400).json({ error: 'Negocio de origen y título son requeridos' });
+    if (!fecha_limite_respuesta) return res.status(400).json({ error: 'La fecha límite de respuesta es requerida' });
 
     const negocio = await db.get('SELECT id, contacto_id, empresa_id FROM negocios WHERE id = $1', [negocio_id]);
     if (!negocio) return res.status(400).json({ error: 'Negocio inexistente' });

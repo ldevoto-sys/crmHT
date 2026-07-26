@@ -12,6 +12,23 @@ const badgePrioridad = p => ({
   urgente: 'bg-red-100 text-red-700',
 }[p] || 'bg-gray-100 text-gray-600');
 
+// Estado del SLA respecto de hoy: vencido (fecha ya pasó), próximo (3 días o
+// menos por delante) o normal. Se calcula en días de calendario, sin horas.
+function slaEstado(fechaLimite) {
+  if (!fechaLimite) return null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const limite = new Date(fechaLimite + 'T00:00:00');
+  const dias = Math.round((limite - hoy) / 86400000);
+  if (dias < 0) return 'vencido';
+  if (dias <= 3) return 'proximo';
+  return 'normal';
+}
+const ESTILO_SLA = {
+  vencido: { borde: 'border-l-4 border-l-red-500', texto: 'text-red-700 font-semibold', label: 'Vencido' },
+  proximo: { borde: 'border-l-4 border-l-amber-400', texto: 'text-amber-700 font-semibold', label: 'Por vencer' },
+  normal: { borde: '', texto: 'text-gray-400', label: '' },
+};
+
 export default function Postventa() {
   const { user } = useAuth();
   const puedeGestionar = user?.rol === 'administrador' || user?.rol === 'jefe_comercial' || user?.es_encargado_postventa;
@@ -54,6 +71,10 @@ export default function Postventa() {
   };
 
   const porEtapa = id => casos.filter(c => c.etapa_id === id);
+  // Casos creados antes de que existiera alguna etapa "abierta" en Postventa
+  // quedan sin etapa_id — se muestran aparte para que nunca queden invisibles.
+  const idsEtapas = new Set(etapas.map(e => e.id));
+  const sinEtapa = casos.filter(c => !c.etapa_id || !idsEtapas.has(c.etapa_id));
 
   const guardarGestion = async (caso, campos) => {
     try { await api.put(`/postventa/${caso.id}`, campos); cargar(); setDetalle(null); }
@@ -72,6 +93,21 @@ export default function Postventa() {
       )}
 
       <div className="flex gap-3 overflow-x-auto pb-4">
+        {sinEtapa.length > 0 && (
+          <div className="flex-shrink-0 w-72 bg-amber-50 border border-amber-200 rounded-lg p-2">
+            <div className="flex items-center justify-between px-1 mb-2">
+              <span className="text-sm font-semibold text-amber-800">Sin etapa asignada</span>
+              <span className="text-xs text-amber-700">{sinEtapa.length}</span>
+            </div>
+            <p className="text-[11px] text-amber-700 px-1 mb-2">Define las etapas de Postventa en Config Postventa y muévelos desde aquí.</p>
+            <div className="space-y-2 min-h-[40px]">
+              {sinEtapa.map(c => (
+                <TarjetaCaso key={c.id} c={c} etapas={etapas} etapaActualId={null}
+                  puedeGestionar={puedeGestionar} onDragStart={setDrag} onClick={setDetalle} onMover={mover} />
+              ))}
+            </div>
+          </div>
+        )}
         {etapas.map(et => {
           const items = porEtapa(et.id);
           return (
@@ -85,29 +121,8 @@ export default function Postventa() {
               </div>
               <div className="space-y-2 min-h-[40px]">
                 {items.map(c => (
-                  <div key={c.id} draggable={puedeGestionar} onDragStart={() => setDrag(c)}
-                    onClick={() => setDetalle(c)}
-                    className={`bg-white rounded-md border border-gray-200 p-3 hover:border-ht-accent cursor-pointer ${puedeGestionar ? 'cursor-move' : ''}`}>
-                    <div className="text-sm font-medium text-ht-navy">{c.titulo}</div>
-                    <div className="text-xs text-gray-500 mt-1">{c.contacto_nombre} {c.contacto_apellido}{c.empresa_nombre ? ` · ${c.empresa_nombre}` : ''}</div>
-                    {c.producto_nombre && <div className="text-xs text-gray-400">{c.producto_nombre}</div>}
-                    <div className="flex items-center justify-between mt-2">
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full capitalize ${badgePrioridad(c.prioridad)}`}>{c.prioridad}</span>
-                      {c.fecha_limite_respuesta && <span className="text-[11px] text-gray-400">SLA {fecha(c.fecha_limite_respuesta)}</span>}
-                    </div>
-                    {c.tecnico_nombre && <div className="text-[11px] text-gray-400 mt-1">Técnico: {c.tecnico_nombre}</div>}
-                    {puedeGestionar && (
-                      <select value="" onClick={e => e.stopPropagation()} onChange={e => {
-                        const destino = etapas.find(x => String(x.id) === e.target.value);
-                        if (destino) mover(c, destino);
-                      }} className="md:hidden w-full mt-2 text-xs border border-gray-300 rounded px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-ht-accent">
-                        <option value="">Mover a etapa…</option>
-                        {etapas.filter(x => x.id !== et.id).map(x => (
-                          <option key={x.id} value={x.id}>{x.nombre}</option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
+                  <TarjetaCaso key={c.id} c={c} etapas={etapas} etapaActualId={et.id}
+                    puedeGestionar={puedeGestionar} onDragStart={setDrag} onClick={setDetalle} onMover={mover} />
                 ))}
               </div>
             </div>
@@ -123,6 +138,38 @@ export default function Postventa() {
       {detalle && (
         <DetalleCaso caso={detalle} puedeGestionar={puedeGestionar} tecnicos={tecnicos}
           onClose={() => setDetalle(null)} onGuardar={guardarGestion} />
+      )}
+    </div>
+  );
+}
+
+function TarjetaCaso({ c, etapas, etapaActualId, puedeGestionar, onDragStart, onClick, onMover }) {
+  const estadoSla = slaEstado(c.fecha_limite_respuesta);
+  const estilo = ESTILO_SLA[estadoSla] || ESTILO_SLA.normal;
+  return (
+    <div draggable={puedeGestionar} onDragStart={() => onDragStart(c)}
+      onClick={() => onClick(c)}
+      className={`bg-white rounded-md border border-gray-200 ${estilo.borde} p-3 hover:border-ht-accent cursor-pointer ${puedeGestionar ? 'cursor-move' : ''}`}>
+      <div className="text-sm font-medium text-ht-navy">{c.titulo}</div>
+      <div className="text-xs text-gray-500 mt-1">{c.contacto_nombre} {c.contacto_apellido}{c.empresa_nombre ? ` · ${c.empresa_nombre}` : ''}</div>
+      {c.producto_nombre && <div className="text-xs text-gray-400">{c.producto_nombre}</div>}
+      <div className="flex items-center justify-between mt-2">
+        <span className={`text-[11px] px-1.5 py-0.5 rounded-full capitalize ${badgePrioridad(c.prioridad)}`}>{c.prioridad}</span>
+        {c.fecha_limite_respuesta && (
+          <span className={`text-[11px] ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'SLA '}{fecha(c.fecha_limite_respuesta)}</span>
+        )}
+      </div>
+      {c.tecnico_nombre && <div className="text-[11px] text-gray-400 mt-1">Técnico: {c.tecnico_nombre}</div>}
+      {puedeGestionar && (
+        <select value="" onClick={e => e.stopPropagation()} onChange={e => {
+          const destino = etapas.find(x => String(x.id) === e.target.value);
+          if (destino) onMover(c, destino);
+        }} className="md:hidden w-full mt-2 text-xs border border-gray-300 rounded px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-ht-accent">
+          <option value="">Mover a etapa…</option>
+          {etapas.filter(x => x.id !== etapaActualId).map(x => (
+            <option key={x.id} value={x.id}>{x.nombre}</option>
+          ))}
+        </select>
       )}
     </div>
   );
@@ -224,8 +271,8 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
             </select>
           </div>
           <div>
-            <label className="block text-sm text-gray-700 mb-1">Fecha límite de respuesta (opcional)</label>
-            <input type="date" value={form.fecha_limite_respuesta} onChange={e => setForm({ ...form, fecha_limite_respuesta: e.target.value })}
+            <label className="block text-sm text-gray-700 mb-1">Fecha límite de respuesta</label>
+            <input required type="date" value={form.fecha_limite_respuesta} onChange={e => setForm({ ...form, fecha_limite_respuesta: e.target.value })}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
         </div>
