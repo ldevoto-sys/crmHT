@@ -389,7 +389,7 @@ function FotoPunto({ punto, onSubida }) {
           )}
           <label className="text-xs text-ht-accent hover:underline cursor-pointer">
             {punto.tiene_foto ? 'Reemplazar foto' : 'Subir foto de respaldo'}
-            <input type="file" accept="image/*" capture="environment" onChange={subirFoto} className="hidden" disabled={cargando} />
+            <input type="file" accept="image/*" onChange={subirFoto} className="hidden" disabled={cargando} />
           </label>
         </div>
       )}
