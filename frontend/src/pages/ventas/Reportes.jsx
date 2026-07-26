@@ -18,6 +18,8 @@ export default function Reportes() {
 
   const [vendedores, setVendedores] = useState([]);
   const [vendedorId, setVendedorId] = useState('');
+  const [pipelines, setPipelines] = useState([]);
+  const [pipelineId, setPipelineId] = useState(user?.pipeline_default_id || 1);
 
   // Embudo: filtro por fecha ESTIMADA de cierre (forecast de pipeline abierto).
   const [embudoDesde, setEmbudoDesde] = useState('');
@@ -45,10 +47,11 @@ export default function Reportes() {
 
   useEffect(() => {
     if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+    api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {});
     // eslint-disable-next-line
   }, []);
 
-  const paramsBase = () => (vendedorId ? { vendedor_id: vendedorId } : {});
+  const paramsBase = () => ({ pipeline_id: pipelineId, ...(vendedorId ? { vendedor_id: vendedorId } : {}) });
 
   const cargarEmbudo = () => api.get('/reportes/embudo', {
     params: { ...paramsBase(), desde: embudoDesde || undefined, hasta: embudoHasta || undefined },
@@ -69,24 +72,24 @@ export default function Reportes() {
     cargarEmbudo().catch(() => setError('No se pudieron cargar los reportes.'));
     setEtapaExpandida(null); setNegociosPorEtapa({});
     // eslint-disable-next-line
-  }, [vendedorId, embudoDesde, embudoHasta]);
+  }, [pipelineId, vendedorId, embudoDesde, embudoHasta]);
 
   useEffect(() => {
     cargarCausasRanking().catch(() => setError('No se pudieron cargar los reportes.'));
     // eslint-disable-next-line
-  }, [vendedorId, cierreDesde, cierreHasta]);
+  }, [pipelineId, vendedorId, cierreDesde, cierreHasta]);
 
   useEffect(() => {
     cargarTiempos().catch(() => setError('No se pudieron cargar los reportes.'));
     // eslint-disable-next-line
-  }, [vendedorId]);
+  }, [pipelineId, vendedorId]);
 
   useEffect(() => {
     if (!mostrarCotizacionesDia) return;
     cargarCotizacionesDia().catch(() => setError('No se pudieron cargar las cotizaciones por día.'));
     setDiaExpandido(null); setDetallePorDia({});
     // eslint-disable-next-line
-  }, [vendedorId, cotDiaDesde, cotDiaHasta, mostrarCotizacionesDia]);
+  }, [pipelineId, vendedorId, cotDiaDesde, cotDiaHasta, mostrarCotizacionesDia]);
 
   const exportar = async tipo => {
     try {
@@ -212,16 +215,27 @@ export default function Reportes() {
         </Seccion>
       )}
 
-      {puedeFiltrarVendedor && (
-        <div className="mb-6 flex items-center gap-2">
-          <label className="text-sm text-gray-700">Vendedor</label>
-          <select value={vendedorId} onChange={e => setVendedorId(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            <option value="">Todos</option>
-            {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-          </select>
-        </div>
-      )}
+      <div className="mb-6 flex flex-wrap items-center gap-4">
+        {puedeFiltrarVendedor && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Pipeline</label>
+            <select value={pipelineId} onChange={e => setPipelineId(Number(e.target.value))}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+        )}
+        {puedeFiltrarVendedor && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Vendedor</label>
+            <select value={vendedorId} onChange={e => setVendedorId(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Todos</option>
+              {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
 
       <Seccion
         titulo="Embudo por etapa"

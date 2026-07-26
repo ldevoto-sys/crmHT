@@ -2,15 +2,19 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 export default function ConfigPipeline() {
+  const [pipelines, setPipelines] = useState([]);
+  const [pipelineId, setPipelineId] = useState(1);
   const [etapas, setEtapas] = useState([]);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [nuevo, setNuevo] = useState({ nombre: '', probabilidad_cierre: 0 });
+  const [nuevoPipeline, setNuevoPipeline] = useState('');
 
   const cargar = async () => {
-    try { setEtapas((await api.get('/config/pipeline-etapas')).data); }
+    try { setEtapas((await api.get('/config/pipeline-etapas', { params: { pipeline_id: pipelineId } })).data); }
     catch { setError('No se pudieron cargar las etapas.'); }
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {}); }, []);
+  useEffect(() => { cargar(); }, [pipelineId]); // eslint-disable-line
 
   const set = (id, campo, valor) => setEtapas(es => es.map(e => e.id === id ? { ...e, [campo]: valor } : e));
 
@@ -32,9 +36,19 @@ export default function ConfigPipeline() {
   const crear = async (ev) => {
     ev.preventDefault(); setError(''); setMsg('');
     try {
-      await api.post('/config/pipeline-etapas', { nombre: nuevo.nombre, probabilidad_cierre: Number(nuevo.probabilidad_cierre) });
+      await api.post('/config/pipeline-etapas', { nombre: nuevo.nombre, probabilidad_cierre: Number(nuevo.probabilidad_cierre), pipeline_id: pipelineId });
       setNuevo({ nombre: '', probabilidad_cierre: 0 }); cargar();
     } catch (err) { setError(err.response?.data?.error || 'Error al crear.'); }
+  };
+
+  const crearPipeline = async (ev) => {
+    ev.preventDefault(); setError(''); setMsg('');
+    try {
+      const { data } = await api.post('/config/pipelines', { nombre: nuevoPipeline });
+      setNuevoPipeline('');
+      setPipelines(ps => [...ps, data]);
+      setPipelineId(data.id);
+    } catch (err) { setError(err.response?.data?.error || 'Error al crear el pipeline.'); }
   };
 
   const badgeTipo = t => t === 'ganada' ? 'bg-green-100 text-green-700' : t === 'perdida' ? 'bg-red-100 text-red-700' : 'bg-ht-accent/15 text-ht-navy';
@@ -42,10 +56,18 @@ export default function ConfigPipeline() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Configuración del pipeline</h1>
-      <p className="text-gray-500 text-sm mb-6">Etapas y probabilidad de cierre por defecto. "Ganado" y "Perdido" no se pueden eliminar.</p>
+      <p className="text-gray-500 text-sm mb-6">Etapas y probabilidad de cierre por defecto, por pipeline. "Ganado" y "Perdido" no se pueden eliminar.</p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+
+      <div className="flex items-center gap-2 mb-4">
+        <label className="text-sm text-gray-700">Pipeline</label>
+        <select value={pipelineId} onChange={e => setPipelineId(Number(e.target.value))}
+          className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+          {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
         <table className="w-full text-sm">
@@ -101,6 +123,15 @@ export default function ConfigPipeline() {
             className="w-24 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
         <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Agregar</button>
+      </form>
+
+      <form onSubmit={crearPipeline} className="bg-white border border-gray-200 rounded-lg p-5 flex items-end gap-3 max-w-lg mt-6">
+        <div className="flex-1">
+          <label className="block text-sm text-gray-700 mb-1">Nuevo pipeline (otra área comercial)</label>
+          <input required value={nuevoPipeline} onChange={e => setNuevoPipeline(e.target.value)} placeholder="Ej: Mantención"
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <button type="submit" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">Crear pipeline</button>
       </form>
     </div>
   );

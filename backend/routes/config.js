@@ -46,12 +46,47 @@ router.put('/causas-no-cierre/:id', authorize('administrador', 'jefe_comercial')
   }
 });
 
+// --- Pipelines (áreas comerciales: Ventas Directas, Operaciones, ...) ---
+
+// GET /api/config/pipelines — todos los activos, para el selector del tablero
+router.get('/pipelines', async (req, res) => {
+  try {
+    const pipelines = await db.all('SELECT id, nombre, orden, activo FROM pipelines WHERE activo = true ORDER BY orden');
+    res.json(pipelines);
+  } catch (err) {
+    console.error('[config/pipelines GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/config/pipelines (admin/jefe comercial) — nueva área comercial
+router.post('/pipelines', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { nombre } = req.body;
+    if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    const maxOrden = await db.get('SELECT COALESCE(MAX(orden),0) AS m FROM pipelines');
+    const r = await db.run(
+      'INSERT INTO pipelines (nombre, orden) VALUES ($1,$2) RETURNING *',
+      [nombre, (maxOrden.m || 0) + 1]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[config/pipelines POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // --- Etapas del pipeline (configurables por administrador) ---
 
-// GET /api/config/pipeline-etapas — todas, ordenadas (para kanban y config)
+// GET /api/config/pipeline-etapas?pipeline_id= — ordenadas (para kanban y config)
 router.get('/pipeline-etapas', async (req, res) => {
   try {
-    const etapas = await db.all('SELECT id, nombre, orden, probabilidad_cierre, tipo, activo FROM pipeline_etapas ORDER BY orden');
+    const { pipeline_id } = req.query;
+    const params = pipeline_id ? [pipeline_id] : [1];
+    const etapas = await db.all(
+      'SELECT id, nombre, orden, probabilidad_cierre, tipo, activo, pipeline_id FROM pipeline_etapas WHERE pipeline_id = $1 ORDER BY orden',
+      params
+    );
     res.json(etapas);
   } catch (err) {
     console.error('[config/pipeline-etapas GET]', err);
@@ -59,21 +94,22 @@ router.get('/pipeline-etapas', async (req, res) => {
   }
 });
 
-// POST /api/config/pipeline-etapas (admin) — nueva etapa intermedia (abierta)
+// POST /api/config/pipeline-etapas {pipeline_id} (admin) — nueva etapa intermedia (abierta)
 router.post('/pipeline-etapas', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
-    const { nombre, probabilidad_cierre } = req.body;
+    const { nombre, probabilidad_cierre, pipeline_id } = req.body;
     if (!nombre) return res.status(400).json({ error: 'Nombre requerido' });
+    if (!pipeline_id) return res.status(400).json({ error: 'pipeline_id requerido' });
     const prob = Number(probabilidad_cierre) || 0;
     if (prob < 0 || prob > 100) return res.status(400).json({ error: 'La probabilidad debe estar entre 0 y 100' });
-    // Insertar antes de las etapas terminales (ganada/perdida).
-    const maxAbierta = await db.get(`SELECT COALESCE(MAX(orden),0) AS m FROM pipeline_etapas WHERE tipo='abierta'`);
+    // Insertar antes de las etapas terminales (ganada/perdida) de ESE pipeline.
+    const maxAbierta = await db.get(`SELECT COALESCE(MAX(orden),0) AS m FROM pipeline_etapas WHERE tipo='abierta' AND pipeline_id=$1`, [pipeline_id]);
     const orden = (maxAbierta.m || 0) + 1;
-    // Empujar las terminales hacia el final.
-    await db.run(`UPDATE pipeline_etapas SET orden = orden + 1 WHERE tipo IN ('ganada','perdida') AND orden >= $1`, [orden]);
+    // Empujar las terminales de ese mismo pipeline hacia el final.
+    await db.run(`UPDATE pipeline_etapas SET orden = orden + 1 WHERE tipo IN ('ganada','perdida') AND pipeline_id=$1 AND orden >= $2`, [pipeline_id, orden]);
     const r = await db.run(
-      'INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo) VALUES ($1,$2,$3,$4) RETURNING *',
-      [nombre, orden, prob, 'abierta']
+      'INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo, pipeline_id) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [nombre, orden, prob, 'abierta', pipeline_id]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {

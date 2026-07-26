@@ -168,6 +168,27 @@ async function initDb() {
 
   // === Etapa 2 — Pipeline de negocios (etapas configurables, v1.4) ===
 
+  // Pipelines múltiples (v1.9 §pipelines-multiples): cada área comercial puede
+  // tener su propio tablero con sus propias etapas (ej. Ventas Directas vs.
+  // Operaciones, con un flujo más largo). Se siembran los 2 iniciales con id
+  // fijo para que el resto de las migraciones de esta sección puedan referenciar
+  // "Ventas Directas" (id=1) como default sin depender del orden de inserción.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS pipelines (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      orden INTEGER NOT NULL DEFAULT 0,
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  const pipelineExiste = await db.get('SELECT id FROM pipelines LIMIT 1');
+  if (!pipelineExiste) {
+    await db.run(`INSERT INTO pipelines (id, nombre, orden) VALUES (1, 'Ventas Directas', 1), (2, 'Operaciones', 2)`);
+    await db.run(`SELECT setval(pg_get_serial_sequence('pipelines','id'), (SELECT MAX(id) FROM pipelines))`);
+    console.log('[DB] Pipelines creados (Ventas Directas, Operaciones).');
+  }
+
   // Etapas configurables del pipeline. tipo: 'abierta' | 'ganada' | 'perdida'.
   // Las terminales (ganada/perdida) están protegidas: no se borran.
   await db.run(`
@@ -181,6 +202,9 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Toda etapa ya existente queda en "Ventas Directas" (id=1) — nada cambia
+  // para quienes ya usaban el pipeline único.
+  await db.run(`ALTER TABLE pipeline_etapas ADD COLUMN IF NOT EXISTS pipeline_id INTEGER NOT NULL REFERENCES pipelines(id) DEFAULT 1`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS causas_no_cierre (
@@ -212,6 +236,15 @@ async function initDb() {
   // negocio está abierto. Distinta de fecha_cierre (real, se fija sola al cerrar).
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS fecha_cierre_estimada DATE`);
 
+  // Pipeline al que pertenece el negocio. Todo lo existente queda en "Ventas
+  // Directas" (id=1); se puede mover a otro pipeline a mano (endpoint aparte,
+  // no simplemente cambiando de etapa, porque las etapas destino son otras).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS pipeline_id INTEGER NOT NULL REFERENCES pipelines(id) DEFAULT 1`);
+
+  // Pipeline por defecto de cada usuario: donde caen los negocios que cree.
+  // Todos parten en "Ventas Directas" (id=1); se cambia desde Configuración → Usuarios.
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pipeline_default_id INTEGER NOT NULL REFERENCES pipelines(id) DEFAULT 1`);
+
   // Línea de tiempo unificada. cotizacion_id sin FK todavía (la tabla llega en 2B).
   await db.run(`
     CREATE TABLE IF NOT EXISTS timeline (
@@ -235,8 +268,8 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_negocio ON timeline (negocio_id, created_at DESC)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_timeline_contacto ON timeline (contacto_id, created_at DESC)`);
 
-  // Seed: etapas del pipeline por defecto (configurables luego por el admin).
-  const etapaExiste = await db.get('SELECT id FROM pipeline_etapas LIMIT 1');
+  // Seed: etapas del pipeline "Ventas Directas" (id=1) por defecto (configurables luego por el admin).
+  const etapaExiste = await db.get('SELECT id FROM pipeline_etapas WHERE pipeline_id = 1 LIMIT 1');
   if (!etapaExiste) {
     const etapas = [
       ['Lead', 1, 10, 'abierta'],
@@ -247,9 +280,20 @@ async function initDb() {
       ['Perdido', 6, 0, 'perdida'],
     ];
     for (const [nombre, orden, prob, tipo] of etapas) {
-      await db.run('INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo) VALUES ($1,$2,$3,$4)', [nombre, orden, prob, tipo]);
+      await db.run('INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo, pipeline_id) VALUES ($1,$2,$3,$4,1)', [nombre, orden, prob, tipo]);
     }
-    console.log('[DB] Etapas de pipeline creadas.');
+    console.log('[DB] Etapas de "Ventas Directas" creadas.');
+  }
+
+  // Seed: solo las etapas terminales del pipeline "Operaciones" (id=2). Las
+  // etapas intermedias (más largas que las de Ventas Directas, por eso no se
+  // asumen aquí) las define el administrador en Config Pipeline antes de
+  // asignarle vendedores a este pipeline.
+  const etapaOperacionesExiste = await db.get('SELECT id FROM pipeline_etapas WHERE pipeline_id = 2 LIMIT 1');
+  if (!etapaOperacionesExiste) {
+    await db.run(`INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo, pipeline_id) VALUES ('Ganado', 1, 100, 'ganada', 2)`);
+    await db.run(`INSERT INTO pipeline_etapas (nombre, orden, probabilidad_cierre, tipo, pipeline_id) VALUES ('Perdido', 2, 0, 'perdida', 2)`);
+    console.log('[DB] Etapas terminales de "Operaciones" creadas (faltan las intermedias, a definir por el administrador).');
   }
 
   // Seed: causas de no cierre por defecto (§6).

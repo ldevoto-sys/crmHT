@@ -22,11 +22,12 @@ function puedeVer(negocio, user) {
 
 // Filtros compartidos entre el listado y la exportación.
 function filtrosNegocios(query, user) {
-  const { etapa_id, vendedor_id, q, desde, hasta } = query;
+  const { etapa_id, vendedor_id, pipeline_id, q, desde, hasta } = query;
   const clauses = [];
   const params = [];
   let i = 1;
   if (etapa_id) { clauses.push(`n.etapa_id = $${i++}`); params.push(etapa_id); }
+  if (pipeline_id) { clauses.push(`n.pipeline_id = $${i++}`); params.push(pipeline_id); }
   // Un vendedor solo ve los suyos, sin importar qué vendedor_id se pida.
   if (user.rol === 'vendedor') { clauses.push(`n.vendedor_id = $${i++}`); params.push(user.id); }
   else if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
   try {
     const { where, params } = filtrosNegocios(req.query, req.user);
     const negocios = await db.all(
-      `SELECT n.id, n.titulo, n.etapa_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
+      `SELECT n.id, n.titulo, n.etapa_id, n.pipeline_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
               n.fecha_cierre_estimada, n.ultima_actividad, n.created_at,
               pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.orden AS etapa_orden,
               u.nombre AS vendedor_nombre, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
@@ -135,19 +136,25 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
     if (!contacto) return res.status(400).json({ error: 'Contacto inexistente' });
 
-    // Etapa inicial: primera abierta por orden.
-    const etapaInicial = await db.get(
-      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`
-    );
     const dueno = (req.user.rol === 'administrador' && vendedor_id) ? vendedor_id : req.user.id;
+    // El negocio nace en el pipeline por defecto del dueño (no de quien lo crea,
+    // si un admin lo está creando para otro vendedor).
+    const duenoInfo = await db.get('SELECT pipeline_default_id FROM users WHERE id = $1', [dueno]);
+    const pipelineId = duenoInfo?.pipeline_default_id || 1;
+
+    // Etapa inicial: primera abierta por orden, dentro de ese mismo pipeline.
+    const etapaInicial = await db.get(
+      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true AND pipeline_id = $1 ORDER BY orden LIMIT 1`,
+      [pipelineId]
+    );
     const emp = empresa_id || contacto.empresa_id || null;
 
     const r = await db.run(
-      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [contacto_id, emp, dueno, titulo, monto_estimado || null,
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null,
-       fecha_cierre_estimada || null]
+       fecha_cierre_estimada || null, pipelineId]
     );
     const negocio = r.rows[0];
     if (etapaInicial) {
@@ -204,6 +211,9 @@ router.put('/:id/etapa', async (req, res) => {
        LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [req.params.id]);
     if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
     if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+    if (etapa.pipeline_id !== negocio.pipeline_id) {
+      return res.status(400).json({ error: 'Esa etapa pertenece a otro pipeline. Usa "Mover a otro pipeline" primero.' });
+    }
 
     if (etapa.tipo === 'perdida' && !causa_no_cierre_id) {
       return res.status(400).json({ error: 'La causa de no cierre es obligatoria al marcar perdido' });
@@ -262,6 +272,50 @@ router.put('/:id/etapa', async (req, res) => {
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
     console.error('[negocios/PUT /:id/etapa]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/negocios/:id/pipeline {pipeline_id} — mover un negocio a otro
+// pipeline (distinto de "mover de etapa": las etapas del pipeline destino son
+// otras, así que la etapa se reasigna sola a la primera "abierta" de ese
+// pipeline). Solo administrador/jefe comercial, ya que un vendedor normal
+// queda acotado a su propio pipeline.
+router.put('/:id/pipeline', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { pipeline_id } = req.body;
+    if (!pipeline_id) return res.status(400).json({ error: 'pipeline_id requerido' });
+
+    const pipeline = await db.get('SELECT id FROM pipelines WHERE id = $1 AND activo = true', [pipeline_id]);
+    if (!pipeline) return res.status(400).json({ error: 'Pipeline inválido' });
+
+    const negocio = await db.get('SELECT * FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (negocio.pipeline_id === Number(pipeline_id)) return res.json({ message: 'El negocio ya está en ese pipeline' });
+
+    const etapaDestino = await db.get(
+      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`,
+      [pipeline_id]
+    );
+    if (!etapaDestino) return res.status(400).json({ error: 'Ese pipeline todavía no tiene etapas abiertas configuradas' });
+
+    await db.run(
+      `UPDATE negocios SET pipeline_id=$1, etapa_id=$2, probabilidad_cierre=$3, ultima_actividad=now() WHERE id=$4`,
+      [pipeline_id, etapaDestino.id, etapaDestino.probabilidad_cierre, req.params.id]
+    );
+    await db.run(
+      'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
+      [req.params.id]
+    );
+    await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [req.params.id, etapaDestino.id]);
+    await timeline.registrar({
+      contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
+      tipo: 'cambio_etapa', descripcion: `Movido a otro pipeline (pipeline_id ${pipeline_id})`, usuario_id: req.user.id,
+    });
+
+    res.json({ message: 'Negocio movido de pipeline' });
+  } catch (err) {
+    console.error('[negocios/PUT /:id/pipeline]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

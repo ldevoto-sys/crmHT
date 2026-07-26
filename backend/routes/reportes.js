@@ -18,7 +18,8 @@ function vendedorFiltro(req) {
 
 async function embudo(req) {
   const vendedorId = vendedorFiltro(req);
-  const { desde, hasta } = req.query;
+  const { desde, hasta, pipeline_id } = req.query;
+  const pipelineId = pipeline_id || 1;
   const params = [];
   const condiciones = [];
   let i = 1;
@@ -26,12 +27,13 @@ async function embudo(req) {
   if (desde) { condiciones.push(`n.fecha_cierre_estimada >= $${i++}`); params.push(desde); }
   if (hasta) { condiciones.push(`n.fecha_cierre_estimada <= $${i++}`); params.push(hasta); }
   const filtroJoin = condiciones.length ? `AND ${condiciones.join(' AND ')}` : '';
+  params.push(pipelineId);
   return db.all(
     `SELECT pe.id AS etapa_id, pe.nombre AS etapa_nombre, pe.orden, pe.tipo,
             count(n.id)::int AS cantidad, coalesce(sum(n.monto_estimado), 0) AS monto_total
      FROM pipeline_etapas pe
      LEFT JOIN negocios n ON n.etapa_id = pe.id ${filtroJoin}
-     WHERE pe.activo = true
+     WHERE pe.activo = true AND pe.pipeline_id = $${i}
      GROUP BY pe.id, pe.nombre, pe.orden, pe.tipo
      ORDER BY pe.orden`,
     params
@@ -40,10 +42,10 @@ async function embudo(req) {
 
 async function causasNoCierre(req) {
   const vendedorId = vendedorFiltro(req);
-  const { desde, hasta } = req.query;
-  const clauses = [`n.causa_no_cierre_id IS NOT NULL`];
-  const params = [];
-  let i = 1;
+  const { desde, hasta, pipeline_id } = req.query;
+  const clauses = [`n.causa_no_cierre_id IS NOT NULL`, `n.pipeline_id = $1`];
+  const params = [pipeline_id || 1];
+  let i = 2;
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
   if (desde) { clauses.push(`n.fecha_cierre >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`n.fecha_cierre <= $${i++}`); params.push(hasta); }
@@ -58,8 +60,9 @@ async function causasNoCierre(req) {
 
 async function tiemposEtapa(req) {
   const vendedorId = vendedorFiltro(req);
-  const params = [];
-  let where = 'WHERE h.salio_en IS NOT NULL';
+  const { pipeline_id } = req.query;
+  const params = [pipeline_id || 1];
+  let where = 'WHERE h.salio_en IS NOT NULL AND n.pipeline_id = $1';
   if (vendedorId) { params.push(vendedorId); where += ` AND n.vendedor_id = $${params.length}`; }
   return db.all(
     `SELECT pe.id AS etapa_id, pe.nombre AS etapa_nombre, pe.orden,
@@ -75,10 +78,10 @@ async function tiemposEtapa(req) {
 }
 
 async function rankingVendedores(req) {
-  const { desde, hasta } = req.query;
-  const clauses = ["pe.tipo IN ('ganada','perdida')"];
-  const params = [];
-  let i = 1;
+  const { desde, hasta, pipeline_id } = req.query;
+  const clauses = ["pe.tipo IN ('ganada','perdida')", `n.pipeline_id = $1`];
+  const params = [pipeline_id || 1];
+  let i = 2;
   if (desde) { clauses.push(`n.fecha_cierre >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`n.fecha_cierre <= $${i++}`); params.push(hasta); }
   const vendedorId = vendedorFiltro(req);
@@ -106,12 +109,13 @@ async function rankingVendedores(req) {
 // una oportunidad aparte, evita duplicar/triplicar lo que se ve generado.
 async function cotizacionesPorDia(req) {
   const vendedorId = vendedorFiltro(req);
-  const { desde, hasta } = req.query;
+  const { desde, hasta, pipeline_id } = req.query;
   const clauses = [
     `c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)`,
+    `n.pipeline_id = $1`,
   ];
-  const params = [];
-  let i = 1;
+  const params = [pipeline_id || 1];
+  let i = 2;
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
   if (desde) { clauses.push(`c.created_at >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
@@ -132,10 +136,14 @@ async function cotizacionesPorDia(req) {
 // (el negocio se cerró ganado ese día; se usa la última cotización del
 // negocio como monto representativo del cierre).
 async function cotizacionesPorDiaDetalle(req) {
-  const { fecha } = req.query;
+  const { fecha, pipeline_id } = req.query;
   const vendedorId = vendedorFiltro(req);
-  const filtroVendedor = vendedorId ? 'AND vendedor_id = $2' : '';
-  const params = vendedorId ? [fecha, vendedorId] : [fecha];
+  const pipelineId = pipeline_id || 1;
+  // "Contactos asignados" no depende de pipeline (los contactos no pertenecen
+  // a uno); el filtro de pipeline solo aplica a las dos subconsultas que
+  // pasan por negocios (cotizaciones generadas / ganadas).
+  const filtroVendedor = vendedorId ? 'AND vendedor_id = $3' : '';
+  const params = vendedorId ? [fecha, pipelineId, vendedorId] : [fecha, pipelineId];
   return db.all(
     `SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
             coalesce(ca.cantidad, 0) AS contactos_asignados,
@@ -152,7 +160,7 @@ async function cotizacionesPorDiaDetalle(req) {
      LEFT JOIN (
        SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
        FROM cotizaciones c JOIN negocios n ON n.id = c.negocio_id
-       WHERE date(c.created_at) = $1::date ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
+       WHERE date(c.created_at) = $1::date AND n.pipeline_id = $2 ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
          AND c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)
        GROUP BY n.vendedor_id
      ) cg ON cg.vendedor_id = u.id
@@ -163,7 +171,7 @@ async function cotizacionesPorDiaDetalle(req) {
        JOIN LATERAL (
          SELECT total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
        ) uc ON true
-       WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada' ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
+       WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada' AND n.pipeline_id = $2 ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
        GROUP BY n.vendedor_id
      ) gz ON gz.vendedor_id = u.id
      WHERE ca.cantidad IS NOT NULL OR cg.cantidad IS NOT NULL OR gz.cantidad IS NOT NULL

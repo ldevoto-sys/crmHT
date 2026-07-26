@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import BannerAmbiente from './BannerAmbiente';
 
 // Sidebar operativo por rol (HT-AP-03 §11). La configuración va en el engranaje.
 const menuByRole = {
@@ -222,6 +223,7 @@ export default function Layout() {
             </button>
           </div>
         </header>
+        <BannerAmbiente />
 
         <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
           <Outlet />

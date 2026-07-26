@@ -42,6 +42,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       nombre: user.nombre,
       email: user.email,
       rol: user.rol,
+      pipeline_default_id: user.pipeline_default_id,
       must_change_password: user.must_change_password,
     };
     const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '8h' });

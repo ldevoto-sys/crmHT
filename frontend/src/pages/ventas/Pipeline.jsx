@@ -5,12 +5,26 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
 const PUEDE_EXPORTAR = ['administrador', 'jefe_comercial'];
+// Solo estos roles ven el selector para cambiar de pipeline y el filtro de
+// vendedor; el resto (vendedor, call center) queda acotado a su propio
+// pipeline por defecto, sin selector.
+const PUEDE_CAMBIAR_PIPELINE = ['administrador', 'jefe_comercial', 'gerencia'];
+const PUEDE_MOVER_PIPELINE = ['administrador', 'jefe_comercial'];
 
 export default function Pipeline() {
   const { user } = useAuth();
+  const puedeCambiarPipeline = PUEDE_CAMBIAR_PIPELINE.includes(user?.rol);
+  const puedeMoverPipeline = PUEDE_MOVER_PIPELINE.includes(user?.rol);
+
   const [negocios, setNegocios] = useState([]);
   const [etapas, setEtapas] = useState([]);
   const [causas, setCausas] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
+  const [pipelineId, setPipelineId] = useState(user?.pipeline_default_id || 1);
+  const [vendedores, setVendedores] = useState([]);
+  const [vendedorId, setVendedorId] = useState('');
+  const [cierreDesde, setCierreDesde] = useState('');
+  const [cierreHasta, setCierreHasta] = useState('');
   const [error, setError] = useState('');
   const [drag, setDrag] = useState(null);
   const [modalPerdido, setModalPerdido] = useState(null); // {negocio, etapa}
@@ -18,14 +32,38 @@ export default function Pipeline() {
   const [showNuevo, setShowNuevo] = useState(false);
 
   const cargar = async () => {
-    try { setNegocios((await api.get('/negocios')).data); }
-    catch { setError('No se pudieron cargar los negocios.'); }
+    try {
+      const { data } = await api.get('/negocios', {
+        params: {
+          pipeline_id: pipelineId,
+          vendedor_id: vendedorId || undefined,
+          desde: cierreDesde || undefined,
+          hasta: cierreHasta || undefined,
+        },
+      });
+      setNegocios(data);
+    } catch { setError('No se pudieron cargar los negocios.'); }
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(); }, [pipelineId, vendedorId, cierreDesde, cierreHasta]); // eslint-disable-line
+
   useEffect(() => {
-    api.get('/config/pipeline-etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
-    api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+    if (puedeCambiarPipeline) {
+      api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {});
+      api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+    }
+    // eslint-disable-next-line
   }, []);
+
+  useEffect(() => {
+    api.get('/config/pipeline-etapas', { params: { pipeline_id: pipelineId } }).then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
+    api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+  }, [pipelineId]);
+
+  const moverPipeline = async (negocio, destinoId) => {
+    if (!destinoId || Number(destinoId) === negocio.pipeline_id) return;
+    try { await api.put(`/negocios/${negocio.id}/pipeline`, { pipeline_id: destinoId }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo mover el negocio de pipeline.'); }
+  };
 
   const mover = async (negocio, etapa, extra = {}) => {
     if (negocio.etapa_id === etapa.id) return;
@@ -79,6 +117,39 @@ export default function Pipeline() {
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        {puedeCambiarPipeline && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Pipeline</label>
+            <select value={pipelineId} onChange={e => setPipelineId(Number(e.target.value))}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+          </div>
+        )}
+        {puedeCambiarPipeline && (
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-700">Vendedor</label>
+            <select value={vendedorId} onChange={e => setVendedorId(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Todos</option>
+              {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-gray-600">Fecha estimada de cierre:</span>
+          <input type="date" value={cierreDesde} onChange={e => setCierreDesde(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          <span className="text-gray-400">a</span>
+          <input type="date" value={cierreHasta} onChange={e => setCierreHasta(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          {(cierreDesde || cierreHasta) && (
+            <button onClick={() => { setCierreDesde(''); setCierreHasta(''); }} className="text-xs text-ht-accent hover:underline">limpiar</button>
+          )}
+        </div>
+      </div>
+
       <div className="flex gap-3 overflow-x-auto pb-4">
         {etapas.map(et => {
           const items = porEtapa(et.id);
@@ -125,6 +196,15 @@ export default function Pipeline() {
                         <option key={x.id} value={x.id}>{x.nombre}</option>
                       ))}
                     </select>
+                    {puedeMoverPipeline && pipelines.length > 1 && (
+                      <select value="" onChange={e => moverPipeline(n, e.target.value)}
+                        className="w-full mt-1.5 text-xs border border-gray-200 rounded px-2 py-1.5 text-gray-500 focus:outline-none focus:ring-1 focus:ring-ht-accent">
+                        <option value="">Mover a otro pipeline…</option>
+                        {pipelines.filter(p => p.id !== pipelineId).map(p => (
+                          <option key={p.id} value={p.id}>{p.nombre}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 ))}
               </div>

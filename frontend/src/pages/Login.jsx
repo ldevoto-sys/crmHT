@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../api';
+import BannerAmbiente from '../components/BannerAmbiente';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -51,7 +52,9 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white rounded-xl shadow-md w-full max-w-sm p-8">
+      <div className="bg-white rounded-xl shadow-md w-full max-w-sm overflow-hidden">
+        <BannerAmbiente />
+        <div className="p-8">
         <div className="flex justify-center mb-3">
           <img src="/Hidrotecnica.jpg" alt="HidroTecnica" className="h-14 object-contain" />
         </div>
@@ -111,6 +114,7 @@ export default function Login() {
           <Link to="/forgot-password" className="text-sm text-ht-accent hover:underline">
             ¿Olvidaste tu contraseña?
           </Link>
+        </div>
         </div>
       </div>
     </div>

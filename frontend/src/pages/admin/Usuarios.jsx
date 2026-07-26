@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
-const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '' };
+const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1 };
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -15,6 +15,7 @@ export default function Usuarios() {
   const [resetPara, setResetPara] = useState(null); // usuario en modal de reset
   const [resetPassword, setResetPassword] = useState('');
   const [vendedores, setVendedores] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
   const [desactivarPara, setDesactivarPara] = useState(null); // {usuario, impacto}
   const [reasignarA, setReasignarA] = useState('');
 
@@ -29,6 +30,7 @@ export default function Usuarios() {
 
   useEffect(() => { cargar(); }, []);
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
+  useEffect(() => { api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {}); }, []);
 
   const resetForm = () => { setForm(vacio); setEditId(null); };
 
@@ -68,7 +70,7 @@ export default function Usuarios() {
 
   const editar = u => {
     setEditId(u.id);
-    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, rol: u.rol, recibe_round_robin: u.recibe_round_robin });
+    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1 });
     setError(''); setMsg('');
   };
 
@@ -152,6 +154,14 @@ export default function Usuarios() {
               Participa en asignación round-robin
             </label>
           )}
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Pipeline por defecto</label>
+            <select value={form.pipeline_default_id} onChange={e => setForm({ ...form, pipeline_default_id: Number(e.target.value) })}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">Los negocios nuevos que cree este usuario caen en este pipeline.</p>
+          </div>
           {!editId && (
             <div>
               <label className="block text-sm text-gray-700 mb-1">Contraseña <span className="text-gray-400">(opcional; si la dejas vacía se genera una)</span></label>
