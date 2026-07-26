@@ -3,7 +3,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
-const fecha = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('es-CL') : '';
+// fecha_limite_respuesta llega del backend como timestamp completo (el
+// driver de Postgres convierte DATE a un objeto Date, que se serializa como
+// ISO completo), no como "AAAA-MM-DD" — hay que recortar antes de parsear.
+const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
 const PRIORIDADES = ['baja', 'media', 'alta', 'urgente'];
 const badgePrioridad = p => ({
   baja: 'bg-gray-100 text-gray-600',
@@ -17,7 +20,7 @@ const badgePrioridad = p => ({
 function slaEstado(fechaLimite) {
   if (!fechaLimite) return null;
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-  const limite = new Date(fechaLimite + 'T00:00:00');
+  const limite = new Date(fechaLimite.slice(0, 10) + 'T00:00:00');
   const dias = Math.round((limite - hoy) / 86400000);
   if (dias < 0) return 'vencido';
   if (dias <= 3) return 'proximo';
