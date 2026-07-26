@@ -35,6 +35,8 @@ import CotizacionPublica from './pages/publico/CotizacionPublica';
 import EncuestaPublica from './pages/publico/EncuestaPublica';
 import MisTareas from './pages/ventas/MisTareas';
 import Reportes from './pages/ventas/Reportes';
+import Postventa from './pages/postventa/Postventa';
+import ConfigPostventaEtapas from './pages/postventa/ConfigPostventaEtapas';
 
 export default function App() {
   return (
@@ -97,6 +99,14 @@ export default function App() {
             <Route path="tareas" element={<MisTareas />} />
             <Route path="reportes" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Reportes /></ProtectedRoute>
+            } />
+
+            {/* Postventa */}
+            <Route path="postventa" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']} flag="es_encargado_postventa"><Postventa /></ProtectedRoute>
+            } />
+            <Route path="config/postventa-etapas" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']} flag="es_encargado_postventa"><ConfigPostventaEtapas /></ProtectedRoute>
             } />
 
             {/* Etapa 4 — WhatsApp */}

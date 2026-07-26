@@ -70,6 +70,12 @@ async function initDb() {
   await db.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_rol_check`);
   await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia'))`);
 
+  // Atribución adicional, independiente del rol: quien la tenga puede
+  // gestionar el tablero de Postventa (mover etapas, asignar técnico),
+  // sin importar cuál sea su rol normal — permite que, por ejemplo, un jefe
+  // comercial cubra Postventa durante una licencia sin cambiarle el rol.
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS es_encargado_postventa BOOLEAN NOT NULL DEFAULT false`);
+
   // === Etapa 1 — Maestros ===
 
   await db.run(`
@@ -303,6 +309,53 @@ async function initDb() {
     for (const c of causas) await db.run('INSERT INTO causas_no_cierre (nombre) VALUES ($1)', [c]);
     console.log('[DB] Causas de no cierre creadas.');
   }
+
+  // === Módulo Postventa (v1.10) ===
+  // Casos de garantía/reclamo técnico. No reutiliza el pipeline de ventas: es
+  // un objeto distinto (no tiene monto ni probabilidad de cierre, sí SLA,
+  // prioridad, técnico asignado y el equipo reclamado). Como solo existe un
+  // flujo de Postventa (no varias áreas en paralelo, a diferencia de
+  // Ventas Directas/Operaciones), sus etapas van en su propia tabla simple,
+  // sin pasar por "pipelines".
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS postventa_etapas (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      orden INTEGER NOT NULL DEFAULT 0,
+      tipo TEXT NOT NULL DEFAULT 'abierta' CHECK (tipo IN ('abierta','resuelto','rechazado')),
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  const etapaPostventaExiste = await db.get('SELECT id FROM postventa_etapas LIMIT 1');
+  if (!etapaPostventaExiste) {
+    await db.run(`INSERT INTO postventa_etapas (nombre, orden, tipo) VALUES ('Resuelto', 1, 'resuelto')`);
+    await db.run(`INSERT INTO postventa_etapas (nombre, orden, tipo) VALUES ('Rechazado', 2, 'rechazado')`);
+    console.log('[DB] Etapas terminales de Postventa creadas (faltan las intermedias, a definir por el encargado).');
+  }
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS casos_postventa (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      producto_id INTEGER REFERENCES productos(id),
+      detalle_equipo TEXT,
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      prioridad TEXT NOT NULL DEFAULT 'media' CHECK (prioridad IN ('baja','media','alta','urgente')),
+      fecha_limite_respuesta DATE,
+      tecnico_asignado_id INTEGER REFERENCES users(id),
+      creado_por_id INTEGER NOT NULL REFERENCES users(id),
+      etapa_id INTEGER REFERENCES postventa_etapas(id),
+      fecha_cierre TIMESTAMP,
+      ultima_actividad TIMESTAMP DEFAULT now(),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_etapa ON casos_postventa (etapa_id)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_creador ON casos_postventa (creado_por_id)`);
 
   // === Etapa 2B — Cotizaciones ===
 

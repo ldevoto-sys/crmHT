@@ -16,6 +16,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Postventa', to: '/postventa' },
   ],
   jefe_comercial: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -28,6 +29,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Postventa', to: '/postventa' },
   ],
   vendedor: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -39,6 +41,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Postventa', to: '/postventa' },
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -76,6 +79,10 @@ const configByRole = {
     { label: 'Datos de empresa', to: '/config/empresa' },
   ],
 };
+// Config Postventa se agrega solo si el usuario está marcado como encargado
+// (además de administrador/jefe comercial, que ya la ven de por sí).
+configByRole.administrador.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
+configByRole.jefe_comercial.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
 
 function GearIcon() {
   return (
@@ -131,18 +138,30 @@ const IconProductos = navIcon(<>
 const IconReportes = navIcon(<>
   <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
 </>);
+const IconPostventa = navIcon(<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />);
 
 const ICONO_POR_RUTA = {
   '/dashboard': IconDashboard, '/pipeline': IconPipeline, '/cotizaciones': IconCotizaciones,
   '/tareas': IconTareas, '/bandeja': IconBandeja, '/cola': IconCola,
   '/empresas': IconEmpresas, '/contactos': IconContactos, '/productos': IconProductos, '/reportes': IconReportes,
+  '/postventa': IconPostventa,
 };
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const menu = menuByRole[user?.rol] || [];
-  const config = configByRole[user?.rol] || [];
+  // Postventa se suma al menú aunque el rol no lo traiga por defecto (ej.
+  // call center o gerencia), si el usuario tiene el atributo marcado.
+  const tienePostventaEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/postventa');
+  const menu = [
+    ...(menuByRole[user?.rol] || []),
+    ...(user?.es_encargado_postventa && !tienePostventaEnMenu ? [{ label: 'Postventa', to: '/postventa' }] : []),
+  ];
+  const tieneConfigPostventa = (configByRole[user?.rol] || []).some(i => i.to === '/config/postventa-etapas');
+  const config = [
+    ...(configByRole[user?.rol] || []),
+    ...(user?.es_encargado_postventa && !tieneConfigPostventa ? [{ label: 'Config Postventa', to: '/config/postventa-etapas' }] : []),
+  ];
   const [open, setOpen] = useState(false);
   const [sidebarAbierto, setSidebarAbierto] = useState(false);
   const ref = useRef(null);

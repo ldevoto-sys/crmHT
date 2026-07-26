@@ -1,7 +1,10 @@
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function ProtectedRoute({ children, roles }) {
+// flag: nombre de un atributo adicional en el usuario (ej. "es_encargado_postventa")
+// que también da acceso, sin importar el rol — para permisos que se suman al
+// rol en vez de reemplazarlo.
+export default function ProtectedRoute({ children, roles, flag }) {
   const { user } = useAuth();
   const location = useLocation();
   if (!user) return <Navigate to="/login" replace />;
@@ -9,6 +12,8 @@ export default function ProtectedRoute({ children, roles }) {
   if (user.must_change_password && location.pathname !== '/cambiar-password') {
     return <Navigate to="/cambiar-password" replace />;
   }
-  if (roles && !roles.includes(user.rol)) return <Navigate to="/dashboard" replace />;
+  const tieneRol = !roles || roles.includes(user.rol);
+  const tieneFlag = flag && user[flag] === true;
+  if (roles && !tieneRol && !tieneFlag) return <Navigate to="/dashboard" replace />;
   return children;
 }

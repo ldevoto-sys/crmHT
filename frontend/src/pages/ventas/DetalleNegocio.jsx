@@ -32,9 +32,13 @@ export default function DetalleNegocio() {
   };
   useEffect(() => { cargar(); }, [id]);
   useEffect(() => {
-    api.get('/config/pipeline-etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
+    // Las etapas deben ser las del pipeline al que pertenece ESTE negocio, no
+    // siempre las de "Ventas Directas" — antes de tener n.pipeline_id no se
+    // puede pedir esto todavía.
+    if (!n) return;
+    api.get('/config/pipeline-etapas', { params: { pipeline_id: n.pipeline_id } }).then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
     api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
-  }, []);
+  }, [n?.pipeline_id]); // eslint-disable-line
 
   const cambiarEtapa = async (etapa, extra = {}) => {
     try { await api.put(`/negocios/${id}/etapa`, { etapa_id: etapa.id, ...extra }); cargar(); }
@@ -81,7 +85,10 @@ export default function DetalleNegocio() {
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-ht-navy">Cotizaciones</h2>
-              {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>}
+              <div className="flex gap-2">
+                <Link to={`/postventa?negocio_id=${id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear caso de postventa</Link>
+                {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>}
+              </div>
             </div>
             {cots.length === 0 ? <p className="text-sm text-gray-400">Sin cotizaciones.</p> : (
               <table className="w-full text-sm">

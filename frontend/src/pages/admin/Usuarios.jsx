@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
-const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1 };
+const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false };
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -70,7 +70,7 @@ export default function Usuarios() {
 
   const editar = u => {
     setEditId(u.id);
-    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1 });
+    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1, es_encargado_postventa: u.es_encargado_postventa || false });
     setError(''); setMsg('');
   };
 
@@ -162,6 +162,12 @@ export default function Usuarios() {
             </select>
             <p className="text-xs text-gray-400 mt-1">Los negocios nuevos que cree este usuario caen en este pipeline.</p>
           </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={form.es_encargado_postventa}
+              onChange={e => setForm({ ...form, es_encargado_postventa: e.target.checked })} />
+            Encargado de postventa
+          </label>
+          <p className="text-xs text-gray-400 -mt-2">Se suma a su rol actual — puede gestionar el tablero completo de Postventa sin importar cuál sea su rol.</p>
           {!editId && (
             <div>
               <label className="block text-sm text-gray-700 mb-1">Contraseña <span className="text-gray-400">(opcional; si la dejas vacía se genera una)</span></label>
