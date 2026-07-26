@@ -44,6 +44,7 @@ export default function Postventa() {
   const [drag, setDrag] = useState(null);
   const [showNuevo, setShowNuevo] = useState(false);
   const [detalle, setDetalle] = useState(null); // caso abierto en el panel lateral
+  const [filtroSla, setFiltroSla] = useState('todos'); // todos | vencido | proximo
 
   const cargar = async () => {
     try { setCasos((await api.get('/postventa')).data); }
@@ -73,11 +74,14 @@ export default function Postventa() {
     mover(caso, etapa);
   };
 
-  const porEtapa = id => casos.filter(c => c.etapa_id === id);
+  // Filtro por estado de SLA (vencidos / por vencer / todos), aplicado antes
+  // de repartir los casos por columna.
+  const casosFiltrados = filtroSla === 'todos' ? casos : casos.filter(c => slaEstado(c.fecha_limite_respuesta) === filtroSla);
+  const porEtapa = id => casosFiltrados.filter(c => c.etapa_id === id);
   // Casos creados antes de que existiera alguna etapa "abierta" en Postventa
   // quedan sin etapa_id — se muestran aparte para que nunca queden invisibles.
   const idsEtapas = new Set(etapas.map(e => e.id));
-  const sinEtapa = casos.filter(c => !c.etapa_id || !idsEtapas.has(c.etapa_id));
+  const sinEtapa = casosFiltrados.filter(c => !c.etapa_id || !idsEtapas.has(c.etapa_id));
 
   const guardarGestion = async (caso, campos) => {
     try { await api.put(`/postventa/${caso.id}`, campos); cargar(); setDetalle(null); }
@@ -88,7 +92,15 @@ export default function Postventa() {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Postventa</h1>
-        <button onClick={() => setShowNuevo(true)} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nuevo caso</button>
+        <div className="flex items-center gap-2">
+          <select value={filtroSla} onChange={e => setFiltroSla(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="todos">Todos</option>
+            <option value="vencido">Vencidos</option>
+            <option value="proximo">Por vencer (≤3 días)</option>
+          </select>
+          <button onClick={() => setShowNuevo(true)} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nuevo caso</button>
+        </div>
       </div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {!puedeGestionar && (
