@@ -525,10 +525,16 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                   {p.duracion_estimada_min ? ` · ~${p.duracion_estimada_min} min` : ''}
                 </div>
                 {puedeGestionar ? (
-                  <label className="flex items-center gap-2 text-xs text-gray-700 mt-2">
-                    <input type="checkbox" checked={p.completado} onChange={e => completar(p, e.target.checked)} />
-                    Parada completada
-                  </label>
+                  <>
+                    <label className={`flex items-center gap-2 text-xs mt-2 ${!p.tiene_foto && !p.completado ? 'text-gray-400' : 'text-gray-700'}`}>
+                      <input type="checkbox" checked={p.completado} disabled={!p.tiene_foto && !p.completado}
+                        onChange={e => completar(p, e.target.checked)} />
+                      Parada completada
+                    </label>
+                    {!p.tiene_foto && !p.completado && (
+                      <p className="text-[11px] text-amber-600 mt-0.5">Sube la foto de respaldo para poder completarla.</p>
+                    )}
+                  </>
                 ) : (
                   <>
                     <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>

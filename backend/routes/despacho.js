@@ -302,6 +302,9 @@ router.put('/puntos/:id/completar', async (req, res) => {
     const punto = await db.get('SELECT * FROM despacho_puntos WHERE id = $1', [req.params.id]);
     if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
     const completado = req.body.completado !== false;
+    if (completado && !punto.foto_respaldo_key) {
+      return res.status(400).json({ error: 'Sube la foto de respaldo antes de marcar esta parada como completada.' });
+    }
     await db.run(
       'UPDATE despacho_puntos SET completado=$1, completado_en=$2 WHERE id=$3',
       [completado, completado ? new Date().toISOString() : null, req.params.id]
