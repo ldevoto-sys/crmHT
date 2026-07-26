@@ -357,6 +357,58 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_etapa ON casos_postventa (etapa_id)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_creador ON casos_postventa (creado_por_id)`);
 
+  // === Módulo Despacho (v1.11) ===
+  // Una ruta con una o más paradas (puntos), cada una con sus propios datos
+  // obligatorios. Puede originarse en un negocio cerrado, en un caso de
+  // postventa, o crearse suelta (logística interna sin relación a una venta)
+  // — por eso ambos vínculos son opcionales, no uno u otro obligatorio.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS despachos (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER REFERENCES negocios(id),
+      caso_postventa_id INTEGER REFERENCES casos_postventa(id),
+      titulo TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'programado' CHECK (estado IN ('programado','en_ruta','completado','cancelado')),
+      creado_por_id INTEGER NOT NULL REFERENCES users(id),
+      ultima_actividad TIMESTAMP DEFAULT now(),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // documento_tipo: factura/guía de despacho para una entrega, O/C para un
+  // retiro — "otro" cubre casos internos sin ese tipo de respaldo formal.
+  // foto_respaldo_key: referencia al archivo en el bucket privado de R2
+  // (guía/factura firmada que sube el encargado desde el celular al
+  // completar la parada) — no la URL en sí, para no depender de que el
+  // bucket sea público.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS despacho_puntos (
+      id SERIAL PRIMARY KEY,
+      despacho_id INTEGER NOT NULL REFERENCES despachos(id),
+      orden INTEGER NOT NULL DEFAULT 0,
+      tipo TEXT NOT NULL CHECK (tipo IN ('retiro','entrega')),
+      direccion TEXT NOT NULL,
+      comuna TEXT NOT NULL,
+      fecha DATE NOT NULL,
+      contacto_nombre TEXT NOT NULL,
+      contacto_telefono TEXT,
+      documento_tipo TEXT NOT NULL CHECK (documento_tipo IN ('factura','guia_despacho','orden_compra','otro')),
+      documento_numero TEXT,
+      duracion_estimada_min INTEGER,
+      completado BOOLEAN NOT NULL DEFAULT false,
+      completado_en TIMESTAMP,
+      foto_respaldo_key TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_despacho ON despacho_puntos (despacho_id, orden)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_fecha ON despacho_puntos (fecha)`);
+
+  // Atribución adicional, independiente del rol (mismo patrón que
+  // es_encargado_postventa): quien la tenga gestiona el módulo de Despacho
+  // completo (agrega/edita paradas, las marca completadas, sube fotos).
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS es_encargado_despacho BOOLEAN NOT NULL DEFAULT false`);
+
   // === Etapa 2B — Cotizaciones ===
 
   // Correlativo por año (COT-AAAA-NNNNN): formato reemplazado por el

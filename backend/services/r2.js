@@ -57,4 +57,57 @@ async function urlFirmada(key, expiraSegundos = 600) {
   return getSignedUrl(cliente(), new GetObjectCommand({ Bucket: process.env.R2_BUCKET_NAME, Key: key }), { expiresIn: expiraSegundos });
 }
 
-module.exports = { configurado, subir, descargar, urlFirmada };
+// --- Bucket privado aparte para documentos de despacho (fotos de guías,
+// facturas u O/C firmadas) — no puede ir en el mismo bucket que las
+// imágenes de productos, porque ese es público (dominio pub-*.r2.dev) y
+// estos documentos traen firmas y datos de clientes. Requiere sus propias
+// variables (cuenta separada de credenciales, mismo R2_ACCOUNT_ID).
+function configuradoDespacho() {
+  return !!(process.env.R2_ACCOUNT_ID && process.env.R2_DESPACHO_ACCESS_KEY_ID
+    && process.env.R2_DESPACHO_SECRET_ACCESS_KEY && process.env.R2_DESPACHO_BUCKET_NAME);
+}
+
+function clienteDespacho() {
+  return new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_DESPACHO_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_DESPACHO_SECRET_ACCESS_KEY,
+    },
+  });
+}
+
+async function subirDespacho(key, buffer, contentType) {
+  if (!configuradoDespacho()) {
+    console.log(`[r2] Sin credenciales de despacho configuradas; no se subió ${key}.`);
+    return { subido: false, motivo: 'R2 de despacho no configurado' };
+  }
+  try {
+    await clienteDespacho().send(new PutObjectCommand({
+      Bucket: process.env.R2_DESPACHO_BUCKET_NAME, Key: key, Body: buffer, ContentType: contentType,
+    }));
+    return { subido: true };
+  } catch (e) {
+    console.error('[r2] Error subiendo documento de despacho', key, ':', e.message);
+    return { subido: false, motivo: e.message };
+  }
+}
+
+async function descargarDespacho(key) {
+  if (!configuradoDespacho()) return null;
+  try {
+    const resp = await clienteDespacho().send(new GetObjectCommand({ Bucket: process.env.R2_DESPACHO_BUCKET_NAME, Key: key }));
+    const chunks = [];
+    for await (const chunk of resp.Body) chunks.push(chunk);
+    return { buffer: Buffer.concat(chunks), contentType: resp.ContentType };
+  } catch (e) {
+    console.error('[r2] Error descargando documento de despacho', key, ':', e.message);
+    return null;
+  }
+}
+
+module.exports = {
+  configurado, subir, descargar, urlFirmada,
+  configuradoDespacho, subirDespacho, descargarDespacho,
+};

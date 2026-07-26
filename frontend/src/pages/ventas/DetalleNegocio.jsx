@@ -86,6 +86,7 @@ export default function DetalleNegocio() {
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-ht-navy">Cotizaciones</h2>
               <div className="flex gap-2">
+                <Link to={`/despacho?negocio_id=${id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
                 <Link to={`/postventa?negocio_id=${id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear caso de postventa</Link>
                 {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>}
               </div>

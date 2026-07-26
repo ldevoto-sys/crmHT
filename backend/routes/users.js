@@ -16,7 +16,7 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const users = await db.all(
-      `SELECT id, nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, created_at
+      `SELECT id, nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, created_at
        FROM users ORDER BY nombre`
     );
     res.json(users);
@@ -46,7 +46,7 @@ router.get('/vendedores', async (req, res) => {
 // pueda copiar y entregar a mano.
 router.post('/', authorize('administrador'), async (req, res) => {
   try {
-    const { nombre, rut, email, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa } = req.body;
+    const { nombre, rut, email, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
 
@@ -70,10 +70,10 @@ router.post('/', authorize('administrador'), async (req, res) => {
     const hash = await bcrypt.hash(passwordTemporal, 10);
 
     const result = await db.run(
-      `INSERT INTO users (nombre, rut, email, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa)
-       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8)
-       RETURNING id, nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa`,
-      [nombre, rut || null, email, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true]
+      `INSERT INTO users (nombre, rut, email, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho)
+       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9)
+       RETURNING id, nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho`,
+      [nombre, rut || null, email, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true, es_encargado_despacho === true]
     );
 
     await emailSvc.bienvenida({ nombre, email, rol }, passwordTemporal);
@@ -89,7 +89,7 @@ router.post('/', authorize('administrador'), async (req, res) => {
 router.put('/:id', authorize('administrador'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa } = req.body;
+    const { nombre, rut, email, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
 
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
@@ -98,7 +98,7 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
     if (!validarEmail(email)) return res.status(400).json({ error: 'Email inválido' });
 
-    const user = await db.get('SELECT id, pipeline_default_id, es_encargado_postventa FROM users WHERE id = $1', [id]);
+    const user = await db.get('SELECT id, pipeline_default_id, es_encargado_postventa, es_encargado_despacho FROM users WHERE id = $1', [id]);
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
     const emailExiste = await db.get('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
@@ -110,11 +110,12 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     }
 
     await db.run(
-      `UPDATE users SET nombre = $1, rut = $2, email = $3, rol = $4, activo = $5, recibe_round_robin = $6, pipeline_default_id = $7, es_encargado_postventa = $8
-       WHERE id = $9`,
+      `UPDATE users SET nombre = $1, rut = $2, email = $3, rol = $4, activo = $5, recibe_round_robin = $6, pipeline_default_id = $7, es_encargado_postventa = $8, es_encargado_despacho = $9
+       WHERE id = $10`,
       [nombre, rut || null, email, rol, activo !== undefined ? activo : true, recibe_round_robin !== false,
        pipeline_default_id || user.pipeline_default_id || 1,
-       es_encargado_postventa !== undefined ? es_encargado_postventa === true : user.es_encargado_postventa, id]
+       es_encargado_postventa !== undefined ? es_encargado_postventa === true : user.es_encargado_postventa,
+       es_encargado_despacho !== undefined ? es_encargado_despacho === true : user.es_encargado_despacho, id]
     );
 
     res.json({ message: 'Usuario actualizado correctamente' });

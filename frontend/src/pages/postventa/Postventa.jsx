@@ -375,8 +375,9 @@ function DetalleCaso({ caso, puedeGestionar, tecnicos, onClose, onGuardar }) {
         <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Solo el encargado de postventa puede editar prioridad, técnico y SLA.</p>
       )}
 
-      <div className="mt-3">
+      <div className="mt-3 flex items-center justify-between">
         <Link to={`/negocios/${caso.negocio_id}`} className="text-sm text-ht-accent hover:underline">Ver negocio de origen →</Link>
+        <Link to={`/despacho?caso_postventa_id=${caso.id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
       </div>
     </Modal>
   );

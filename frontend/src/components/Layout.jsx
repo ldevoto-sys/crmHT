@@ -17,6 +17,7 @@ const menuByRole = {
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
     { label: 'Postventa', to: '/postventa' },
+    { label: 'Despacho', to: '/despacho' },
   ],
   jefe_comercial: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -30,6 +31,7 @@ const menuByRole = {
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
     { label: 'Postventa', to: '/postventa' },
+    { label: 'Despacho', to: '/despacho' },
   ],
   vendedor: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -42,6 +44,7 @@ const menuByRole = {
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
     { label: 'Postventa', to: '/postventa' },
+    { label: 'Despacho', to: '/despacho' },
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },
@@ -139,12 +142,16 @@ const IconReportes = navIcon(<>
   <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
 </>);
 const IconPostventa = navIcon(<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />);
+const IconDespacho = navIcon(<>
+  <rect x="1" y="3" width="15" height="13" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
+  <circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
+</>);
 
 const ICONO_POR_RUTA = {
   '/dashboard': IconDashboard, '/pipeline': IconPipeline, '/cotizaciones': IconCotizaciones,
   '/tareas': IconTareas, '/bandeja': IconBandeja, '/cola': IconCola,
   '/empresas': IconEmpresas, '/contactos': IconContactos, '/productos': IconProductos, '/reportes': IconReportes,
-  '/postventa': IconPostventa,
+  '/postventa': IconPostventa, '/despacho': IconDespacho,
 };
 
 export default function Layout() {
@@ -153,9 +160,11 @@ export default function Layout() {
   // Postventa se suma al menú aunque el rol no lo traiga por defecto (ej.
   // call center o gerencia), si el usuario tiene el atributo marcado.
   const tienePostventaEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/postventa');
+  const tieneDespachoEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/despacho');
   const menu = [
     ...(menuByRole[user?.rol] || []),
     ...(user?.es_encargado_postventa && !tienePostventaEnMenu ? [{ label: 'Postventa', to: '/postventa' }] : []),
+    ...(user?.es_encargado_despacho && !tieneDespachoEnMenu ? [{ label: 'Despacho', to: '/despacho' }] : []),
   ];
   const tieneConfigPostventa = (configByRole[user?.rol] || []).some(i => i.to === '/config/postventa-etapas');
   const config = [
