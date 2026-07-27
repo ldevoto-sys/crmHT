@@ -12,6 +12,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 
 
 // "Gestionar" (agregar/editar paradas, marcarlas completadas, subir fotos,
 // ver todos los despachos) es de administrador/jefe comercial, o de
+// Minutos desde medianoche -> "HH:MM" (mod 24h; una ruta de un día no
+// debería cruzar medianoche, pero se acota igual por si acaso).
+function formatoHora(minutos) {
+  const m = ((minutos % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  return `${String(h).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
 // cualquier usuario con el atributo es_encargado_despacho marcado —
 // independiente de su rol, mismo patrón que Postventa.
 function puedeGestionar(user) {
@@ -464,10 +472,34 @@ router.post('/:id/optimizar-ruta', async (req, res) => {
     if (!resultado.ok) return res.status(400).json({ error: resultado.motivo });
 
     const ordenSugerido = resultado.ordenSugerido.map(i => paradas[i].id);
+
+    // Hora de llegada/salida estimada por parada, si se indicó una hora de
+    // salida — se arrastra el tiempo de viaje de cada tramo más el tiempo
+    // estimado que la parada anterior toma en sitio (duracion_estimada_min).
+    let horasEstimadas = null;
+    let horaRegresoEstimada = null;
+    if (req.body.hora_salida) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(req.body.hora_salida)) {
+        return res.status(400).json({ error: 'Hora de salida inválida (formato HH:MM).' });
+      }
+      const [h, m] = req.body.hora_salida.split(':').map(Number);
+      let minutos = h * 60 + m;
+      horasEstimadas = resultado.ordenSugerido.map((i, idx) => {
+        minutos += resultado.tramos[idx].duracion_min;
+        const llegada = formatoHora(minutos);
+        minutos += paradas[i].duracion_estimada_min || 0;
+        return { parada_id: paradas[i].id, llegada_estimada: llegada, salida_estimada: formatoHora(minutos) };
+      });
+      minutos += resultado.tramos[resultado.tramos.length - 1].duracion_min;
+      horaRegresoEstimada = formatoHora(minutos);
+    }
+
     res.json({
       orden_sugerido: ordenSugerido,
       duracion_total_min: resultado.duracionTotalMin,
       tramos: resultado.tramos,
+      horas_estimadas: horasEstimadas,
+      hora_regreso_estimada: horaRegresoEstimada,
     });
   } catch (err) {
     console.error('[despachos POST /:id/optimizar-ruta]', err);

@@ -433,6 +433,15 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
   const [guardado, setGuardado] = useState(false);
   const [optimizando, setOptimizando] = useState(false);
   const [sugerenciaRuta, setSugerenciaRuta] = useState(null);
+  const [horaSalida, setHoraSalida] = useState('09:00');
+
+  // Valor por defecto de "hora de salida": la hora de apertura configurada
+  // en Configuración → Horario de atención (el encargado la puede cambiar).
+  useEffect(() => {
+    api.get('/config/horario-atencion').then(r => {
+      if (r.data?.hora_inicio) setHoraSalida(r.data.hora_inicio.slice(0, 5));
+    }).catch(() => {});
+  }, []);
 
   // Aviso breve "Guardado ✓" tras cada acción, para que quede claro que se
   // guardó sin necesitar un botón de guardar aparte para cada campo suelto.
@@ -486,7 +495,7 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
   const optimizarRuta = async () => {
     setOptimizando(true); setError(''); setSugerenciaRuta(null);
     try {
-      const { data } = await api.post(`/despachos/${despacho.id}/optimizar-ruta`);
+      const { data } = await api.post(`/despachos/${despacho.id}/optimizar-ruta`, { hora_salida: horaSalida });
       setSugerenciaRuta(data);
     } catch (err) { setError(err.response?.data?.error || 'No se pudo optimizar la ruta.'); }
     finally { setOptimizando(false); }
@@ -528,24 +537,35 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
       {puedeGestionar && paradasPendientes.length >= 2 && (
         <div className="mb-3">
           {!sugerenciaRuta && (
-            <button onClick={optimizarRuta} disabled={optimizando}
-              className="text-sm text-ht-accent hover:underline disabled:opacity-50">
-              {optimizando ? 'Calculando ruta óptima…' : 'Optimizar ruta'}
-            </button>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">
+                Hora de salida
+                <input type="time" value={horaSalida} onChange={e => setHoraSalida(e.target.value)}
+                  className="ml-2 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              </label>
+              <button onClick={optimizarRuta} disabled={optimizando}
+                className="text-sm text-ht-accent hover:underline disabled:opacity-50">
+                {optimizando ? 'Calculando ruta óptima…' : 'Optimizar ruta'}
+              </button>
+            </div>
           )}
           {sugerenciaRuta && (
             <div className="border border-ht-accent/40 bg-ht-accent/5 rounded p-3 text-sm">
               <p className="font-medium text-ht-navy mb-2">
-                Ruta sugerida — {sugerenciaRuta.duracion_total_min} min total (ida y vuelta desde la empresa)
+                Ruta sugerida — {sugerenciaRuta.duracion_total_min} min total (ida y vuelta desde la empresa, saliendo {horaSalida})
               </p>
               <ol className="list-decimal list-inside space-y-1 text-xs text-gray-700">
                 {sugerenciaRuta.orden_sugerido.map((puntoId, i) => {
                   const parada = despacho.puntos.find(p => p.id === puntoId);
                   const tramo = sugerenciaRuta.tramos[i];
+                  const horas = sugerenciaRuta.horas_estimadas?.[i];
                   return (
                     <li key={puntoId}>
                       {parada?.direccion}, {parada?.comuna}
                       {tramo && <span className="text-gray-400"> ({tramo.duracion_min} min, {tramo.distancia_km} km)</span>}
+                      {horas && (
+                        <span className="text-ht-navy font-medium"> — llegada estimada {horas.llegada_estimada}</span>
+                      )}
                     </li>
                   );
                 })}
@@ -553,6 +573,7 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
               {sugerenciaRuta.tramos[sugerenciaRuta.orden_sugerido.length] && (
                 <p className="text-xs text-gray-400 mt-1">
                   Vuelta a la empresa: {sugerenciaRuta.tramos[sugerenciaRuta.orden_sugerido.length].duracion_min} min
+                  {sugerenciaRuta.hora_regreso_estimada && ` — llegada estimada ${sugerenciaRuta.hora_regreso_estimada}`}
                 </p>
               )}
               <div className="flex gap-2 mt-2">

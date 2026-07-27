@@ -319,6 +319,19 @@ aplican hacia adelante.
   decide si aplica el orden. Rechaza con un error claro si las paradas
   pendientes tienen fechas distintas, o si Google no puede ubicar alguna
   dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §14).
+- **Hora de llegada estimada (v1.16):** indicando una hora de salida (por
+  defecto, la de apertura configurada en horario de atención), la
+  sugerencia muestra la hora estimada de llegada a cada parada y de vuelta
+  a la empresa. Solo informativo — no valida nada automáticamente todavía.
+- **Casos reales de ruteo — en construcción:** se identificaron con
+  Gerencia tres variables que la optimización no resuelve aún: uno o dos
+  vehículos, restricciones horarias por parada, y orden fijo obligatorio
+  para algunas paradas. Enfoque acordado: el sistema sugiere, el
+  encargado ajusta a mano (no un solver de ruteo con restricciones duras,
+  que requeriría otra API de Google — Route Optimization/fleet routing —
+  bastante más compleja y cara). Falta construir: vehículo por parada,
+  ventana horaria por parada (marcar en rojo si no calza), candado de
+  orden fijo, y reordenar paradas a mano.
 - **Diferido a una siguiente etapa** (decisión explícita): mapa visual con
   los puntos del día embebido en el CRM — hoy la ruta sugerida se muestra
   como lista, no en un mapa.
