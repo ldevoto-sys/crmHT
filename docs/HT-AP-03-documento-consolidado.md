@@ -4,12 +4,13 @@
 **Fecha de consolidación:** 2026-07-26
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.14 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.15 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
-Postventa y el módulo de Despacho. Este documento es el que debe subirse a
-SharePoint reemplazando la versión anterior del documento base.
+Postventa y el módulo de Despacho; y de v1.15: ajuste de UX en Despacho y el
+backlog priorizado post-lanzamiento (§14). Este documento es el que debe
+subirse a SharePoint reemplazando la versión anterior del documento base.
 
 ---
 
@@ -515,26 +516,45 @@ solo en acentos puntuales, celeste como color de interacción principal.
 
 ## 14. Pendientes abiertos (consolidado de todas las notas)
 
-- **Publicar la app de Meta** y migrar del número de prueba al de
-  producción (requiere verificación de negocio en Meta).
-- **Plantillas de mensaje aprobadas por Meta**, para responder fuera de la
-  ventana de 24 h en conversaciones cerradas.
-- **Correo del vendedor como remitente real** de las cotizaciones: en
-  evaluación entre autenticar el dominio en Brevo, envío nativo vía
-  Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado por
-  soporte (§13) — falta la prueba real.
-- **Canal de correo como fuente de leads** (paralelo al canal web),
-  requiere definir la integración con el proveedor de correo.
+Ninguno de estos puntos es impedimento para salir a producción (fecha
+objetivo: 01-08-2026) — lo construido ya mejora lo que existe hoy. Quedan
+como backlog post-lanzamiento, en el siguiente orden de prioridad
+(acordado con Gerencia el 27-07-2026):
+
+1. **Mapa y optimización de ruta de Despacho** (§6): rápido de agregar una
+   vez esté la API key de un proveedor de mapas (Google Maps Platform).
+2. **Bucket de Cloudflare R2 para documentos de despacho** (§6, §13):
+   rápido — crear el bucket privado, su token de API, y cargar en Railway
+   `R2_DESPACHO_ACCESS_KEY_ID`, `R2_DESPACHO_SECRET_ACCESS_KEY`,
+   `R2_DESPACHO_BUCKET_NAME`. No bloquea el resto del módulo.
+3. **Publicar la app de Meta** y migrar del número de prueba (máx. 5
+   destinatarios) al de producción (requiere verificación de negocio en
+   Meta). Es requisito previo del punto 4: mientras la app siga en modo
+   de desarrollo, el bot no puede conversar con clientes reales.
+4. **Bot con IA fuera de horario**: hoy, fuera de horario, el bot solo
+   envía un mensaje automático y registra el lead (§7). La idea es que
+   pueda asesorar al cliente, ayudarlo a elegir una bomba y guiarlo hasta
+   la ficha de compra. Por definir con Gerencia: hasta dónde responde solo
+   (¿solo recomendación de producto, o también precio/disponibilidad?) y
+   cuándo escala a un vendedor.
+5. **Plantillas de mensaje aprobadas por Meta**, para responder fuera de la
+   ventana de 24 h en conversaciones cerradas.
+6. **Correo del vendedor como remitente real** de las cotizaciones: en
+   evaluación entre autenticar el dominio en Brevo, envío nativo vía
+   Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado
+   por soporte (§13) — falta la prueba real.
+7. **Canal de correo como fuente de leads** (paralelo al canal web),
+   requiere definir la integración con el proveedor de correo.
+8. **Envío de correos masivos** a clientes: requiere separar el envío de
+   marketing masivo de la cuenta Brevo transaccional actual (cotizaciones),
+   para no arriesgar su entregabilidad, y definir manejo de listas/opt-out.
+
+Sin prioridad asignada (no comerciales / no bloquean nada):
+
 - **Rotar el token de acceso de R2** usado en la carga masiva por `rclone`:
   las credenciales se compartieron en texto plano durante la configuración.
 - **Fijar `COTIZACION_CORRELATIVO_INICIAL`** en Railway antes de que se
   genere la primera cotización con el nuevo formato de numeración (§4).
-- **Bucket de Cloudflare R2 para documentos de despacho** (§6, §13):
-  pendiente crear el bucket privado, su token de API, y cargar en Railway
-  `R2_DESPACHO_ACCESS_KEY_ID`, `R2_DESPACHO_SECRET_ACCESS_KEY`,
-  `R2_DESPACHO_BUCKET_NAME`. No bloquea el resto del módulo.
-- **Mapa y optimización de ruta de Despacho** (§6): diferido a una
-  siguiente etapa, requiere antes una cuenta/API key de proveedor de mapas.
 - Hidroneumáticos y Filtros de piscina: la columna "Descripción" ya está en
   sus plantillas de importación (§2), pero el Excel real de esas dos
   categorías aún no la trae completa.
