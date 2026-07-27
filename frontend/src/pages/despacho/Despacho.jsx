@@ -431,6 +431,8 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
   const [editandoId, setEditandoId] = useState(null);
   const [formEdicion, setFormEdicion] = useState(null);
   const [guardado, setGuardado] = useState(false);
+  const [optimizando, setOptimizando] = useState(false);
+  const [sugerenciaRuta, setSugerenciaRuta] = useState(null);
 
   // Aviso breve "Guardado ✓" tras cada acción, para que quede claro que se
   // guardó sin necesitar un botón de guardar aparte para cada campo suelto.
@@ -479,6 +481,24 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
     } catch (err) { setError(err.response?.data?.error || 'No se pudo agregar la parada.'); }
   };
 
+  const paradasPendientes = despacho.puntos.filter(p => !p.completado);
+
+  const optimizarRuta = async () => {
+    setOptimizando(true); setError(''); setSugerenciaRuta(null);
+    try {
+      const { data } = await api.post(`/despachos/${despacho.id}/optimizar-ruta`);
+      setSugerenciaRuta(data);
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo optimizar la ruta.'); }
+    finally { setOptimizando(false); }
+  };
+
+  const aplicarOrdenSugerido = async () => {
+    try {
+      await api.put(`/despachos/${despacho.id}/aplicar-orden`, { orden: sugerenciaRuta.orden_sugerido });
+      setSugerenciaRuta(null); onCambio(); avisarGuardado();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo aplicar el orden.'); }
+  };
+
   return (
     <Modal onClose={onClose} ancho="max-w-2xl">
       <div className="flex items-start justify-between mb-1 gap-2">
@@ -504,6 +524,45 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
         </p>
       )}
       {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+
+      {puedeGestionar && paradasPendientes.length >= 2 && (
+        <div className="mb-3">
+          {!sugerenciaRuta && (
+            <button onClick={optimizarRuta} disabled={optimizando}
+              className="text-sm text-ht-accent hover:underline disabled:opacity-50">
+              {optimizando ? 'Calculando ruta óptima…' : 'Optimizar ruta'}
+            </button>
+          )}
+          {sugerenciaRuta && (
+            <div className="border border-ht-accent/40 bg-ht-accent/5 rounded p-3 text-sm">
+              <p className="font-medium text-ht-navy mb-2">
+                Ruta sugerida — {sugerenciaRuta.duracion_total_min} min total (ida y vuelta desde la empresa)
+              </p>
+              <ol className="list-decimal list-inside space-y-1 text-xs text-gray-700">
+                {sugerenciaRuta.orden_sugerido.map((puntoId, i) => {
+                  const parada = despacho.puntos.find(p => p.id === puntoId);
+                  const tramo = sugerenciaRuta.tramos[i];
+                  return (
+                    <li key={puntoId}>
+                      {parada?.direccion}, {parada?.comuna}
+                      {tramo && <span className="text-gray-400"> ({tramo.duracion_min} min, {tramo.distancia_km} km)</span>}
+                    </li>
+                  );
+                })}
+              </ol>
+              {sugerenciaRuta.tramos[sugerenciaRuta.orden_sugerido.length] && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Vuelta a la empresa: {sugerenciaRuta.tramos[sugerenciaRuta.orden_sugerido.length].duracion_min} min
+                </p>
+              )}
+              <div className="flex gap-2 mt-2">
+                <button onClick={aplicarOrdenSugerido} className="bg-ht-accent text-ht-navy px-3 py-1.5 rounded text-xs font-medium hover:bg-ht-accent/90">Aplicar este orden</button>
+                <button onClick={() => setSugerenciaRuta(null)} className="px-3 py-1.5 rounded text-xs border border-gray-300 text-gray-600 hover:bg-gray-50">Descartar</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="space-y-3">
         {despacho.puntos.map(p => (

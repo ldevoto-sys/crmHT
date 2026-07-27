@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
+const googlemaps = require('../services/googlemaps');
 
 router.use(authenticate);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
@@ -283,14 +284,20 @@ router.put('/puntos/:id', async (req, res) => {
     const p = req.body;
     const err = validarPunto({ ...punto, ...p });
     if (err) return res.status(400).json({ error: err });
+    // Si cambia dirección o comuna, se invalidan las coordenadas cacheadas
+    // para que la próxima optimización de ruta las vuelva a geocodificar.
+    const direccionCambio = (p.direccion !== undefined && p.direccion !== punto.direccion)
+      || (p.comuna !== undefined && p.comuna !== punto.comuna);
     await db.run(
       `UPDATE despacho_puntos SET tipo=$1, direccion=$2, comuna=$3, fecha=$4, contacto_nombre=$5,
-              contacto_telefono=$6, documento_tipo=$7, documento_numero=$8, duracion_estimada_min=$9
-       WHERE id=$10`,
+              contacto_telefono=$6, documento_tipo=$7, documento_numero=$8, duracion_estimada_min=$9,
+              lat=$10, lng=$11
+       WHERE id=$12`,
       [p.tipo ?? punto.tipo, p.direccion ?? punto.direccion, p.comuna ?? punto.comuna, p.fecha ?? punto.fecha,
        p.contacto_nombre ?? punto.contacto_nombre, p.contacto_telefono ?? punto.contacto_telefono,
        p.documento_tipo ?? punto.documento_tipo, p.documento_numero ?? punto.documento_numero,
-       p.duracion_estimada_min ?? punto.duracion_estimada_min, req.params.id]
+       p.duracion_estimada_min ?? punto.duracion_estimada_min,
+       direccionCambio ? null : punto.lat, direccionCambio ? null : punto.lng, req.params.id]
     );
     await db.run('UPDATE despachos SET ultima_actividad = now() WHERE id = $1', [punto.despacho_id]);
     res.json({ message: 'Parada actualizada' });
@@ -409,6 +416,86 @@ router.get('/puntos/:id/foto', async (req, res) => {
     res.send(archivo.buffer);
   } catch (err) {
     console.error('[despachos GET /puntos/:id/foto]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/despachos/:id/optimizar-ruta (gestor) — sugiere el orden más
+// eficiente para visitar las paradas pendientes del despacho (ida y vuelta
+// desde la dirección de la empresa). No modifica nada: solo propone.
+router.post('/:id/optimizar-ruta', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    if (!googlemaps.configurado()) {
+      return res.status(400).json({ error: 'La optimización de ruta con Google Maps no está configurada todavía.' });
+    }
+    const despacho = await db.get('SELECT id FROM despachos WHERE id = $1', [req.params.id]);
+    if (!despacho) return res.status(404).json({ error: 'Despacho no encontrado' });
+
+    const paradas = await db.all(
+      'SELECT * FROM despacho_puntos WHERE despacho_id = $1 AND completado = false ORDER BY orden',
+      [req.params.id]
+    );
+    if (paradas.length < 2) {
+      return res.status(400).json({ error: 'Se necesitan al menos 2 paradas pendientes para optimizar la ruta.' });
+    }
+    const fechas = new Set(paradas.map(p => new Date(p.fecha).toISOString().slice(0, 10)));
+    if (fechas.size > 1) {
+      return res.status(400).json({ error: 'Las paradas pendientes tienen fechas distintas — optimizar ruta solo funciona para paradas de un mismo día.' });
+    }
+
+    const empresa = await db.get('SELECT direccion, comuna FROM config_empresa WHERE id = 1');
+    if (!empresa?.direccion || !empresa?.comuna) {
+      return res.status(400).json({ error: 'Falta la dirección de la empresa en Configuración → Datos de empresa.' });
+    }
+    const origen = await googlemaps.geocodificar(empresa.direccion, empresa.comuna);
+    if (!origen.ok) return res.status(400).json({ error: `Dirección de la empresa: ${origen.motivo}` });
+
+    // Geocodifica las paradas que no tengan coordenadas cacheadas todavía.
+    for (const p of paradas) {
+      if (p.lat != null && p.lng != null) continue;
+      const geo = await googlemaps.geocodificar(p.direccion, p.comuna);
+      if (!geo.ok) return res.status(400).json({ error: `Parada "${p.direccion}, ${p.comuna}": ${geo.motivo}` });
+      await db.run('UPDATE despacho_puntos SET lat=$1, lng=$2 WHERE id=$3', [geo.lat, geo.lng, p.id]);
+      p.lat = geo.lat; p.lng = geo.lng;
+    }
+
+    const resultado = await googlemaps.optimizarRuta(origen, paradas);
+    if (!resultado.ok) return res.status(400).json({ error: resultado.motivo });
+
+    const ordenSugerido = resultado.ordenSugerido.map(i => paradas[i].id);
+    res.json({
+      orden_sugerido: ordenSugerido,
+      duracion_total_min: resultado.duracionTotalMin,
+      tramos: resultado.tramos,
+    });
+  } catch (err) {
+    console.error('[despachos POST /:id/optimizar-ruta]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/despachos/:id/aplicar-orden {orden: [puntoId, ...]} (gestor) —
+// aplica un orden de paradas (típicamente el sugerido por optimizar-ruta).
+router.put('/:id/aplicar-orden', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const { orden } = req.body;
+    if (!Array.isArray(orden) || orden.length === 0) {
+      return res.status(400).json({ error: 'Falta el orden a aplicar.' });
+    }
+    const paradas = await db.all('SELECT id FROM despacho_puntos WHERE despacho_id = $1', [req.params.id]);
+    const idsValidos = new Set(paradas.map(p => p.id));
+    if (!orden.every(id => idsValidos.has(id))) {
+      return res.status(400).json({ error: 'El orden incluye paradas que no pertenecen a este despacho.' });
+    }
+    for (let i = 0; i < orden.length; i++) {
+      await db.run('UPDATE despacho_puntos SET orden = $1 WHERE id = $2', [i + 1, orden[i]]);
+    }
+    await db.run('UPDATE despachos SET ultima_actividad = now() WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Orden aplicado' });
+  } catch (err) {
+    console.error('[despachos PUT /:id/aplicar-orden]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

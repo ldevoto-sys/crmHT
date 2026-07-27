@@ -401,6 +401,10 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Coordenadas cacheadas para no re-geocodificar en cada optimización de
+  // ruta; se limpian (a NULL) cuando se edita la dirección o comuna.
+  await db.run(`ALTER TABLE despacho_puntos ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION`);
+  await db.run(`ALTER TABLE despacho_puntos ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_despacho ON despacho_puntos (despacho_id, orden)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_fecha ON despacho_puntos (fecha)`);
 

@@ -4,13 +4,14 @@
 **Fecha de consolidación:** 2026-07-26
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.15 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.16 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
-Postventa y el módulo de Despacho; y de v1.15: ajuste de UX en Despacho y el
-backlog priorizado post-lanzamiento (§14). Este documento es el que debe
-subirse a SharePoint reemplazando la versión anterior del documento base.
+Postventa y el módulo de Despacho; de v1.15: ajuste de UX en Despacho y el
+backlog priorizado post-lanzamiento (§14); y de v1.16: optimización de ruta
+de Despacho con Google Maps Platform. Este documento es el que debe subirse
+a SharePoint reemplazando la versión anterior del documento base.
 
 ---
 
@@ -280,7 +281,7 @@ aplican hacia adelante.
   tablero completo; un vendedor sin el atributo crea casos y ve los que él
   creó, sin gestionar el resto.
 
-## 6. Despacho (v1.14)
+## 6. Despacho (v1.14-v1.16)
 
 - Un **despacho** es una ruta con una o más **paradas**, cada una con:
   dirección, comuna, fecha, tipo (retiro o entrega), datos de contacto y el
@@ -310,10 +311,17 @@ aplican hacia adelante.
   **Pendiente de configurar en Cloudflare** (ver §14): mientras el bucket
   no exista, subir una foto responde "no configurado todavía" sin romper
   el resto del módulo.
-- **Diferido a una siguiente etapa** (decisión explícita): mapa de los
-  puntos del día, tiempo estimado por parada y optimización del orden de
-  ruta — requiere antes que la empresa obtenga una cuenta/API key de un
-  proveedor de mapas (Google Maps Platform o Mapbox).
+- **Optimización de ruta (v1.16):** botón "Optimizar ruta" que sugiere el
+  orden más eficiente para visitar las paradas pendientes de un mismo día,
+  ida y vuelta desde la dirección de la empresa, usando Google Directions
+  API (con Geocoding API para convertir cada dirección a coordenadas, que
+  se cachean en `despacho_puntos.lat/lng`). Solo sugiere — el encargado
+  decide si aplica el orden. Rechaza con un error claro si las paradas
+  pendientes tienen fechas distintas, o si Google no puede ubicar alguna
+  dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §14).
+- **Diferido a una siguiente etapa** (decisión explícita): mapa visual con
+  los puntos del día embebido en el CRM — hoy la ruta sugerida se muestra
+  como lista, no en un mapa.
 - **Permisos:** mismo patrón que Postventa — atribución adicional
   `users.es_encargado_despacho` (ver §1).
 
@@ -499,6 +507,10 @@ solo en acentos puntuales, celeste como color de interacción principal.
   Remitente genérico con "Responder a" = vendedor.
 - **WhatsApp Cloud API (Meta):** bot, Bandeja, envío de cotizaciones y
   adjuntos. App en modo desarrollo (número de prueba, máx. 5 destinatarios).
+- **Google Maps Platform (v1.16):** Directions API + Geocoding API, para
+  optimización de ruta de Despacho (§6). Uso exclusivamente server-side —
+  la key nunca se expone al navegador, restringida en Google Cloud Console
+  a esas dos APIs. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway.
 - **Cloudflare R2:** tres buckets — `crm-ht-adjuntos` (privado, WhatsApp),
   `crm-ht-productos` (público, catálogo de imágenes/fichas) y un tercero
   **privado, pendiente de crear** para documentos de respaldo de Despacho
@@ -521,8 +533,12 @@ objetivo: 01-08-2026) — lo construido ya mejora lo que existe hoy. Quedan
 como backlog post-lanzamiento, en el siguiente orden de prioridad
 (acordado con Gerencia el 27-07-2026):
 
-1. **Mapa y optimización de ruta de Despacho** (§6): rápido de agregar una
-   vez esté la API key de un proveedor de mapas (Google Maps Platform).
+1. ~~**Optimización de ruta de Despacho** (§6)~~ — **hecho (v1.16,
+   27-07-2026):** botón "Optimizar ruta" que sugiere el orden más eficiente
+   para visitar las paradas pendientes de un mismo día (ida y vuelta desde
+   la dirección de la empresa), con Google Directions/Geocoding API. El
+   encargado revisa la sugerencia y decide aplicarla o no. Falta cargar
+   `GOOGLE_MAPS_API_KEY` en Railway.
 2. **Bucket de Cloudflare R2 para documentos de despacho** (§6, §13):
    rápido — crear el bucket privado, su token de API, y cargar en Railway
    `R2_DESPACHO_ACCESS_KEY_ID`, `R2_DESPACHO_SECRET_ACCESS_KEY`,
@@ -532,7 +548,7 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    Meta). Es requisito previo del punto 4: mientras la app siga en modo
    de desarrollo, el bot no puede conversar con clientes reales.
 4. **Bot con IA fuera de horario**: hoy, fuera de horario, el bot solo
-   envía un mensaje automático y registra el lead (§7). La idea es que
+   envía un mensaje automático y registra el lead (§10). La idea es que
    pueda asesorar al cliente, ayudarlo a elegir una bomba y guiarlo hasta
    la ficha de compra. Por definir con Gerencia: hasta dónde responde solo
    (¿solo recomendación de producto, o también precio/disponibilidad?) y
