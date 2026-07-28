@@ -529,6 +529,85 @@ async function initDb() {
   // Igual que mostrar_imagen, pero para el link de la ficha técnica (PDF).
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_ficha BOOLEAN NOT NULL DEFAULT true`);
 
+  // === Cotizador Operaciones (v1.17) — HT-AP-03 nota de cambio v1.17 ===
+  // Comunas para el cálculo de traslado/tránsito (reemplaza el array
+  // hardcodeado de la herramienta standalone). Debe existir ANTES de la FK
+  // que agrega comuna_id a cotizaciones.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS comunas_operaciones (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE,
+      km NUMERIC(6,1),
+      horas_transito NUMERIC(5,2) NOT NULL DEFAULT 0,
+      costo_traslado_uf NUMERIC(8,2) NOT NULL DEFAULT 0,
+      activo BOOLEAN NOT NULL DEFAULT true
+    )
+  `);
+
+  // origen distingue una cotización nacida del pipeline Ventas Directas de
+  // una nacida de una solicitud Fracttal (Operaciones) — ambas comparten el
+  // mismo correlativo y la misma secuencia de seguimiento post-envío, no
+  // hay nada más que las separe a nivel de negocio_id/pipeline.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS origen TEXT NOT NULL DEFAULT 'venta_directa' CHECK (origen IN ('venta_directa','operaciones'))`);
+  // Datos de la solicitud Fracttal de origen (Operaciones); NULL en Ventas Directas.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS fracttal_numero TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS fracttal_fecha_solicitud DATE`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS fracttal_solicitante TEXT`);
+  // Hallazgo (detectado o completado a mano) y justificación técnica — bloques propios del PDF de Operaciones (§7 de la nota v1.17).
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS hallazgo TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS justificacion_tecnica TEXT`);
+  // desglosado: PDF muestra materiales/elementos menores/markup/MO por separado. alzada: solo el total.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS modalidad_precio TEXT NOT NULL DEFAULT 'desglosado' CHECK (modalidad_precio IN ('desglosado','alzada'))`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS comuna_id INTEGER REFERENCES comunas_operaciones(id)`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS horas_normales NUMERIC(6,2) NOT NULL DEFAULT 0`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS horas_extra NUMERIC(6,2) NOT NULL DEFAULT 0`);
+
+  // Consideraciones de ejecución del PDF de Operaciones (§7): lista de ítems
+  // etiquetados, orden propio, independiente de las líneas de materiales.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_consideraciones (
+      id SERIAL PRIMARY KEY,
+      cotizacion_id INTEGER NOT NULL REFERENCES cotizaciones(id) ON DELETE CASCADE,
+      tag TEXT NOT NULL CHECK (tag IN ('info','atencion','corte_agua','horario_no_habil','acceso','otro')),
+      texto TEXT NOT NULL,
+      orden INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Parámetros de mano de obra (fila única, mismo patrón que config_empresa).
+  // hh_uf/hm_uf: costo hora-hombre/hora-máquina. markup: factor de venta
+  // sobre materiales. elem_mat_pct: % de elementos menores sobre el
+  // subtotal de materiales. elem_furg_uf: elementos menores de furgón, fijo
+  // por trabajo.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_operaciones_mo (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      hh_uf NUMERIC(8,2) NOT NULL DEFAULT 0,
+      hm_uf NUMERIC(8,2) NOT NULL DEFAULT 0,
+      markup NUMERIC(5,2) NOT NULL DEFAULT 1,
+      elem_mat_pct NUMERIC(5,2) NOT NULL DEFAULT 0,
+      elem_furg_uf NUMERIC(8,2) NOT NULL DEFAULT 0,
+      CONSTRAINT config_operaciones_mo_unica CHECK (id = 1)
+    )
+  `);
+  const operacionesMoExiste = await db.get('SELECT id FROM config_operaciones_mo WHERE id = 1');
+  if (!operacionesMoExiste) {
+    await db.run('INSERT INTO config_operaciones_mo (id) VALUES (1)');
+    console.log('[DB] Config de mano de obra de Operaciones creada (valores en 0, pendiente de cargar).');
+  }
+
+  // Sinónimos para el matching de ítems del correo Fracttal contra el
+  // maestro de productos (reemplaza el objeto JS hardcodeado SINONIMOS de
+  // la herramienta standalone).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cotizacion_sinonimos_operaciones (
+      id SERIAL PRIMARY KEY,
+      termino_fracttal TEXT NOT NULL,
+      termino_bbdd TEXT NOT NULL,
+      activo BOOLEAN NOT NULL DEFAULT true
+    )
+  `);
+
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`
     CREATE TABLE IF NOT EXISTS config_empresa (

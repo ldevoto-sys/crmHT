@@ -39,6 +39,7 @@ import Postventa from './pages/postventa/Postventa';
 import ConfigPostventaEtapas from './pages/postventa/ConfigPostventaEtapas';
 import Despacho from './pages/despacho/Despacho';
 import ConfigLugaresDespacho from './pages/despacho/ConfigLugaresDespacho';
+import ConfigOperaciones from './pages/admin/ConfigOperaciones';
 
 export default function App() {
   return (
@@ -117,6 +118,9 @@ export default function App() {
             } />
             <Route path="config/lugares-despacho" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']} flag="es_encargado_despacho"><ConfigLugaresDespacho /></ProtectedRoute>
+            } />
+            <Route path="config/operaciones" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigOperaciones /></ProtectedRoute>
             } />
 
             {/* Etapa 4 — WhatsApp */}

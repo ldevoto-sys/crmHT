@@ -342,4 +342,149 @@ router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async 
   }
 });
 
+// --- Cotizador Operaciones (v1.17): mantenedores ---
+
+// Parámetros de mano de obra (fila única, mismo patrón que /empresa).
+router.get('/operaciones-mo', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM config_operaciones_mo WHERE id = 1');
+    res.json(cfg || {});
+  } catch (err) {
+    console.error('[config/operaciones-mo GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/operaciones-mo', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { hh_uf, hm_uf, markup, elem_mat_pct, elem_furg_uf } = req.body;
+    const num = (v, campo) => {
+      const n = Number(v);
+      if (v === undefined || v === null || v === '' || Number.isNaN(n) || n < 0) throw new Error(`${campo} debe ser un número mayor o igual a 0`);
+      return n;
+    };
+    const vals = [num(hh_uf, 'hh_uf'), num(hm_uf, 'hm_uf'), num(markup, 'markup'), num(elem_mat_pct, 'elem_mat_pct'), num(elem_furg_uf, 'elem_furg_uf')];
+    await db.run(
+      `INSERT INTO config_operaciones_mo (id, hh_uf, hm_uf, markup, elem_mat_pct, elem_furg_uf) VALUES (1,$1,$2,$3,$4,$5)
+       ON CONFLICT (id) DO UPDATE SET hh_uf=$1, hm_uf=$2, markup=$3, elem_mat_pct=$4, elem_furg_uf=$5`,
+      vals
+    );
+    res.json({ message: 'Parámetros de mano de obra actualizados' });
+  } catch (err) {
+    if (err.message.includes('debe ser')) return res.status(400).json({ error: err.message });
+    console.error('[config/operaciones-mo PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Comunas (traslado/tránsito) — tabla de líneas con edición.
+router.get('/comunas-operaciones', async (req, res) => {
+  try {
+    const comunas = await db.all('SELECT * FROM comunas_operaciones ORDER BY nombre');
+    res.json(comunas);
+  } catch (err) {
+    console.error('[config/comunas-operaciones GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/comunas-operaciones', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { nombre, km, horas_transito, costo_traslado_uf } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+    const existe = await db.get('SELECT id FROM comunas_operaciones WHERE lower(nombre)=lower($1)', [nombre.trim()]);
+    if (existe) return res.status(409).json({ error: 'Ya existe esa comuna' });
+    const r = await db.run(
+      'INSERT INTO comunas_operaciones (nombre, km, horas_transito, costo_traslado_uf) VALUES ($1,$2,$3,$4) RETURNING *',
+      [nombre.trim(), km || null, horas_transito || 0, costo_traslado_uf || 0]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[config/comunas-operaciones POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/comunas-operaciones/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const comuna = await db.get('SELECT * FROM comunas_operaciones WHERE id=$1', [req.params.id]);
+    if (!comuna) return res.status(404).json({ error: 'Comuna no encontrada' });
+    const { nombre, km, horas_transito, costo_traslado_uf, activo } = req.body;
+    await db.run(
+      'UPDATE comunas_operaciones SET nombre=$1, km=$2, horas_transito=$3, costo_traslado_uf=$4, activo=$5 WHERE id=$6',
+      [nombre?.trim() || comuna.nombre, km ?? comuna.km, horas_transito ?? comuna.horas_transito,
+       costo_traslado_uf ?? comuna.costo_traslado_uf, activo !== undefined ? activo : comuna.activo, req.params.id]
+    );
+    res.json({ message: 'Comuna actualizada' });
+  } catch (err) {
+    console.error('[config/comunas-operaciones PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.delete('/comunas-operaciones/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const enUso = await db.get('SELECT id FROM cotizaciones WHERE comuna_id=$1 LIMIT 1', [req.params.id]);
+    if (enUso) return res.status(409).json({ error: 'Hay cotizaciones usando esta comuna. Desactívala en vez de eliminarla.' });
+    await db.run('DELETE FROM comunas_operaciones WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Comuna eliminada' });
+  } catch (err) {
+    console.error('[config/comunas-operaciones DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Sinónimos para el matching de ítems Fracttal contra el maestro de productos.
+router.get('/sinonimos-operaciones', async (req, res) => {
+  try {
+    const sinonimos = await db.all('SELECT * FROM cotizacion_sinonimos_operaciones ORDER BY termino_fracttal');
+    res.json(sinonimos);
+  } catch (err) {
+    console.error('[config/sinonimos-operaciones GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/sinonimos-operaciones', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { termino_fracttal, termino_bbdd } = req.body;
+    if (!termino_fracttal?.trim() || !termino_bbdd?.trim()) return res.status(400).json({ error: 'Ambos términos son requeridos' });
+    const r = await db.run(
+      'INSERT INTO cotizacion_sinonimos_operaciones (termino_fracttal, termino_bbdd) VALUES ($1,$2) RETURNING *',
+      [termino_fracttal.trim().toLowerCase(), termino_bbdd.trim().toLowerCase()]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[config/sinonimos-operaciones POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/sinonimos-operaciones/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const sin = await db.get('SELECT * FROM cotizacion_sinonimos_operaciones WHERE id=$1', [req.params.id]);
+    if (!sin) return res.status(404).json({ error: 'Sinónimo no encontrado' });
+    const { termino_fracttal, termino_bbdd, activo } = req.body;
+    await db.run(
+      'UPDATE cotizacion_sinonimos_operaciones SET termino_fracttal=$1, termino_bbdd=$2, activo=$3 WHERE id=$4',
+      [termino_fracttal?.trim().toLowerCase() || sin.termino_fracttal, termino_bbdd?.trim().toLowerCase() || sin.termino_bbdd,
+       activo !== undefined ? activo : sin.activo, req.params.id]
+    );
+    res.json({ message: 'Sinónimo actualizado' });
+  } catch (err) {
+    console.error('[config/sinonimos-operaciones PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.delete('/sinonimos-operaciones/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    await db.run('DELETE FROM cotizacion_sinonimos_operaciones WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Sinónimo eliminado' });
+  } catch (err) {
+    console.error('[config/sinonimos-operaciones DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;

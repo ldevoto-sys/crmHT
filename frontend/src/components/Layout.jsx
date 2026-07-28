@@ -88,6 +88,8 @@ configByRole.administrador.push({ label: 'Config Postventa', to: '/config/postve
 configByRole.jefe_comercial.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
 configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
 configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
+configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
+configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
 
 function GearIcon() {
   return (
