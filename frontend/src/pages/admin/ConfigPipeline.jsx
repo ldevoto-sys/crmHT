@@ -5,6 +5,7 @@ export default function ConfigPipeline() {
   const [pipelines, setPipelines] = useState([]);
   const [pipelineId, setPipelineId] = useState(1);
   const [etapas, setEtapas] = useState([]);
+  const [secuenciasDisponibles, setSecuenciasDisponibles] = useState([]);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [nuevo, setNuevo] = useState({ nombre: '', probabilidad_cierre: 0 });
   const [nuevoPipeline, setNuevoPipeline] = useState('');
@@ -14,6 +15,9 @@ export default function ConfigPipeline() {
     catch { setError('No se pudieron cargar las etapas.'); }
   };
   useEffect(() => { api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    api.get('/secuencias').then(r => setSecuenciasDisponibles(r.data.filter(s => s.activo))).catch(() => {});
+  }, []);
   useEffect(() => { cargar(); }, [pipelineId]); // eslint-disable-line
 
   const set = (id, campo, valor) => setEtapas(es => es.map(e => e.id === id ? { ...e, [campo]: valor } : e));
@@ -21,7 +25,10 @@ export default function ConfigPipeline() {
   const guardar = async (e) => {
     setError(''); setMsg('');
     try {
-      await api.put(`/config/pipeline-etapas/${e.id}`, { nombre: e.nombre, probabilidad_cierre: Number(e.probabilidad_cierre), activo: e.activo });
+      await api.put(`/config/pipeline-etapas/${e.id}`, {
+        nombre: e.nombre, probabilidad_cierre: Number(e.probabilidad_cierre), activo: e.activo,
+        secuencia_id: e.secuencia_id || null,
+      });
       setMsg('Etapa guardada.'); cargar();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar.'); }
   };
@@ -95,6 +102,7 @@ export default function ConfigPipeline() {
               <th className="text-left px-4 py-2 font-medium">% cierre</th>
               <th className="text-left px-4 py-2 font-medium">Tipo</th>
               <th className="text-left px-4 py-2 font-medium">Activa</th>
+              <th className="text-left px-4 py-2 font-medium">Secuencia al entrar</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -131,6 +139,15 @@ export default function ConfigPipeline() {
                   {e.tipo === 'abierta'
                     ? <input type="checkbox" checked={e.activo} onChange={ev => set(e.id, 'activo', ev.target.checked)} />
                     : <span className="text-xs text-gray-400">siempre</span>}
+                </td>
+                <td className="px-4 py-2">
+                  {e.tipo === 'abierta' ? (
+                    <select value={e.secuencia_id || ''} onChange={ev => set(e.id, 'secuencia_id', ev.target.value ? Number(ev.target.value) : null)}
+                      className="border border-gray-300 rounded px-2 py-1 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                      <option value="">Ninguna</option>
+                      {secuenciasDisponibles.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  ) : <span className="text-xs text-gray-400">no aplica</span>}
                 </td>
                 <td className="px-4 py-2 text-right whitespace-nowrap">
                   <button onClick={() => guardar(e)} className="text-ht-accent hover:underline mr-3">Guardar</button>

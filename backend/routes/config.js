@@ -84,7 +84,10 @@ router.get('/pipeline-etapas', async (req, res) => {
     const { pipeline_id } = req.query;
     const params = pipeline_id ? [pipeline_id] : [1];
     const etapas = await db.all(
-      'SELECT id, nombre, orden, probabilidad_cierre, tipo, activo, pipeline_id FROM pipeline_etapas WHERE pipeline_id = $1 ORDER BY orden',
+      `SELECT pe.id, pe.nombre, pe.orden, pe.probabilidad_cierre, pe.tipo, pe.activo, pe.pipeline_id,
+              pe.secuencia_id, s.nombre AS secuencia_nombre
+       FROM pipeline_etapas pe LEFT JOIN secuencias s ON s.id = pe.secuencia_id
+       WHERE pe.pipeline_id = $1 ORDER BY pe.orden`,
       params
     );
     res.json(etapas);
@@ -123,14 +126,25 @@ router.put('/pipeline-etapas/:id', authorize('administrador', 'jefe_comercial'),
   try {
     const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id=$1', [req.params.id]);
     if (!etapa) return res.status(404).json({ error: 'Etapa no encontrada' });
-    const { nombre, probabilidad_cierre, orden, activo } = req.body;
+    const { nombre, probabilidad_cierre, orden, activo, secuencia_id } = req.body;
     const prob = probabilidad_cierre !== undefined ? Number(probabilidad_cierre) : etapa.probabilidad_cierre;
     if (prob < 0 || prob > 100) return res.status(400).json({ error: 'La probabilidad debe estar entre 0 y 100' });
     // Las terminales no se pueden desactivar (romperían el cierre).
     const nuevoActivo = etapa.tipo === 'abierta' ? (activo !== undefined ? activo : etapa.activo) : true;
+    let nuevaSecuenciaId = etapa.secuencia_id;
+    if (secuencia_id !== undefined) {
+      if (secuencia_id === null) {
+        nuevaSecuenciaId = null;
+      } else {
+        if (etapa.tipo !== 'abierta') return res.status(400).json({ error: 'Las etapas Ganado y Perdido no disparan secuencias (el negocio cerrado siempre las cancela)' });
+        const secuencia = await db.get('SELECT id FROM secuencias WHERE id=$1 AND activo=true', [secuencia_id]);
+        if (!secuencia) return res.status(400).json({ error: 'Secuencia inválida o inactiva' });
+        nuevaSecuenciaId = secuencia_id;
+      }
+    }
     await db.run(
-      'UPDATE pipeline_etapas SET nombre=$1, probabilidad_cierre=$2, orden=$3, activo=$4 WHERE id=$5',
-      [nombre || etapa.nombre, prob, orden ?? etapa.orden, nuevoActivo, req.params.id]
+      'UPDATE pipeline_etapas SET nombre=$1, probabilidad_cierre=$2, orden=$3, activo=$4, secuencia_id=$5 WHERE id=$6',
+      [nombre || etapa.nombre, prob, orden ?? etapa.orden, nuevoActivo, nuevaSecuenciaId, req.params.id]
     );
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {

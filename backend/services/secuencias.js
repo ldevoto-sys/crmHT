@@ -75,42 +75,92 @@ async function avanzarPasosPendientes() {
   return { procesadas: pendientes.length, ejecutados };
 }
 
-// Al enviar una cotización (correo o WhatsApp) se asume que el cliente ya
-// respondió, así que la secuencia "post cotización" configurada como default
-// prevalece sobre cualquier otra que estuviera activa/pausada en el negocio
-// (la reemplaza, no corren en paralelo — el motor solo permite una a la vez).
-async function iniciarSecuenciaPostCotizacion(negocio, usuarioId) {
-  const secuencia = await db.get(
-    `SELECT * FROM secuencias WHERE es_default_post_cotizacion = true AND activo = true LIMIT 1`
-  );
-  if (!secuencia) return; // nada configurado como default: no se dispara nada
+// --- Secuencias disparadas por etapa del pipeline ---
+// Cada pipeline_etapas puede tener una secuencia_id asociada. Al entrar a esa
+// etapa se activa (reemplaza cualquier otra activa/pausada del negocio, ya
+// que el motor solo permite una a la vez). Al salir hacia una etapa sin
+// secuencia asociada, la secuencia de la etapa anterior se detiene. Un
+// negocio que cierra (ganada/perdida) siempre cancela cualquiera en curso,
+// sin importar el origen.
+//
+// Las funciones reciben un `client` opcional (transacción pg) para poder
+// llamarse tanto desde rutas sueltas (db.run/db.get) como desde dentro de una
+// transacción ya abierta (ver avanzarAEtapaCotizado en routes/cotizaciones.js),
+// igual que hace services/timeline.js.
+async function fila(client, text, params) {
+  if (client === db) return db.get(text, params);
+  return (await client.query(text, params)).rows[0] || null;
+}
+async function ejecutar(client, text, params) {
+  return client === db ? db.run(text, params) : client.query(text, params);
+}
 
-  const existente = await db.get(
+async function activarSecuencia(negocio, secuenciaId, usuarioId, client, origenDescripcion) {
+  const secuencia = await fila(client, 'SELECT * FROM secuencias WHERE id = $1 AND activo = true', [secuenciaId]);
+  if (!secuencia) return; // la secuencia asociada fue desactivada: no se dispara nada
+
+  const existente = await fila(
+    client,
     `SELECT id, secuencia_id FROM negocio_secuencias WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
     [negocio.id]
   );
   if (existente) {
     if (existente.secuencia_id === secuencia.id) return; // ya es esta misma, no reiniciar
-    await db.run(
-      `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`,
-      [existente.id]
-    );
+    await ejecutar(client, `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`, [existente.id]);
   }
 
-  const primerPaso = await pasoSiguiente(secuencia.id, 1);
+  const primerPaso = await fila(client, 'SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 AND orden = 1', [secuencia.id]);
   if (!primerPaso) return; // secuencia sin pasos configurados
 
   const proxima = new Date(Date.now() + primerPaso.dias_espera * 86400000);
-  const r = await db.run(
+  const r = await ejecutar(
+    client,
     `INSERT INTO negocio_secuencias (negocio_id, secuencia_id, proxima_ejecucion, iniciado_por_id) VALUES ($1,$2,$3,$4) RETURNING id`,
     [negocio.id, secuencia.id, proxima, usuarioId]
   );
   await timeline.registrar({
     negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
     tipo: 'seguimiento_auto',
-    descripcion: `Secuencia "${secuencia.nombre}" iniciada automáticamente al enviar la cotización`,
+    descripcion: `Secuencia "${secuencia.nombre}" iniciada automáticamente ${origenDescripcion}`,
     referencia_id: r.rows[0].id,
-  });
+  }, client);
 }
 
-module.exports = { avanzarPasosPendientes, iniciarSecuenciaPostCotizacion };
+async function cancelarSiCoincide(negocioId, secuenciaId, client) {
+  await ejecutar(
+    client,
+    `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now()
+     WHERE negocio_id = $1 AND secuencia_id = $2 AND estado IN ('activa','pausada')`,
+    [negocioId, secuenciaId]
+  );
+}
+
+async function cancelarTodas(negocioId, client) {
+  await ejecutar(
+    client,
+    `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now()
+     WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
+    [negocioId]
+  );
+}
+
+// Punto único a invocar en cualquier cambio de etapa de un negocio (kanban,
+// cambio de pipeline, o avance automático al generar una cotización).
+// etapaAnterior/etapaNueva son filas de pipeline_etapas (o null si no había
+// etapa previa); solo se usan sus campos `tipo` y `secuencia_id`.
+async function alCambiarEtapa({ negocio, etapaAnterior, etapaNueva, usuarioId, client = db, origenDescripcion = 'al entrar a la etapa' }) {
+  if (etapaNueva.tipo === 'ganada' || etapaNueva.tipo === 'perdida') {
+    // Un negocio cerrado no sigue en seguimiento automático, sin importar el origen.
+    await cancelarTodas(negocio.id, client);
+    return;
+  }
+  if (etapaNueva.secuencia_id) {
+    await activarSecuencia(negocio, etapaNueva.secuencia_id, usuarioId, client, origenDescripcion);
+    return;
+  }
+  if (etapaAnterior && etapaAnterior.secuencia_id) {
+    await cancelarSiCoincide(negocio.id, etapaAnterior.secuencia_id, client);
+  }
+}
+
+module.exports = { avanzarPasosPendientes, alCambiarEtapa };

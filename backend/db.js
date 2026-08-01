@@ -815,15 +815,32 @@ async function initDb() {
   // que abra en vez de generarse a cualquier hora (ver config_horario_atencion).
   await db.run(`ALTER TABLE secuencias ADD COLUMN IF NOT EXISTS respetar_horario BOOLEAN NOT NULL DEFAULT false`);
 
-  // Secuencia que se dispara sola al enviar una cotización (correo o
-  // WhatsApp): prevalece sobre cualquier otra secuencia que estuviera activa
-  // en el negocio, ya que se asume que el cliente respondió. Solo una puede
-  // estar marcada a la vez (índice único parcial).
-  await db.run(`ALTER TABLE secuencias ADD COLUMN IF NOT EXISTS es_default_post_cotizacion BOOLEAN NOT NULL DEFAULT false`);
-  await db.run(`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_secuencias_default_post_cotizacion
-    ON secuencias ((es_default_post_cotizacion)) WHERE es_default_post_cotizacion = true
-  `);
+  // Secuencia que se dispara al entrar a una etapa del pipeline (reemplaza
+  // cualquier otra activa/pausada del negocio) y se detiene al salir de esa
+  // etapa hacia una que no tenga secuencia asociada, o al cerrar el negocio.
+  // Ver services/secuencias.js#alCambiarEtapa.
+  await db.run(`ALTER TABLE pipeline_etapas ADD COLUMN IF NOT EXISTS secuencia_id INTEGER REFERENCES secuencias(id) ON DELETE SET NULL`);
+
+  // Migración única: reemplaza al viejo toggle "es_default_post_cotizacion"
+  // (una sola secuencia global que se disparaba al enviar la cotización) por
+  // el nuevo mecanismo genérico por etapa — la secuencia marcada como default
+  // pasa a quedar asociada a toda etapa "Cotizado" que todavía no tenga una.
+  const teniaColumnaVieja = await db.get(
+    `SELECT 1 FROM information_schema.columns WHERE table_name='secuencias' AND column_name='es_default_post_cotizacion'`
+  );
+  if (teniaColumnaVieja) {
+    const secuenciaDefault = await db.get(`SELECT id FROM secuencias WHERE es_default_post_cotizacion = true LIMIT 1`);
+    if (secuenciaDefault) {
+      await db.run(
+        `UPDATE pipeline_etapas SET secuencia_id = $1
+         WHERE tipo='abierta' AND activo=true AND nombre ILIKE 'cotizado' AND secuencia_id IS NULL`,
+        [secuenciaDefault.id]
+      );
+      console.log('[DB] Secuencia post-cotización migrada a la(s) etapa(s) "Cotizado".');
+    }
+    await db.run('DROP INDEX IF EXISTS idx_secuencias_default_post_cotizacion');
+    await db.run('ALTER TABLE secuencias DROP COLUMN es_default_post_cotizacion');
+  }
 
   // === Etapa 4 (preparación) — Bot de WhatsApp: horario, categorización y recontacto ===
   // El canal de WhatsApp en sí depende de credenciales de Meta (pendientes de

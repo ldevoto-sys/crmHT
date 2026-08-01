@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
+const secuencias = require('../services/secuencias');
 const { toCSV } = require('../utils/csv');
 
 router.use(authenticate);
@@ -207,8 +208,8 @@ router.put('/:id/etapa', async (req, res) => {
     if (!etapa) return res.status(400).json({ error: 'Etapa inválida' });
 
     const negocio = await db.get(
-      `SELECT n.*, pe.nombre AS etapa_nombre FROM negocios n
-       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [req.params.id]);
+      `SELECT n.*, pe.nombre AS etapa_nombre, pe.secuencia_id AS etapa_anterior_secuencia_id
+       FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [req.params.id]);
     if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
     if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
     if (etapa.pipeline_id !== negocio.pipeline_id) {
@@ -240,14 +241,13 @@ router.put('/:id/etapa', async (req, res) => {
       tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: req.user.id,
     });
 
-    if (cierra) {
-      // Un negocio cerrado no sigue en seguimiento automático.
-      await db.run(
-        `UPDATE negocio_secuencias SET estado='cancelada', proxima_ejecucion=NULL, updated_at=now()
-         WHERE negocio_id = $1 AND estado IN ('activa','pausada')`,
-        [req.params.id]
-      );
-    }
+    await secuencias.alCambiarEtapa({
+      negocio,
+      etapaAnterior: negocio.etapa_id ? { secuencia_id: negocio.etapa_anterior_secuencia_id } : null,
+      etapaNueva: etapa,
+      usuarioId: req.user.id,
+      origenDescripcion: 'al entrar a la etapa',
+    });
 
     if (etapa.tipo === 'ganada') {
       const token = crypto.randomBytes(16).toString('hex');
@@ -294,10 +294,13 @@ router.put('/:id/pipeline', authorize('administrador', 'jefe_comercial'), async 
     if (negocio.pipeline_id === Number(pipeline_id)) return res.json({ message: 'El negocio ya está en ese pipeline' });
 
     const etapaDestino = await db.get(
-      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`,
+      `SELECT id, probabilidad_cierre, tipo, secuencia_id FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`,
       [pipeline_id]
     );
     if (!etapaDestino) return res.status(400).json({ error: 'Ese pipeline todavía no tiene etapas abiertas configuradas' });
+    const etapaAnterior = negocio.etapa_id
+      ? await db.get('SELECT secuencia_id FROM pipeline_etapas WHERE id = $1', [negocio.etapa_id])
+      : null;
 
     await db.run(
       `UPDATE negocios SET pipeline_id=$1, etapa_id=$2, probabilidad_cierre=$3, ultima_actividad=now() WHERE id=$4`,
@@ -311,6 +314,10 @@ router.put('/:id/pipeline', authorize('administrador', 'jefe_comercial'), async 
     await timeline.registrar({
       contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
       tipo: 'cambio_etapa', descripcion: `Movido a otro pipeline (pipeline_id ${pipeline_id})`, usuario_id: req.user.id,
+    });
+    await secuencias.alCambiarEtapa({
+      negocio, etapaAnterior, etapaNueva: etapaDestino, usuarioId: req.user.id,
+      origenDescripcion: 'al entrar a la etapa',
     });
 
     res.json({ message: 'Negocio movido de pipeline' });

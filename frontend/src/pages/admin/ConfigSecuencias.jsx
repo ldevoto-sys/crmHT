@@ -49,18 +49,13 @@ export default function ConfigSecuencias() {
     catch { setError('No se pudo actualizar.'); }
   };
 
-  const toggleDefaultPostCotizacion = async s => {
-    try { await api.put(`/secuencias/${s.id}/post-cotizacion-default`, { activo: !s.es_default_post_cotizacion }); cargar(); }
-    catch { setError('No se pudo actualizar.'); }
-  };
-
   return (
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Secuencias de seguimiento</h1>
       <p className="text-gray-500 text-sm mb-4">
         Cada paso vencido genera una tarea para el vendedor (llamar, escribir el correo, enviar el WhatsApp).
-        La secuencia marcada como "Predeterminada" se inicia sola al enviar una cotización (por correo o WhatsApp) y
-        reemplaza a cualquier otra secuencia que estuviera activa en ese negocio.
+        Para que una secuencia se inicie sola al entrar un negocio a una etapa del pipeline (ej. Cotizado), asígnala
+        en Configuración → Pipeline. Se detiene al salir de esa etapa hacia otra sin secuencia asignada, o manualmente.
       </p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
@@ -76,7 +71,6 @@ export default function ConfigSecuencias() {
               <th className="text-left px-4 py-2 font-medium">Pasos</th>
               <th className="text-left px-4 py-2 font-medium">Horario hábil</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
-              <th className="text-left px-4 py-2 font-medium">Post-cotización</th>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -87,21 +81,13 @@ export default function ConfigSecuencias() {
                 <td className="px-4 py-2 text-gray-600">{s.total_pasos}</td>
                 <td className="px-4 py-2 text-gray-600">{s.respetar_horario ? 'Sí' : 'No'}</td>
                 <td className="px-4 py-2 text-gray-600">{s.activo ? 'Activa' : 'Inactiva'}</td>
-                <td className="px-4 py-2">
-                  {s.es_default_post_cotizacion
-                    ? <span className="text-xs px-2 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy">Predeterminada</span>
-                    : <span className="text-gray-300">—</span>}
-                </td>
                 <td className="px-4 py-2 text-right space-x-3">
                   <button onClick={() => editar(s)} className="text-ht-accent hover:underline">Editar</button>
                   <button onClick={() => toggleActivo(s)} className="text-gray-500 hover:underline">{s.activo ? 'Desactivar' : 'Activar'}</button>
-                  <button onClick={() => toggleDefaultPostCotizacion(s)} className="text-gray-500 hover:underline">
-                    {s.es_default_post_cotizacion ? 'Quitar predeterminada' : 'Usar al enviar cotización'}
-                  </button>
                 </td>
               </tr>
             ))}
-            {secuencias.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
+            {secuencias.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
           </tbody>
         </table>
       </div>
