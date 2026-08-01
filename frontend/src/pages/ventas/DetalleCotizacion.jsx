@@ -114,9 +114,8 @@ export default function DetalleCotizacion() {
 
   const [enviando, setEnviando] = useState(false);
   const [canalCorreo, setCanalCorreo] = useState(true);
-  const [canalWhatsapp, setCanalWhatsapp] = useState(true);
   useEffect(() => {
-    if (cot) { setCanalCorreo(!!cot.contacto_email); setCanalWhatsapp(!!cot.contacto_telefono); }
+    if (cot) setCanalCorreo(!!cot.contacto_email);
   }, [cot?.id]);
 
   const enviarCotizacion = async () => {
@@ -125,10 +124,6 @@ export default function DetalleCotizacion() {
     if (canalCorreo) {
       try { const { data } = await api.post(`/cotizaciones/${id}/enviar`); mensajes.push(data.message); }
       catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar el correo.'); }
-    }
-    if (canalWhatsapp) {
-      try { const { data } = await api.post(`/cotizaciones/${id}/enviar-whatsapp`); mensajes.push(data.message); }
-      catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar por WhatsApp.'); }
     }
     if (mensajes.length) setMsg(mensajes.join(' · '));
     if (errores.length) setError(errores.join(' · '));
@@ -229,17 +224,17 @@ export default function DetalleCotizacion() {
                 {cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url && (
                   <p className="text-xs text-amber-600">Sube el documento final antes de enviar.</p>
                 )}
+                {!cot.contacto_email && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+                    Este contacto no tiene email registrado — no se puede enviar la cotización. Agrégalo en la ficha del contacto.
+                  </p>
+                )}
                 <label className={`flex items-center gap-2 text-sm ${cot.contacto_email ? 'text-gray-700' : 'text-gray-300'}`}>
                   <input type="checkbox" checked={canalCorreo} disabled={!cot.contacto_email}
                     onChange={e => setCanalCorreo(e.target.checked)} />
-                  Correo{!cot.contacto_email && ' (sin email registrado)'}
+                  Correo
                 </label>
-                <label className={`flex items-center gap-2 text-sm ${cot.contacto_telefono ? 'text-gray-700' : 'text-gray-300'}`}>
-                  <input type="checkbox" checked={canalWhatsapp} disabled={!cot.contacto_telefono}
-                    onChange={e => setCanalWhatsapp(e.target.checked)} />
-                  WhatsApp{!cot.contacto_telefono && ' (sin teléfono registrado)'}
-                </label>
-                <button onClick={enviarCotizacion} disabled={enviando || (!canalCorreo && !canalWhatsapp) || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
+                <button onClick={enviarCotizacion} disabled={enviando || !canalCorreo || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
                   className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50 mt-1">
                   {enviando ? 'Enviando…' : 'Enviar cotización'}
                 </button>
