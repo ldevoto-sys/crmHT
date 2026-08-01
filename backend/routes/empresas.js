@@ -102,19 +102,57 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR), uploadCSV.single(
   }
 });
 
+// Tamaño de lote para el INSERT ... ON CONFLICT masivo (con 8 columnas por
+// fila, 500 filas son 4000 parámetros — bien dentro del límite de Postgres).
+const LOTE_IMPORTACION = 500;
+
 // POST /api/empresas/importar/confirmar
 router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
   const { rows } = parseCSV(req.file.buffer.toString('utf8'));
   const { validos } = mapearEmpresas(rows);
+  // Con RUT (el caso normal): se matchean por la columna única `rut`, así que
+  // se puede resolver todo el lote en un solo INSERT ... ON CONFLICT en vez
+  // de una consulta por fila (con 49k filas, la versión fila a fila tardaba
+  // varios minutos y nunca llegaba a responder).
+  const conRut = validos.filter(v => v.empresa.rut);
+  // Sin RUT: se matchean por razón social, y una fila del archivo puede
+  // "actualizar" a otra fila sin RUT recién insertada del mismo archivo —
+  // se deja fila a fila (mismo comportamiento que antes) porque necesita ver,
+  // dentro de la misma transacción, los inserts ya hechos.
+  const sinRut = validos.filter(v => !v.empresa.rut);
+
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
     let insertados = 0, actualizados = 0;
-    for (const { empresa: e } of validos) {
-      let existente = null;
-      if (e.rut) existente = (await client.query('SELECT id FROM empresas WHERE rut=$1', [e.rut])).rows[0];
-      if (!existente && !e.rut) existente = (await client.query('SELECT id FROM empresas WHERE lower(razon_social)=lower($1) AND activo=true LIMIT 1', [e.razon_social])).rows[0];
+
+    for (let i = 0; i < conRut.length; i += LOTE_IMPORTACION) {
+      const lote = conRut.slice(i, i + LOTE_IMPORTACION);
+      const params = [];
+      const filas = lote.map(({ empresa: e }, idx) => {
+        const b = idx * 8;
+        params.push(e.razon_social, e.rut, e.dominio_correo || null, e.telefono_e164 || null, e.giro || null, e.direccion || null, e.comuna || null, e.ciudad || null);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8})`;
+      }).join(',');
+      const r = await client.query(
+        `INSERT INTO empresas (razon_social, rut, dominio_correo, telefono_e164, giro, direccion, comuna, ciudad)
+         VALUES ${filas}
+         ON CONFLICT (rut) DO UPDATE SET
+           dominio_correo = COALESCE(empresas.dominio_correo, EXCLUDED.dominio_correo),
+           telefono_e164  = COALESCE(empresas.telefono_e164, EXCLUDED.telefono_e164),
+           giro           = COALESCE(empresas.giro, EXCLUDED.giro),
+           direccion      = COALESCE(empresas.direccion, EXCLUDED.direccion),
+           comuna         = COALESCE(empresas.comuna, EXCLUDED.comuna),
+           ciudad         = COALESCE(empresas.ciudad, EXCLUDED.ciudad)
+         RETURNING (xmax = 0) AS es_nuevo`,
+        params
+      );
+      for (const fila of r.rows) { if (fila.es_nuevo) insertados++; else actualizados++; }
+    }
+
+    for (const { empresa: e } of sinRut) {
+      const existente = (await client.query('SELECT id FROM empresas WHERE lower(razon_social)=lower($1) AND activo=true LIMIT 1', [e.razon_social])).rows[0];
       if (existente) {
         await client.query(
           `UPDATE empresas SET dominio_correo=COALESCE(dominio_correo,$2), telefono_e164=COALESCE(telefono_e164,$3),
@@ -127,11 +165,12 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.singl
         await client.query(
           `INSERT INTO empresas (razon_social, rut, dominio_correo, telefono_e164, giro, direccion, comuna, ciudad)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [e.razon_social, e.rut || null, e.dominio_correo || null, e.telefono_e164 || null, e.giro || null, e.direccion || null, e.comuna || null, e.ciudad || null]
+          [e.razon_social, null, e.dominio_correo || null, e.telefono_e164 || null, e.giro || null, e.direccion || null, e.comuna || null, e.ciudad || null]
         );
         insertados++;
       }
     }
+
     await client.query('COMMIT');
     res.json({ message: 'Importación completada', insertados, actualizados });
   } catch (err) {
