@@ -17,6 +17,17 @@ function validarRut(rut) {
   return dv === dvCalc;
 }
 
+// Formato único "XX.XXX.XXX-X" para que un mismo RUT no quede duplicado por
+// venir de distintos sistemas de origen con distinto formato (con/sin
+// puntos, DV en minúscula). Asume que ya pasó validarRut().
+function normalizarRut(rut) {
+  const clean = String(rut).replace(/\./g, '').replace(/-/g, '').replace(/\s+/g, '').toUpperCase();
+  const body = clean.slice(0, -1);
+  const dv = clean.slice(-1);
+  const bodyConPuntos = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${bodyConPuntos}-${dv}`;
+}
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function validarEmail(email) {
   return EMAIL_RE.test(email || '');
@@ -27,4 +38,4 @@ function validarPassword(p) {
   return typeof p === 'string' && p.length >= 8 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /[^A-Za-z0-9]/.test(p);
 }
 
-module.exports = { validarRut, validarEmail, validarPassword };
+module.exports = { validarRut, normalizarRut, validarEmail, validarPassword };

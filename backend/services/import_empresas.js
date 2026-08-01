@@ -1,7 +1,7 @@
 // Mapea filas CSV a empresas normalizadas.
 // Plantilla: razon_social, rut, dominio_correo, telefono, giro, direccion, comuna, ciudad
 const { normalizarTelefono } = require('./dedup');
-const { validarRut } = require('../utils/validaciones');
+const { validarRut, normalizarRut } = require('../utils/validaciones');
 
 const MAPA = {
   'razon_social': 'razon_social', 'razón social': 'razon_social', 'razon social': 'razon_social',
@@ -34,7 +34,13 @@ function mapearFila(row) {
   const advertencias = [];
   e.telefono_e164 = normalizarTelefono(e.telefono);
   e.dominio_correo = limpiarDominio(e.dominio_correo);
-  if (e.rut && !validarRut(e.rut)) { advertencias.push('RUT inválido (se ignoró)'); e.rut = null; }
+  if (e.rut) {
+    if (!validarRut(e.rut)) { advertencias.push('RUT inválido (se ignoró)'); e.rut = null; }
+    // Normaliza a "XX.XXX.XXX-X": el mismo RUT puede venir con o sin puntos
+    // según el sistema de origen — sin esto, dos filas del mismo RUT en
+    // distinto formato no se detectan como duplicado dentro del archivo.
+    else e.rut = normalizarRut(e.rut);
+  }
 
   const errores = [];
   if (!e.razon_social) errores.push('falta razón social');
