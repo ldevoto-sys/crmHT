@@ -1,17 +1,26 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-07-26
+**Fecha de consolidación:** 2026-08-01
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.16 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.19 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
 Postventa y el módulo de Despacho; de v1.15: ajuste de UX en Despacho y el
-backlog priorizado post-lanzamiento (§14); y de v1.16: optimización de ruta
-de Despacho con Google Maps Platform. Este documento es el que debe subirse
-a SharePoint reemplazando la versión anterior del documento base.
+backlog priorizado post-lanzamiento (§15); de v1.16: optimización de ruta de
+Despacho con Google Maps Platform; de v1.17-v1.18: el **Cotizador
+Operaciones** completo (§7 de esta versión) — parser de solicitudes Fracttal,
+motor de cálculo de mano de obra/traslado, y generación de propuestas en Word
+a partir de 4 plantillas corporativas; y de v1.19: secuencias de seguimiento
+disparadas por etapa de pipeline (reemplaza el mecanismo anterior de
+"secuencia predeterminada post-cotización"), el Dashboard con actividad real
+del mes, el fix de rendimiento/normalización de RUT en los importadores
+masivos, el retiro temporal del canal WhatsApp del envío de cotizaciones, y
+la puesta en producción del sistema (01-08-2026). Este documento es el que
+debe subirse a SharePoint reemplazando la versión anterior del documento
+base.
 
 ---
 
@@ -42,8 +51,8 @@ necesita el historial de por qué se definió así):
 | Postventa (crear caso / ver propios) | ✅ | ✅ | ✅ | — | — |
 | Despacho (gestión completa) | ✅ | ✅ | encargado (*) | — | — |
 | Despacho (crear ruta / ver propios) | ✅ | ✅ | ✅ | — | — |
-| Cola de asignación | ✅ | ✅ | — | ✅ | — |
-| Bandeja WhatsApp | ✅ | ✅ | sus conv. | ✅ | ver |
+| Cola de asignación (†) | ✅ | ✅ | — | ✅ | — |
+| Bandeja WhatsApp (†) | ✅ | ✅ | sus conv. | ✅ | ver |
 | Empresas / Contactos | ✅ | ✅ | ✅ | ✅ | ver |
 | Duplicados | ✅ | ✅ | — | ✅ | — |
 | Import/Export de maestros | ✅ | ✅ | — | — | — |
@@ -53,6 +62,7 @@ necesita el historial de por qué se definió así):
 | Gatillar/pausar una secuencia | ✅ | ✅ | propios | — | — |
 | ⚙️ Config pipeline(s) | ✅ | ✅ | — | — | — |
 | ⚙️ Config Postventa (etapas) | ✅ | ✅ | — | — | — |
+| ⚙️ Config Cotizador Operaciones | ✅ | ✅ | — | — | — |
 | ⚙️ Lugares frecuentes de despacho | ✅ | ✅ | — | — | — |
 | ⚙️ Reglas de asignación | ✅ | ✅ | — | — | — |
 | ⚙️ Datos de empresa | ✅ | ✅ | — | — | — |
@@ -63,6 +73,12 @@ necesita el historial de por qué se definió así):
 (*) Cualquier usuario con `es_encargado_postventa`/`es_encargado_despacho`
 marcado, sin importar su rol — no solo vendedor.
 
+(†) Desde v1.19 (01-08-2026), estas dos pantallas se ocultaron del **menú**
+para todos los roles (el canal WhatsApp no está operativo, ver §11/§14) —
+los permisos de esta tabla siguen vigentes tal cual y las rutas
+(`/bandeja`, `/cola`) siguen funcionando por URL directa; solo se sacó el
+acceso visible.
+
 **Anti-alcance explícito (decisiones tomadas, no se construye):**
 - Nota de venta Softland: el ingreso se hace directamente y a mano en
   Softland; no hay importación automática desde el CRM.
@@ -70,7 +86,7 @@ marcado, sin importar su rol — no solo vendedor.
   ponderado (§3) usa el % que fija la configuración o el vendedor, nunca un
   modelo.
 - Réplica de base de datos para BI: en su lugar existe un rol de solo
-  lectura sobre la misma base (§8).
+  lectura sobre la misma base (§9).
 - Mapa y optimización de ruta de Despacho (§6): diferido a una siguiente
   etapa, requiere antes una cuenta de proveedor de mapas.
 
@@ -83,7 +99,17 @@ administrador y jefe comercial.
 
 - **Contactos:** valida RUT chileno (dígito verificador), email, teléfono
   normalizable a E.164; detecta duplicados por teléfono o email.
-- **Empresas:** valida RUT; matchea por RUT si existe.
+- **Empresas:** valida RUT; matchea por RUT si existe. El RUT se **normaliza**
+  a un único formato (`XX.XXX.XXX-X`, con puntos) antes de comparar o
+  guardar (v1.19) — un mismo RUT escrito de dos formas distintas en el
+  archivo (ej. `77.131.014-1` y `77131014-1`) ya no se trata como dos RUTs
+  distintos.
+- **Rendimiento con archivos grandes (v1.19):** la confirmación de Empresas y
+  Contactos procesa las filas en **lotes** (`INSERT ... ON CONFLICT`) en vez
+  de una consulta por fila — una carga de ~49.000 empresas o ~30.000
+  contactos, que antes no llegaba a terminar dentro del tiempo de espera del
+  navegador, ahora toma un par de segundos. El informe de rechazos y el
+  conteo nuevo/actualizado no cambian.
 - **Productos:** matchea por **código/SKU**; crea nuevos y actualiza
   existentes. Fuente de verdad: el **Catálogo Técnico** (Excel de
   HidroTécnica), no HubSpot — reemplazo decidido por ser más completo.
@@ -119,7 +145,7 @@ migración, quedan registradas para no perder el criterio):
 
 **Imágenes y fichas técnicas de productos (Cloudflare R2):**
 - Bucket público `crm-ht-productos` (Public Development URL habilitada),
-  distinto del bucket privado de adjuntos de WhatsApp (§10) y del de
+  distinto del bucket privado de adjuntos de WhatsApp (§11) y del de
   documentos de despacho (§6).
 - El CRM **no sube archivos**: la carga masiva (~3 GB) se hizo directo a R2
   por `rclone`, fuera de la aplicación (subir de a uno por navegador es
@@ -136,6 +162,14 @@ migración, quedan registradas para no perder el criterio):
   imagen/ficha. Al actualizar un producto existente, si la URL nueva es de
   SharePoint y la ya cargada es pública (R2), **no se sobrescribe** — evita
   que reimportar el catálogo destruya URLs ya corregidas.
+
+**Búsqueda en listados (v1.19):** Empresas, Contactos y Productos filtran
+**en vivo** mientras se escribe (debounce de 300 ms), igual que Cotizaciones
+— ya no requieren apretar Enter o un botón "Buscar". Sin cambios de backend,
+mismo filtro `ILIKE` de siempre. De paso, buscar un contacto por el nombre
+de la empresa asociada (no solo por datos del propio contacto) ahora sí
+encuentra resultados — antes el filtro comparaba solo los campos del
+contacto, aunque el listado ya mostraba la empresa en pantalla.
 
 **Buscador de equivalencias técnicas** (pestaña dentro de Productos,
 reemplaza la herramienta HTML independiente que existía antes):
@@ -192,12 +226,12 @@ reemplaza la herramienta HTML independiente que existía antes):
 **Numeración:** formato **`NNNNNN-VV`** — correlativo global de 6 dígitos
 (sin año, sin prefijo de texto) seguido de la versión (2 dígitos), ej.
 `000501-02`. Reemplaza el formato anterior `COT-AAAA-NNNNN` (correlativo por
-año). El correlativo es global y no se resetea. La variable de entorno
-`COTIZACION_CORRELATIVO_INICIAL` define, solo la primera vez que se genera
-una cotización tras este cambio, desde qué número seguir contando — **queda
-pendiente fijarla en Railway al pasar a producción**, según el correlativo
-que la empresa lleve fuera del CRM. Las cotizaciones ya emitidas antes de
-este cambio conservan su formato viejo; no se reescriben.
+año). El correlativo es global y no se resetea. Al salir a producción
+(01-08-2026, v1.19) se fijó manualmente en la base de datos de producción
+en **714838**, para que la numeración nueva continúe desde **714839** en
+adelante (el correlativo que la empresa llevaba fuera del CRM), en vez de
+reiniciar en 1. Las cotizaciones ya emitidas antes de este cambio conservan
+su formato viejo; no se reescriben.
 
 **Versión:** al generar una "nueva versión" se mantiene el mismo número y se
 incrementa la versión; la anterior queda en estado "reemplazada" (salvo que
@@ -227,23 +261,24 @@ ficha técnica no se adjunta aparte, el cliente accede por el link (decisión
 explícita: no justifica la complejidad de manejar varias fichas por
 cotización, algunas aún en SharePoint).
 
-**Envío desde el CRM:** botón único **"Enviar cotización"** con dos casillas
-(Correo/WhatsApp), deshabilitadas solas si el contacto no tiene el dato
-correspondiente. Permite ambos canales a la vez.
+**Envío desde el CRM:** botón único **"Enviar cotización"**.
 - Correo: SMTP existente (cuenta Brevo), con el vendedor como "Responder a".
   **Pendiente de IT** que salga literalmente desde el correo del vendedor
-  (ver §13 y §14).
-- WhatsApp: envía el PDF como documento, con mensaje de acompañamiento
-  editable (Configuración → Datos de empresa).
+  (ver §14 y §15).
+- **Canal WhatsApp retirado de este botón (v1.19):** el envío por WhatsApp
+  existía (backend `/enviar-whatsapp` sigue ahí), pero se sacó de esta
+  pantalla porque el canal no está operativo todavía (sin credenciales de
+  Meta, ver §11/§14/§15). Correo queda como único canal de envío desde el
+  sistema.
+- Si el contacto no tiene email registrado, ya no queda ningún canal para
+  enviar desde el sistema — se muestra una advertencia visible indicando
+  que hay que agregarlo en la ficha del contacto.
 - Si el envío falla, no se marca la cotización como enviada ni se dispara
   seguimiento; el error se traduce a un mensaje entendible.
 
-**Secuencia de seguimiento automática post-envío:** una secuencia puede
-marcarse "Predeterminada" (Configuración → Secuencias) para dispararse sola
-al enviar una cotización. Si el negocio ya tenía otra secuencia corriendo,
-se cancela y se reemplaza (se asume que, al mandar cotización, el cliente ya
-respondió, así que el seguimiento post-cotización prevalece sobre el de
-contacto inicial).
+**Secuencia de seguimiento automática:** desde v1.19, el disparo ya no
+depende de "enviar cotización" sino de la **etapa del pipeline** en la que
+queda el negocio — ver §8 (Motor de seguimiento) para el mecanismo completo.
 
 **Estandarización de texto:** el título de la cotización y el nombre del
 contacto/razón social de empresa se normalizan a **mayúsculas** al guardar
@@ -252,6 +287,17 @@ cada línea de ítem no se toca — ya viene en mayúsculas desde el catálogo.
 Los contactos que ya existían en minúscula se corrigieron una sola vez al
 desplegar este cambio (backfill); razón social y título de cotización solo
 aplican hacia adelante.
+
+**Factor por línea (v1.18):** columna `cotizacion_items.factor` (multiplicador
+numérico, ej. 0.5 para media unidad). Existe para toda cotización, pero solo
+se edita y se muestra en el flujo de **Cotizador Operaciones** (§7) — en
+Ventas Directas no aparece y no cambia nada.
+
+**Propuesta en Word (v1.18):** cualquier cotización, sea de Ventas Directas u
+Operaciones, puede generar un documento de propuesta a partir de 4 plantillas
+Word corporativas, en vez de (o adicional a) el PDF plano de este documento.
+Ver el detalle completo en §7 (Cotizador Operaciones), donde se construyó
+junto con el resto de ese módulo.
 
 ## 5. Postventa (v1.13)
 
@@ -308,7 +354,7 @@ aplican hacia adelante.
   Cloudflare R2 (distinto del de imágenes de producto y del de adjuntos de
   WhatsApp, por tratarse de documentos con firmas y datos de clientes);
   visualización autenticada desde el CRM, sin URL pública directa.
-  **Pendiente de configurar en Cloudflare** (ver §14): mientras el bucket
+  **Pendiente de configurar en Cloudflare** (ver §15): mientras el bucket
   no exista, subir una foto responde "no configurado todavía" sin romper
   el resto del módulo.
 - **Optimización de ruta (v1.16):** botón "Optimizar ruta" que sugiere el
@@ -318,7 +364,7 @@ aplican hacia adelante.
   se cachean en `despacho_puntos.lat/lng`). Solo sugiere — el encargado
   decide si aplica el orden. Rechaza con un error claro si las paradas
   pendientes tienen fechas distintas, o si Google no puede ubicar alguna
-  dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §14).
+  dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §15).
 - **Hora de llegada estimada (v1.16):** indicando una hora de salida (por
   defecto, la de apertura configurada en horario de atención), la
   sugerencia muestra la hora estimada de llegada a cada parada y de vuelta
@@ -338,14 +384,133 @@ aplican hacia adelante.
 - **Permisos:** mismo patrón que Postventa — atribución adicional
   `users.es_encargado_despacho` (ver §1).
 
-## 7. Motor de seguimiento (secuencias) y notas/tareas
+## 7. Cotizador Operaciones (v1.17-v1.18)
+
+Cotizador propio para el pipeline **Operaciones** (§3), usado para cotizar
+trabajos que se originan en solicitudes del sistema **Fracttal**
+(mantención/reparación), no en negociación directa de venta de equipos.
+Reemplaza la herramienta HTML standalone `cotizador_hidrotecnica.html` que
+el equipo de Operaciones/Mantención usaba hasta ahora (catálogo propio de
+411 productos embebido en el archivo, sin fuente de verdad única).
+
+**Decisión explícita:** no existe catálogo de productos propio para
+Operaciones — todo material/equipo resuelve su precio contra el maestro
+`productos` único del CRM (§2). Si un producto cotizado no existe ahí, se
+agrega por el importador de Productos existente, no por otra vía.
+
+**Importador/parser de solicitudes Fracttal:** el texto del correo Fracttal
+("Nueva solicitud creada") se pega manualmente — no hay integración API con
+Fracttal. El parser extrae N° de solicitud, fecha, solicitante, urgente,
+activo/ubicación → cliente y descripción; detecta el **hallazgo** por
+heurística de verbos de falla (falla, avería, bloqueado, quemado, dañado,
+roto, no funciona, desgaste, colapso — o la primera oración útil si no
+detecta ninguno); **ítems de materiales** (patrones "N + descripción" o "se
+requiere de N…", normalizando fracciones unicode ½ ¾ ⅜ a texto antes de
+matchear); **horas de mano de obra** (patrón "N personas/técnicos … M
+horas"); **notas de ejecución** (líneas con llevar/conseguir/coordinar/
+escalera/camión); y comuna fuera de la Región Metropolitana (lista de 20
+ciudades conocidas).
+
+**Motor de matching de productos** — determinístico y auditable, sin IA/LLM
+eligiendo el producto (la empresa no adivina, ver Anti-alcance §1):
+normaliza el texto (minúsculas, sin tildes, fracciones a texto) → aplica la
+tabla de sinónimos (`cotizacion_sinonimos_operaciones`, ej.
+`tripolar → automatico`, `chapaleta → valvula chapaleta`) → separa "tokens
+de modelo" (con dígito o ≤4 letras, peso ×3) de "palabras descriptivas" (sin
+dígito, >2 letras, peso ×1) → puntúa cada producto por coincidencia contra
+`nombre`/`descripcion` de `productos` → exige un score ≥ 30% del largo de
+la búsqueda **y** rechaza matches que solo coincidan por tokens cortos o
+genéricos (`220v`, `2`, `inox`) sin ninguna palabra descriptiva real
+compartida — filtro que evitó falsos positivos reales detectados en
+pruebas (ej. "amarra inox" matcheando con "bomba … inox"). Sin match, la
+línea queda con precio 0, editable a mano; no da de alta el producto en el
+maestro.
+
+**Cálculo de mano de obra y totales** — constantes reales portadas de la
+herramienta en uso (`config_operaciones_mo`, fila única editable por
+administrador/jefe comercial): `HH_UF = 0.456426` UF, `HM_UF = 0.069477` UF,
+`MARKUP = 1.47`, `ELEM_MAT_PCT = 0.07`, `ELEM_FURG_UF = 0.358` UF.
+
+```
+HH normales      = HH_UF × horas_normales × 2 técnicos
+HH fuera horario = HH_UF × 1.5 × horas_extra × 2 técnicos
+HM en trabajo    = HM_UF × (horas_normales + horas_extra)
+HM en tránsito   = HM_UF × horas_transito_comuna × 2
+Traslado         = costo_traslado_uf_comuna × 2
+Elem. furgón     = ELEM_FURG_UF (fijo)
+MO total (UF)    = suma de lo anterior
+```
+Si `horas_normales = 0` y `horas_extra = 0` → MO total = 0 completo (no se
+cobra traslado sin visita real — gate explícito, ya evitó un bug en la
+herramienta original). `comunas_operaciones` trae las 31 comunas de la
+Región Metropolitana (nombre, km, horas de tránsito, costo de traslado en
+UF).
+
+```
+Subtotal materiales (CLP) = Σ cantidad × precio × factor
+Elementos menores (CLP)   = subtotal materiales × ELEM_MAT_PCT
+Materiales × Markup (CLP) = (subtotal + elementos) × MARKUP
+MO total (CLP)            = MO total (UF) × valor UF del día
+Total neto CLP            = materiales×markup + MO total (CLP)
+IVA                       = total neto CLP × iva_pct   (mismo campo de §4)
+Total con IVA             = neto + IVA
+```
+Los materiales se cotizan en CLP (igual que Ventas Directas, tomando
+`productos.precio`); la mano de obra, el traslado y los elementos de
+furgón se calculan en UF y se convierten a CLP con el valor UF del día
+(`services/uf.js`, cacheado desde findic.cl — no requiere ingreso manual).
+
+**Modalidad de precio** (`cotizaciones.modalidad_precio`): **desglosado**
+(muestra subtotal materiales, elementos menores, markup y MO por separado)
+o **suma alzada** (solo el total, con nota fija "Precio suma alzada: valor
+fijo e invariante para el alcance definido").
+
+**Documento de propuesta:**
+- Bloques propios además del formato general de Cotizaciones (§4):
+  **Hallazgo** (entre comillas), **Justificación técnica/Observaciones**, y
+  **Consideraciones de ejecución** (lista de ítems con tag — Info /
+  Atención / Corte agua / Horario no hábil / Acceso / Otro — con nota fija
+  "las variaciones de alcance no previstas se cotizan por separado"). Marca
+  "URGENTE" si la solicitud Fracttal de origen venía marcada como tal.
+- **Plantillas Word (v1.18):** 4 plantillas corporativas — `HTCO01` Simple
+  Suministro, `HTCO02` Estándar Suministro y Montaje, `HTCO03` Llave en Mano
+  Regulado, `HTCO04` Lavado y Sanitización de Estanques — disponibles para
+  **cualquier** cotización (Ventas Directas u Operaciones, ver §4). Cinco
+  secciones narrativas (Objeto de la propuesta, Alcances, Exclusiones,
+  Condiciones de ejecución, Otras consideraciones) son texto libre editable
+  por cotización, con valor por defecto igual al texto tipo de la plantilla
+  elegida — no se modelan como campos estructurados. El sistema arma el
+  `.docx` (`docxtemplater`/`pizzip`) con esos 5 textos + ítems + montos
+  calculados; el vendedor lo descarga, lo retoca (fotos, ajustes), lo
+  convierte a PDF y **lo sube al sistema** — desde ahí se envía con el botón
+  "Enviar cotización" (§4), conservando la secuencia de seguimiento. El Word
+  nunca se envía directamente.
+  - Pago por hitos (%) de `HTCO03`: fuera de alcance por ahora — esa
+    plantilla cotiza con el mismo modelo de suma alzada que HTCO01/02; si se
+    necesita el detalle de hitos, se agrega a mano en el Word ya descargado.
+
+**Permisos:** los mantenedores (Configuración → Cotizador Operaciones: Mano
+de obra, Comunas, Sinónimos) los edita administrador y jefe comercial —
+mismo criterio que Secuencias (§8).
+
+## 8. Motor de seguimiento (secuencias) y notas/tareas
 
 - **Secuencias configurables:** nombre + pasos ordenados (días de espera,
   canal, mensaje/guion). Un negocio abierto inicia una secuencia a la vez;
   un revisor interno del servidor avanza los pasos vencidos cada 15 minutos.
   Como es un motor de asistencia (no envía solo salvo el caso de WhatsApp ya
-  conectado, ver §10), cada paso vencido genera una **tarea** para el
+  conectado, ver §11), cada paso vencido genera una **tarea** para el
   vendedor.
+- **Disparo por etapa de pipeline (v1.19):** cualquier etapa de un pipeline
+  (§3) puede tener asociada una secuencia (`pipeline_etapas.secuencia_id`).
+  Al mover un negocio a una etapa: si esa etapa tiene secuencia asociada, se
+  dispara — reemplazando cualquier otra que estuviera activa o pausada en el
+  negocio; si la etapa no tiene secuencia asociada, se detiene la que viniera
+  corriendo (para que no siga activa una secuencia de una etapa anterior en
+  una etapa que no la necesita). Reemplaza el mecanismo anterior de una sola
+  secuencia "predeterminada" que se disparaba solo al enviar una cotización
+  — ahora es cualquier etapa, no solo "Cotizado", y aplica a cualquier
+  pipeline (Ventas Directas u Operaciones).
 - Pausar, reactivar (reinicia el conteo de días), marcar "cliente
   respondió", cancelar. Un negocio cerrado (ganado o perdido) cancela su
   secuencia activa automáticamente.
@@ -355,8 +520,15 @@ aplican hacia adelante.
   timeline unificado. Asignar una tarea a otro usuario: solo administrador o
   jefe comercial (un vendedor/call center solo se asigna a sí mismo).
 
-## 8. Reportería
+## 9. Reportería
 
+- **Dashboard (v1.19):** pantalla de inicio con la actividad real del mes en
+  curso — dos tarjetas de total (cotizado / cerrado-ganado del mes) y un
+  gráfico de barras comparando cotizado vs. cerrado-ganado por vendedor, con
+  tabla de detalle debajo. Mismo filtro de fecha que "Cotizaciones por día"
+  (cotizado) y que "Ranking de vendedores" (cerrado-ganado); un vendedor solo
+  ve lo propio, igual que el resto de Reportería. Reemplaza el texto
+  estático que mostraba esta pantalla desde el arranque del sistema.
 - `negocio_etapa_historial` registra cuándo un negocio entra y sale de cada
   etapa (se completa desde que se implementó hacia adelante).
 - Reportes: embudo por etapa, causas de no cierre, tiempo promedio por
@@ -376,7 +548,7 @@ aplican hacia adelante.
   futuras. Pensado para Power BI / Looker Studio combinando esta fuente con
   Softland. La contraseña se resincroniza en cada arranque.
 
-## 9. Encuesta post-cierre
+## 10. Encuesta post-cierre
 
 - Al mover un negocio a etapa "ganada" se crea automáticamente una encuesta
   con link público. Formato: NPS (0 a 10) + comentario libre opcional,
@@ -386,10 +558,10 @@ aplican hacia adelante.
 - Recordatorio único a los 5 días si no ha respondido (configurable vía
   `ENCUESTA_DIAS_RECORDATORIO`).
 
-## 10. WhatsApp
+## 11. WhatsApp
 
 **Bot (categorización y recontacto):** integración con la Cloud API de
-WhatsApp (Meta), app en modo desarrollo (ver pendientes, §14).
+WhatsApp (Meta), app en modo desarrollo (ver pendientes, §15).
 - Horario de atención configurable (por defecto L–V 9:15–17:15, hora de
   Chile). Fuera de horario: mensaje automático + registro del lead, sin más
   acción del bot.
@@ -429,7 +601,7 @@ del §2 y del de documentos de despacho del §6). Token de API con permiso
 archivo lo hace el CRM (mismo criterio de acceso a la conversación); para
 que Meta reciba un adjunto se usa una URL firmada de validez corta.
 
-## 11. Diseño visual y responsive
+## 12. Diseño visual y responsive
 
 Rediseño integral (julio 2026) hacia un estilo minimalista tipo SaaS moderno
 (Linear/Notion/Stripe Dashboard): fondos blancos/gris muy claro, azul marino
@@ -468,8 +640,12 @@ solo en acentos puntuales, celeste como color de interacción principal.
   visual entre ambas apps se logra por balance de color (más blanco/gris en
   el CRM), no por un acento exclusivo. Aprobado por Gerencia el 25-07-2026
   (ver `docs/marca-acentos-por-app.md` v2.0 y HT-PL-05 v02).
+- **Versión desplegada visible (v1.19):** el pie del menú lateral muestra el
+  commit corto de la versión en producción/staging (con la fecha de build en
+  el tooltip) — para confirmar de un vistazo si un ambiente ya tiene la
+  última versión desplegada, sin depender de mirar el repositorio.
 
-## 12. Modelo de datos — tablas y campos agregados desde el documento base original
+## 13. Modelo de datos — tablas y campos agregados desde el documento base original
 
 - **Usuarios/roles:** `users.rol` admite `jefe_comercial`.
   `users.pipeline_default_id` (pipeline por defecto, v1.12).
@@ -480,11 +656,30 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `descripcion_completa`.
 - **Pipeline:** tabla `pipelines` (id, nombre, orden, activo — v1.12);
   `pipeline_etapas.pipeline_id`, `negocios.pipeline_id` (v1.12);
-  `negocios.etapa_id` (FK) + `negocios.probabilidad_cierre`.
+  `negocios.etapa_id` (FK) + `negocios.probabilidad_cierre`;
+  `pipeline_etapas.secuencia_id` (FK a `secuencias`, v1.19 — dispara la
+  secuencia asociada al mover un negocio a esa etapa, ver §8).
 - **Cotizaciones:** `iva_pct`; tabla `config_empresa` (emisor/banco);
   `cotizacion_correlativo_global` (correlativo NNNNNN, reemplaza el
   correlativo por año); `cotizacion_items` agrega `mostrar_imagen`,
-  `mostrar_descripcion`, `mostrar_ficha`.
+  `mostrar_descripcion`, `mostrar_ficha`, `factor` (v1.18, uso exclusivo de
+  Operaciones, ver §7).
+- **Cotizador Operaciones (v1.17-v1.18, ver §7):** `cotizaciones` agrega
+  `origen` (enum venta_directa/operaciones), `fracttal_numero`,
+  `fracttal_fecha_solicitud`, `fracttal_solicitante`, `hallazgo`,
+  `justificacion_tecnica`, `modalidad_precio` (enum desglosado/alzada),
+  `comuna_id` (FK), `horas_normales`, `horas_extra`, `tipo_plantilla` (enum
+  ninguna/simple_suministro/estandar_suministro_montaje/
+  llave_en_mano_regulado/lavado_sanitizacion), `objeto_propuesta`,
+  `alcances_texto`, `exclusiones_texto`, `condiciones_ejecucion_texto`,
+  `otras_consideraciones_texto`, `documento_final_url`,
+  `documento_final_subido_en`; tablas nuevas `cotizacion_consideraciones`
+  (cotizacion_id, tag, texto, orden), `comunas_operaciones` (nombre, km,
+  horas_transito, costo_traslado_uf, activo), `config_operaciones_mo` (fila
+  única — hh_uf, hm_uf, markup, elem_mat_pct, elem_furg_uf),
+  `cotizacion_sinonimos_operaciones` (termino_fracttal, termino_bbdd,
+  activo). `productos` no cambia de esquema — el matching de Operaciones
+  consulta esa misma tabla.
 - **Postventa (v1.13):** tabla `postventa_etapas` (nombre, orden, tipo
   abierta/resuelto/rechazado, activo); tabla `casos_postventa`
   (`negocio_id` obligatorio, `contacto_id`, `empresa_id`, `producto_id` y
@@ -505,8 +700,12 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `whatsapp_recontacto_pasos`, `whatsapp_mensajes` (con `tipo`,
   `archivo_key`, `archivo_nombre`, `archivo_mime`), `whatsapp_conversaciones`.
 - **Secuencias:** tablas `secuencias`, `secuencia_pasos`,
-  `negocio_secuencias`, `secuencia_ejecuciones`; campos
-  `respetar_horario`, `es_default_post_cotizacion`.
+  `negocio_secuencias`, `secuencia_ejecuciones`; campo `respetar_horario`.
+  El campo `secuencias.es_default_post_cotizacion` **se eliminó en v1.19**
+  (reemplazado por `pipeline_etapas.secuencia_id`, ver arriba y §8) — al
+  arrancar, el sistema migró automáticamente cualquier secuencia que
+  estuviera marcada así hacia las etapas "Cotizado" de tipo abierta que aún
+  no tuvieran secuencia asignada.
 - **Notas/tareas/timeline:** tablas `notas`, `tareas`,
   `negocio_etapa_historial`.
 - **Encuestas:** tablas `encuestas`, `encuesta_respuestas`;
@@ -514,12 +713,16 @@ solo en acentos puntuales, celeste como color de interacción principal.
 - **Acceso BI:** rol de PostgreSQL `bi_readonly` (a nivel de base de datos,
   fuera del modelo de aplicación).
 
-## 13. Integraciones externas
+## 14. Integraciones externas
 
 - **Brevo (SMTP):** correos transaccionales y envío de cotizaciones.
   Remitente genérico con "Responder a" = vendedor.
 - **WhatsApp Cloud API (Meta):** bot, Bandeja, envío de cotizaciones y
-  adjuntos. App en modo desarrollo (número de prueba, máx. 5 destinatarios).
+  adjuntos. App en modo desarrollo (número de prueba, máx. 5 destinatarios)
+  y sin credenciales cargadas en producción — por eso, desde v1.19, el botón
+  "Enviar cotización" (§4) y el menú (Bandeja/Cola, §1) no lo exponen
+  todavía; el código sigue existiendo, listo para cuando se publique la app
+  (§15, punto 3).
 - **Google Maps Platform (v1.16):** Directions API + Geocoding API, para
   optimización de ruta de Despacho (§6). Uso exclusivamente server-side —
   la key nunca se expone al navegador, restringida en Google Cloud Console
@@ -527,7 +730,7 @@ solo en acentos puntuales, celeste como color de interacción principal.
 - **Cloudflare R2:** tres buckets — `crm-ht-adjuntos` (privado, WhatsApp),
   `crm-ht-productos` (público, catálogo de imágenes/fichas) y un tercero
   **privado, pendiente de crear** para documentos de respaldo de Despacho
-  (§6, §14).
+  (§6, §15).
 - **PostgreSQL (`bi_readonly`):** acceso de solo lectura para herramientas
   de BI externas.
 - **Microsoft 365 / SMTP AUTH (en evaluación, no confirmado):** soporte
@@ -539,10 +742,10 @@ solo en acentos puntuales, celeste como color de interacción principal.
   desde este entorno de desarrollo, que no tiene salida SMTP a hosts
   externos) y revisar si la cuenta requiere App Password por MFA.
 
-## 14. Pendientes abiertos (consolidado de todas las notas)
+## 15. Pendientes abiertos (consolidado de todas las notas)
 
-Ninguno de estos puntos es impedimento para salir a producción (fecha
-objetivo: 01-08-2026) — lo construido ya mejora lo que existe hoy. Quedan
+El sistema salió a producción el **01-08-2026** (v1.19) — ninguno de estos
+puntos fue impedimento, lo construido ya mejora lo que existía antes. Quedan
 como backlog post-lanzamiento, en el siguiente orden de prioridad
 (acordado con Gerencia el 27-07-2026):
 
@@ -552,7 +755,7 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    la dirección de la empresa), con Google Directions/Geocoding API. El
    encargado revisa la sugerencia y decide aplicarla o no. Falta cargar
    `GOOGLE_MAPS_API_KEY` en Railway.
-2. **Bucket de Cloudflare R2 para documentos de despacho** (§6, §13):
+2. **Bucket de Cloudflare R2 para documentos de despacho** (§6, §14):
    rápido — crear el bucket privado, su token de API, y cargar en Railway
    `R2_DESPACHO_ACCESS_KEY_ID`, `R2_DESPACHO_SECRET_ACCESS_KEY`,
    `R2_DESPACHO_BUCKET_NAME`. No bloquea el resto del módulo.
@@ -561,7 +764,7 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    Meta). Es requisito previo del punto 4: mientras la app siga en modo
    de desarrollo, el bot no puede conversar con clientes reales.
 4. **Bot con IA fuera de horario**: hoy, fuera de horario, el bot solo
-   envía un mensaje automático y registra el lead (§10). La idea es que
+   envía un mensaje automático y registra el lead (§11). La idea es que
    pueda asesorar al cliente, ayudarlo a elegir una bomba y guiarlo hasta
    la ficha de compra. Por definir con Gerencia: hasta dónde responde solo
    (¿solo recomendación de producto, o también precio/disponibilidad?) y
@@ -571,22 +774,35 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
 6. **Correo del vendedor como remitente real** de las cotizaciones: en
    evaluación entre autenticar el dominio en Brevo, envío nativo vía
    Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado
-   por soporte (§13) — falta la prueba real.
+   por soporte (§14) — falta la prueba real.
 7. **Canal de correo como fuente de leads** (paralelo al canal web),
    requiere definir la integración con el proveedor de correo.
 8. **Envío de correos masivos** a clientes: requiere separar el envío de
    marketing masivo de la cuenta Brevo transaccional actual (cotizaciones),
    para no arriesgar su entregabilidad, y definir manejo de listas/opt-out.
 
+**Cotizador Operaciones (§7) — decisión pendiente de Gerencia:** ¿el
+pipeline Operaciones reemplaza por completo la herramienta HTML standalone
+`cotizador_hidrotecnica.html`, o convive en paralelo durante una transición
+corta? Las demás preguntas abiertas de la nota v1.17 ya se resolvieron al
+construir el módulo: los mantenedores los edita administrador y jefe
+comercial (igual que Secuencias); un ítem sin match nunca da de alta un
+producto nuevo directo desde la cotización, siempre pasa por el importador
+de Productos (§2); y el valor UF ya se obtiene automático desde findic.cl
+(`services/uf.js`), no es un pendiente.
+
 Sin prioridad asignada (no comerciales / no bloquean nada):
 
 - **Rotar el token de acceso de R2** usado en la carga masiva por `rclone`:
   las credenciales se compartieron en texto plano durante la configuración.
-- **Fijar `COTIZACION_CORRELATIVO_INICIAL`** en Railway antes de que se
-  genere la primera cotización con el nuevo formato de numeración (§4).
+- ~~**Fijar `COTIZACION_CORRELATIVO_INICIAL`**~~ — **hecho (v1.19,
+  01-08-2026):** correlativo fijado en 714838 directamente en la base de
+  producción, ver §4.
 - Hidroneumáticos y Filtros de piscina: la columna "Descripción" ya está en
   sus plantillas de importación (§2), pero el Excel real de esas dos
   categorías aún no la trae completa.
+- **Pago por hitos (%) de la plantilla `HTCO03`** (§7): fuera de alcance de
+  v1.18 — si se necesita, se agrega a mano en el Word ya descargado.
 
 ---
 
