@@ -25,7 +25,11 @@ export default function Empresas() {
     const { data } = await api.get('/empresas', { params });
     setEmpresas(data);
   };
-  useEffect(() => { cargar(); }, [filtroVendedor]);
+  useEffect(() => {
+    const t = setTimeout(() => { cargar(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [q, filtroVendedor]);
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const abrirNuevo = () => { setForm(vacio); setEditId(null); setError(''); setMsg(''); setShowForm(true); };
@@ -73,11 +77,8 @@ export default function Empresas() {
 
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
 
-      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex gap-2">
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, RUT o dominio…"
-          className="flex-1 max-w-md border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-        <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
-      </form>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, RUT o dominio…"
+        className="mb-4 w-full max-w-md block border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">

@@ -35,7 +35,11 @@ export default function Contactos() {
     setContactos(data);
     setSel(new Set());
   };
-  useEffect(() => { cargar(); }, [filtroVendedor]);
+  useEffect(() => {
+    const t = setTimeout(() => { cargar(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [q, filtroVendedor]);
   useEffect(() => { api.get('/empresas').then(r => setEmpresas(r.data)).catch(() => {}); }, []);
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
@@ -130,10 +134,9 @@ export default function Contactos() {
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
-      <form onSubmit={e => { e.preventDefault(); cargar(); }} className="mb-4 flex items-center gap-2 flex-wrap">
+      <form onSubmit={e => e.preventDefault()} className="mb-4 flex items-center gap-2 flex-wrap">
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, email o teléfono…"
           className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-        <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
         <div className="sm:ml-auto flex items-center gap-2">
           <label className="text-sm text-gray-600">Vendedor asignado</label>
           <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}

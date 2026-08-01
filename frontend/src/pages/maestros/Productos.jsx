@@ -37,7 +37,12 @@ export default function Productos() {
     const { data } = await api.get('/productos', { params });
     setProductos(data);
   };
-  useEffect(() => { if (tab === 'catalogo') cargar(); }, [marca, categoria, tab]);
+  useEffect(() => {
+    if (tab !== 'catalogo') return;
+    const t = setTimeout(() => { cargar(); }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [q, marca, categoria, tab]);
   useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
 
   return (
@@ -64,11 +69,8 @@ export default function Productos() {
 
       {tab === 'equivalencias' ? <BusquedaEquivalentes /> : <>
       <div className="mb-4 flex gap-2 flex-wrap items-center">
-        <form onSubmit={e => { e.preventDefault(); cargar(); }} className="flex gap-2">
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre o código…"
-            className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-          <button className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Buscar</button>
-        </form>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre o código…"
+          className="border border-gray-300 rounded px-3 py-2 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <select value={marca} onChange={e => setMarca(e.target.value)} className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
           <option value="">Todas las marcas</option>
           {facetas.marcas.map(m => <option key={m} value={m}>{m}</option>)}
