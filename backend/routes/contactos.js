@@ -22,7 +22,7 @@ function filtrosContactos(query) {
   const params = [];
   let i = 1;
   if (q) {
-    clauses.push(`(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i})`);
+    clauses.push(`(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i} OR e.razon_social ILIKE $${i})`);
     params.push(`%${q}%`); i++;
   }
   if (empresa_id) { clauses.push(`c.empresa_id = $${i++}`); params.push(empresa_id); }
