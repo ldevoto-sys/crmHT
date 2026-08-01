@@ -98,7 +98,8 @@ async function generarCotizacionPDF(data, stream) {
     const textoX = imagenBuf ? M + 34 : M + 8;
     const textoAncho = imagenBuf ? 274 : 300;
 
-    let contenidoH = 18;
+    const nombreAltura = doc.font('Helvetica-Bold').fontSize(9).heightOfString(nombre, { width: textoAncho });
+    let contenidoH = nombreAltura + 7;
     if (sub) contenidoH += 11;
     let descAltura = 0;
     if (descripcionCompleta) {
@@ -112,7 +113,7 @@ async function generarCotizacionPDF(data, stream) {
     if (idx % 2 === 1) doc.rect(M, y, 515, h).fill('#f7f9fc');
     if (imagenBuf) { try { doc.image(imagenBuf, M + 6, y + 5, { fit: [24, 24] }); } catch { /* imagen inválida, se omite */ } }
     doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text(nombre, textoX, y + 6, { width: textoAncho });
-    let subY = y + 18;
+    let subY = y + 6 + nombreAltura + 1;
     if (sub) { doc.fillColor(GRAY).font('Helvetica').fontSize(8).text(sub, textoX, subY, { width: textoAncho }); subY += 11; }
     if (descripcionCompleta) {
       doc.fillColor(GRAY).font('Helvetica').fontSize(7.5).text(descripcionCompleta, textoX, subY, { width: textoAncho });
@@ -120,7 +121,7 @@ async function generarCotizacionPDF(data, stream) {
     }
     if (fichaPublica) {
       doc.fillColor(CYAN).font('Helvetica').fontSize(8)
-        .text('Ficha técnica (PDF) ↗', textoX, subY, { width: textoAncho, underline: true, link: fichaPublica });
+        .text('Ficha técnica (PDF) »', textoX, subY, { width: textoAncho, underline: true, link: fichaPublica });
     }
     doc.fontSize(9);
     doc.fillColor('#000').font('Helvetica')

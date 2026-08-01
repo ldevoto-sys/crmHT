@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 const { db } = require('../db');
+const r2 = require('../services/r2');
 const { authenticate, authorize } = require('../middleware/auth');
 const { fetchCompleta, numeroCompleto } = require('../services/cotizacion_data');
 const { generarCotizacionPDF, generarCotizacionPDFBuffer } = require('../services/pdf');
@@ -9,10 +12,56 @@ const timeline = require('../services/timeline');
 const email = require('../services/email');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
-const { iniciarSecuenciaPostCotizacion } = require('../services/secuencias');
+const secuencias = require('../services/secuencias');
+const { obtenerUFDelDia } = require('../services/uf');
+const { parseFracttal, fuzzyMatchProducto } = require('../services/parserFracttal');
+const { calcularTotales } = require('../services/operacionesCalculo');
+const { generarWordPropuesta } = require('../services/wordPropuesta');
+const { DEFAULTS: PLANTILLAS_DEFAULTS, TIPOS_VALIDOS: TIPOS_PLANTILLA } = require('../services/plantillasTexto');
 const { mayusculas } = require('../utils/texto');
 
 router.use(authenticate);
+
+// GET /api/cotizaciones/uf-del-dia — para precargar el valor de UF al
+// calcular una cotización de Operaciones (siempre editable a mano).
+router.get('/uf-del-dia', async (req, res) => {
+  const resultado = await obtenerUFDelDia();
+  if (!resultado.ok) return res.status(502).json(resultado);
+  res.json(resultado);
+});
+
+// POST /api/cotizaciones/parse-fracttal {texto} — extrae los datos de una
+// solicitud Fracttal pegada como texto y matchea sus ítems contra el maestro
+// de productos (HT-AP-03 nota de cambio v1.18 §1). No guarda nada: el
+// operador revisa/ajusta antes de aplicar al formulario.
+router.post('/parse-fracttal', async (req, res) => {
+  try {
+    const { texto } = req.body;
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'Pega el correo de Fracttal primero' });
+
+    const datos = parseFracttal(texto);
+    const [productos, sinonimos] = await Promise.all([
+      db.all(`SELECT id, nombre, descripcion, precio_lista FROM productos WHERE activo = true`),
+      db.all(`SELECT termino_fracttal, termino_bbdd FROM cotizacion_sinonimos_operaciones WHERE activo = true`),
+    ]);
+
+    const items = datos.matItems.map((it) => {
+      const match = fuzzyMatchProducto(it.desc, productos, sinonimos);
+      return {
+        cantidad: parseInt(it.qty, 10) || 1,
+        descripcion: it.desc,
+        producto_id: match ? match.producto_id : null,
+        producto_nombre: match ? match.nombre : null,
+        precio_unitario: match ? Number(match.precio_lista) || 0 : 0,
+      };
+    });
+
+    res.json({ ...datos, items });
+  } catch (err) {
+    console.error('[cotizaciones/parse-fracttal]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
 
 const DESCUENTO_MAX = parseFloat(process.env.DESCUENTO_MAX_SIN_APROBACION || '10');
 
@@ -25,17 +74,18 @@ function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
 }
 
-// Al generarse una cotización, el negocio avanza a la etapa "Cotizado" — pero
-// solo hacia adelante: si ya está en una etapa posterior (p.ej. Negociación) o
-// está cerrado, no se toca. Si la etapa "Cotizado" fue renombrada o eliminada
-// de la configuración del pipeline, no se fuerza nada (no hay a qué avanzar).
+// Al generarse una cotización, el negocio avanza a la etapa "Cotizado" de su
+// propio pipeline — pero solo hacia adelante: si ya está en una etapa
+// posterior (p.ej. Negociación) o está cerrado, no se toca. Si esa etapa no
+// existe en su pipeline (fue renombrada o eliminada), no se fuerza nada.
 async function avanzarAEtapaCotizado(client, negocio, usuarioId) {
   const cotizada = (await client.query(
-    `SELECT * FROM pipeline_etapas WHERE tipo='abierta' AND activo=true AND nombre ILIKE 'cotizado' LIMIT 1`
+    `SELECT * FROM pipeline_etapas WHERE pipeline_id=$1 AND tipo='abierta' AND activo=true AND nombre ILIKE 'cotizado' LIMIT 1`,
+    [negocio.pipeline_id]
   )).rows[0];
   if (!cotizada) return;
   const actual = negocio.etapa_id
-    ? (await client.query('SELECT orden, tipo, nombre FROM pipeline_etapas WHERE id=$1', [negocio.etapa_id])).rows[0]
+    ? (await client.query('SELECT orden, tipo, nombre, secuencia_id FROM pipeline_etapas WHERE id=$1', [negocio.etapa_id])).rows[0]
     : null;
   if (actual && actual.tipo === 'abierta' && actual.orden >= cotizada.orden) return;
   if (actual && actual.tipo !== 'abierta') return;
@@ -54,6 +104,10 @@ async function avanzarAEtapaCotizado(client, negocio, usuarioId) {
     tipo: 'cambio_etapa', descripcion: `Etapa: ${actual ? actual.nombre : '—'} → ${cotizada.nombre} (cotización generada)`,
     usuario_id: usuarioId,
   }, client);
+  await secuencias.alCambiarEtapa({
+    negocio, etapaAnterior: actual, etapaNueva: cotizada, usuarioId, client,
+    origenDescripcion: 'al generar la cotización',
+  });
 }
 
 // Visibilidad (§5 matriz de permisos v1.6): admin/jefe comercial/gerencia ven todas;
@@ -70,6 +124,64 @@ function calcular(items, descuento_pct, iva_pct) {
   const neto = subtotal * (1 - (Number(descuento_pct) || 0) / 100);
   const total = Math.round(neto * (1 + (Number(iva_pct) || 0) / 100));
   return { subtotal, total };
+}
+
+// Cálculo de subtotal/total según origen (HT-AP-03 nota v1.18): Ventas Directas
+// sigue con calcular() sin cambios; Operaciones usa el motor de MO/materiales
+// y toma un snapshot de la UF del día (no cambia si se reabre la cotización
+// más tarde). Lanza un error con `.status` en caso de UF no disponible.
+async function calcularParaGuardar({ origen, items, descuento_pct, iva_pct, comuna_id, horas_normales, horas_extra }) {
+  if (origen !== 'operaciones') {
+    const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
+    return { subtotal, total, uf_valor: null, uf_fecha: null };
+  }
+  const config = await db.get('SELECT * FROM config_operaciones_mo WHERE id = 1');
+  const comuna = comuna_id ? await db.get('SELECT * FROM comunas_operaciones WHERE id = $1', [comuna_id]) : null;
+  const ufInfo = await obtenerUFDelDia();
+  if (!ufInfo.ok) {
+    const err = new Error('No se pudo obtener el valor de la UF del día. Reintenta o ingrésalo manualmente.');
+    err.status = 502;
+    throw err;
+  }
+  const r = calcularTotales({
+    items, horasNormales: horas_normales || 0, horasExtra: horas_extra || 0,
+    comuna, config, ufValor: ufInfo.valor, ivaPct: iva_pct,
+  });
+  return { subtotal: Math.round(r.totalNetoCLP), total: Math.round(r.totalConIva), uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha };
+}
+
+// GET /api/cotizaciones/plantillas-defaults — texto por defecto de cada
+// plantilla de propuesta, para precargar los textareas al elegir tipo_plantilla.
+router.get('/plantillas-defaults', (req, res) => res.json(PLANTILLAS_DEFAULTS));
+
+// Campos comunes a POST / y PUT /:id introducidos por el Cotizador
+// Operaciones y las plantillas de propuesta (nota v1.18). Devuelve
+// {error} si algo es inválido, o el objeto ya validado/normalizado.
+function validarCamposOperaciones(body, origenActual) {
+  // origenActual: el valor ya guardado, para no resetearlo a 'venta_directa'
+  // en un PUT que no lo reenvía explícitamente (solo aplica en creación).
+  const origen = body.origen !== undefined ? body.origen : (origenActual || 'venta_directa');
+  if (!['venta_directa', 'operaciones'].includes(origen)) return { error: 'Origen inválido' };
+  const tipo_plantilla = body.tipo_plantilla || 'ninguna';
+  if (!TIPOS_PLANTILLA.includes(tipo_plantilla)) return { error: 'Tipo de plantilla inválido' };
+  const modalidad_precio = body.modalidad_precio || 'desglosado';
+  if (!['desglosado', 'alzada'].includes(modalidad_precio)) return { error: 'Modalidad de precio inválida' };
+  return {
+    origen, tipo_plantilla, modalidad_precio,
+    fracttal_numero: body.fracttal_numero || null,
+    fracttal_fecha_solicitud: body.fracttal_fecha_solicitud || null,
+    fracttal_solicitante: body.fracttal_solicitante || null,
+    hallazgo: body.hallazgo || null,
+    justificacion_tecnica: body.justificacion_tecnica || null,
+    comuna_id: body.comuna_id || null,
+    horas_normales: Number(body.horas_normales) || 0,
+    horas_extra: Number(body.horas_extra) || 0,
+    objeto_propuesta: body.objeto_propuesta || null,
+    alcances_texto: body.alcances_texto || null,
+    exclusiones_texto: body.exclusiones_texto || null,
+    condiciones_ejecucion_texto: body.condiciones_ejecucion_texto || null,
+    otras_consideraciones_texto: body.otras_consideraciones_texto || null,
+  };
 }
 
 // Correlativo global NNNNNN (6 dígitos, sin año ni prefijo), seguro ante
@@ -177,8 +289,10 @@ router.get('/:id', async (req, res) => {
       `SELECT ci.*, p.nombre AS producto_nombre, p.sku, p.marca, p.categoria, p.url_imagen, p.descripcion_completa, p.ficha_tecnica_url
        FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
        WHERE ci.cotizacion_id = $1 ORDER BY ci.id`, [req.params.id]);
+    const consideraciones = await db.all(
+      `SELECT * FROM cotizacion_consideraciones WHERE cotizacion_id = $1 ORDER BY orden, id`, [req.params.id]);
     const requiere_aprobacion = Number(cot.descuento_pct) > DESCUENTO_MAX && !cot.descuento_aprobado_por_id;
-    res.json({ ...cot, items, puede_editar: puedeEditar({ vendedor_id: cot.vendedor_id }, req.user), requiere_aprobacion, descuento_max: DESCUENTO_MAX });
+    res.json({ ...cot, items, consideraciones, puede_editar: puedeEditar({ vendedor_id: cot.vendedor_id }, req.user), requiere_aprobacion, descuento_max: DESCUENTO_MAX });
   } catch (err) {
     console.error('[cotizaciones/GET /:id]', err);
     res.status(500).json({ error: 'Error interno' });
@@ -200,8 +314,76 @@ router.get('/:id/pdf', async (req, res) => {
   }
 });
 
+// GET /api/cotizaciones/:id/word — descarga la plantilla de propuesta
+// (HTCO01-04) rellena con los datos de la cotización, para retocar (fotos,
+// ajustes) antes de convertirla a PDF y subirla como documento final.
+router.get('/:id/word', async (req, res) => {
+  try {
+    const data = await fetchCompleta({ id: req.params.id });
+    if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeVer({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const consideraciones = await db.all(
+      `SELECT * FROM cotizacion_consideraciones WHERE cotizacion_id = $1 ORDER BY orden, id`, [req.params.id]);
+    const { buffer, nombreArchivo } = generarWordPropuesta(data, consideraciones);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombreArchivo}"`);
+    res.send(buffer);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[cotizaciones/:id/word]', err);
+    res.status(500).json({ error: 'Error al generar el Word' });
+  }
+});
+
+// POST /api/cotizaciones/:id/documento-final (multipart, campo "archivo") —
+// sube el PDF ya retocado (a partir del Word descargado) a un bucket privado.
+// Requerido antes de poder "Enviar cotización" cuando hay tipo_plantilla.
+router.post('/:id/documento-final', upload.single('archivo'), async (req, res) => {
+  try {
+    const negocio = await negocioDe(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+    const cot = await db.get('SELECT tipo_plantilla FROM cotizaciones WHERE id = $1', [req.params.id]);
+    if (cot.tipo_plantilla === 'ninguna') return res.status(400).json({ error: 'Esta cotización no usa plantilla de propuesta' });
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    if (req.file.mimetype !== 'application/pdf') return res.status(400).json({ error: 'El documento final debe ser un PDF' });
+    if (!r2.configuradoDespacho()) {
+      return res.status(503).json({ error: 'El almacenamiento de documentos no está configurado todavía.' });
+    }
+    const key = `cotizaciones/${req.params.id}/final_${crypto.randomBytes(6).toString('hex')}.pdf`;
+    const r = await r2.subirDespacho(key, req.file.buffer, req.file.mimetype);
+    if (!r.subido) return res.status(502).json({ error: r.motivo || 'No se pudo subir el documento' });
+    await db.run('UPDATE cotizaciones SET documento_final_url = $1, documento_final_subido_en = now() WHERE id = $2', [key, req.params.id]);
+    res.json({ message: 'Documento final subido' });
+  } catch (err) {
+    console.error('[cotizaciones/:id/documento-final POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/cotizaciones/:id/documento-final — descarga autenticada (bucket privado)
+router.get('/:id/documento-final', async (req, res) => {
+  try {
+    const cot = await db.get(
+      `SELECT c.documento_final_url, n.vendedor_id
+       FROM cotizaciones c JOIN negocios n ON n.id = c.negocio_id WHERE c.id = $1`, [req.params.id]);
+    if (!cot || !cot.documento_final_url) return res.status(404).json({ error: 'Documento no encontrado' });
+    if (!puedeVer({ vendedor_id: cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const archivo = await r2.descargarDespacho(cot.documento_final_url);
+    if (!archivo) return res.status(404).json({ error: 'Documento no encontrado en el almacenamiento' });
+    res.setHeader('Content-Type', archivo.contentType || 'application/pdf');
+    res.send(archivo.buffer);
+  } catch (err) {
+    console.error('[cotizaciones/:id/documento-final GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // POST /api/cotizaciones/:id/enviar — envía la cotización al contacto por correo
-// (API de Brevo), con el vendedor como "Responder a" y el PDF adjunto.
+// (API de Brevo), con el vendedor como "Responder a" y el PDF adjunto. Si la
+// cotización usa una plantilla de propuesta (tipo_plantilla), se adjunta el
+// documento final ya subido en vez del PDF de tabla de ítems generado por el
+// sistema — y se exige que ya se haya subido.
 router.post('/:id/enviar', async (req, res) => {
   try {
     const data = await fetchCompleta({ id: req.params.id });
@@ -210,7 +392,15 @@ router.post('/:id/enviar', async (req, res) => {
     if (data.cot.estado === 'reemplazada') return res.status(409).json({ error: 'Esta versión fue reemplazada por una más nueva' });
     if (!data.cliente.contacto_email) return res.status(400).json({ error: 'El contacto no tiene email registrado' });
 
-    const pdfBuffer = await generarCotizacionPDFBuffer(data);
+    let pdfBuffer;
+    if (data.cot.tipo_plantilla !== 'ninguna') {
+      if (!data.cot.documento_final_url) return res.status(400).json({ error: 'Sube el documento final (PDF) antes de enviar esta cotización.' });
+      const archivo = await r2.descargarDespacho(data.cot.documento_final_url);
+      if (!archivo) return res.status(502).json({ error: 'No se pudo leer el documento final subido' });
+      pdfBuffer = archivo.buffer;
+    } else {
+      pdfBuffer = await generarCotizacionPDFBuffer(data);
+    }
     const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
     const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer, data.emisor);
     if (!resultado?.enviado) {
@@ -222,8 +412,6 @@ router.post('/:id/enviar', async (req, res) => {
        WHERE id = $1`,
       [req.params.id]
     );
-    const negocio = await negocioDe(req.params.id);
-    if (negocio) await iniciarSecuenciaPostCotizacion(negocio, req.user.id);
     res.json({ message: 'Cotización enviada por correo a ' + data.cliente.contacto_email });
   } catch (err) {
     console.error('[cotizaciones/:id/enviar]', err);
@@ -239,6 +427,9 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
     if (!puedeEditar({ vendedor_id: data.cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     if (data.cot.estado === 'reemplazada') return res.status(409).json({ error: 'Esta versión fue reemplazada por una más nueva' });
     if (!data.cliente.contacto_telefono) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
+    if (data.cot.tipo_plantilla !== 'ninguna' && !data.cot.documento_final_url) {
+      return res.status(400).json({ error: 'Sube el documento final (PDF) antes de enviar esta cotización.' });
+    }
 
     const nombreArchivo = `${numeroCompleto(data.cot.numero, data.cot.version)}.pdf`;
     const urlPdf = `${process.env.APP_URL || ''}/api/public/cotizacion/${data.cot.token_publico}/pdf`;
@@ -258,8 +449,6 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
        WHERE id = $1`,
       [req.params.id]
     );
-    const negocio = await negocioDe(req.params.id);
-    if (negocio) await iniciarSecuenciaPostCotizacion(negocio, req.user.id);
     res.json({ message: 'Cotización enviada por WhatsApp a ' + data.cliente.contacto_telefono });
   } catch (err) {
     console.error('[cotizaciones/:id/enviar-whatsapp]', err);
@@ -280,24 +469,49 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
   if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede cotizar' });
 
-  const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
+  const campos = validarCamposOperaciones(req.body);
+  if (campos.error) return res.status(400).json({ error: campos.error });
+
+  let calc;
+  try {
+    calc = await calcularParaGuardar({
+      origen: campos.origen, items, descuento_pct, iva_pct,
+      comuna_id: campos.comuna_id, horas_normales: campos.horas_normales, horas_extra: campos.horas_extra,
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+  const { subtotal, total, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
     const numero = await proximoNumero(client);
     const token = crypto.randomBytes(16).toString('hex');
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id)
-       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, token, req.user.id]
+      `INSERT INTO cotizaciones (
+         negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id,
+         origen, fracttal_numero, fracttal_fecha_solicitud, fracttal_solicitante, hallazgo, justificacion_tecnica, modalidad_precio,
+         comuna_id, horas_normales, horas_extra, uf_valor, uf_fecha,
+         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto
+       )
+       VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10,$11,
+               $12,$13,$14,$15,$16,$17,$18,
+               $19,$20,$21,$22,$23,
+               $24,$25,$26,$27,$28,$29)
+       RETURNING id`,
+      [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, token, req.user.id,
+       campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
+       campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
+       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto]
     );
     const cotId = r.rows[0].id;
     for (const it of items) {
-      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario));
+      const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
+      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario) * factor);
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
@@ -324,26 +538,46 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
   if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-  const cot = await db.get('SELECT estado FROM cotizaciones WHERE id = $1', [req.params.id]);
+  const cot = await db.get('SELECT estado, origen FROM cotizaciones WHERE id = $1', [req.params.id]);
   if (cot.estado !== 'borrador') return res.status(409).json({ error: 'Solo se puede editar una cotización en borrador' });
 
-  const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
+  const campos = validarCamposOperaciones(req.body, cot.origen);
+  if (campos.error) return res.status(400).json({ error: campos.error });
+
+  let calc;
+  try {
+    calc = await calcularParaGuardar({
+      origen: campos.origen, items, descuento_pct, iva_pct,
+      comuna_id: campos.comuna_id, horas_normales: campos.horas_normales, horas_extra: campos.horas_extra,
+    });
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message });
+  }
+  const { subtotal, total, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
     await client.query(
       `UPDATE cotizaciones SET subtotal=$1, descuento_pct=$2, iva_pct=$3, total=$4, validez_dias=$5, condiciones=$6, titulo=$7,
-              descuento_solicitado=false, descuento_aprobado_por_id=NULL
-       WHERE id=$8`,
-      [subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, req.params.id]
+              descuento_solicitado=false, descuento_aprobado_por_id=NULL,
+              origen=$8, fracttal_numero=$9, fracttal_fecha_solicitud=$10, fracttal_solicitante=$11, hallazgo=$12, justificacion_tecnica=$13, modalidad_precio=$14,
+              comuna_id=$15, horas_normales=$16, horas_extra=$17, uf_valor=$18, uf_fecha=$19,
+              tipo_plantilla=$20, objeto_propuesta=$21, alcances_texto=$22, exclusiones_texto=$23, condiciones_ejecucion_texto=$24, otras_consideraciones_texto=$25
+       WHERE id=$26`,
+      [subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null,
+       campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
+       campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
+       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto,
+       req.params.id]
     );
     await client.query('DELETE FROM cotizacion_items WHERE cotizacion_id = $1', [req.params.id]);
     for (const it of items) {
-      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario));
+      const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
+      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario) * factor);
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
     await client.query('COMMIT');
@@ -417,6 +651,72 @@ router.post('/:id/aprobar-descuento', authorize('administrador', 'jefe_comercial
     res.json({ message: 'Descuento aprobado' });
   } catch (err) {
     console.error('[cotizaciones/aprobar-descuento]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+const TAGS_CONSIDERACION = ['info', 'atencion', 'corte_agua', 'horario_no_habil', 'acceso', 'otro'];
+
+async function puedeEditarConsideraciones(cotId, user) {
+  const negocio = await negocioDe(cotId);
+  if (!negocio || !puedeEditar(negocio, user)) return { ok: false, status: negocio ? 403 : 404 };
+  const cot = await db.get('SELECT estado FROM cotizaciones WHERE id = $1', [cotId]);
+  if (!cot) return { ok: false, status: 404 };
+  if (cot.estado !== 'borrador') return { ok: false, status: 409, error: 'Solo se puede editar una cotización en borrador' };
+  return { ok: true };
+}
+
+// POST /api/cotizaciones/:id/consideraciones {tag, texto} — agrega al final
+router.post('/:id/consideraciones', async (req, res) => {
+  try {
+    const chk = await puedeEditarConsideraciones(req.params.id, req.user);
+    if (!chk.ok) return res.status(chk.status).json({ error: chk.error || 'Sin permiso' });
+    const { tag, texto } = req.body;
+    if (!TAGS_CONSIDERACION.includes(tag)) return res.status(400).json({ error: 'Tag inválido' });
+    if (!texto || !texto.trim()) return res.status(400).json({ error: 'Texto requerido' });
+    const max = await db.get('SELECT COALESCE(MAX(orden), -1) AS m FROM cotizacion_consideraciones WHERE cotizacion_id = $1', [req.params.id]);
+    const r = await db.run(
+      `INSERT INTO cotizacion_consideraciones (cotizacion_id, tag, texto, orden) VALUES ($1,$2,$3,$4) RETURNING id`,
+      [req.params.id, tag, texto.trim(), Number(max.m) + 1]
+    );
+    res.status(201).json({ id: r.rows[0].id });
+  } catch (err) {
+    console.error('[cotizaciones/:id/consideraciones POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/cotizaciones/:id/consideraciones/:considId {tag, texto, orden}
+router.put('/:id/consideraciones/:considId', async (req, res) => {
+  try {
+    const chk = await puedeEditarConsideraciones(req.params.id, req.user);
+    if (!chk.ok) return res.status(chk.status).json({ error: chk.error || 'Sin permiso' });
+    const existente = await db.get('SELECT id FROM cotizacion_consideraciones WHERE id = $1 AND cotizacion_id = $2', [req.params.considId, req.params.id]);
+    if (!existente) return res.status(404).json({ error: 'Consideración no encontrada' });
+    const { tag, texto, orden } = req.body;
+    if (tag !== undefined && !TAGS_CONSIDERACION.includes(tag)) return res.status(400).json({ error: 'Tag inválido' });
+    if (texto !== undefined && !texto.trim()) return res.status(400).json({ error: 'Texto requerido' });
+    await db.run(
+      `UPDATE cotizacion_consideraciones SET tag = COALESCE($1, tag), texto = COALESCE($2, texto), orden = COALESCE($3, orden) WHERE id = $4`,
+      [tag || null, texto ? texto.trim() : null, orden ?? null, req.params.considId]
+    );
+    res.json({ message: 'Consideración actualizada' });
+  } catch (err) {
+    console.error('[cotizaciones/:id/consideraciones PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/cotizaciones/:id/consideraciones/:considId
+router.delete('/:id/consideraciones/:considId', async (req, res) => {
+  try {
+    const chk = await puedeEditarConsideraciones(req.params.id, req.user);
+    if (!chk.ok) return res.status(chk.status).json({ error: chk.error || 'Sin permiso' });
+    const r = await db.run('DELETE FROM cotizacion_consideraciones WHERE id = $1 AND cotizacion_id = $2', [req.params.considId, req.params.id]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Consideración no encontrada' });
+    res.json({ message: 'Consideración eliminada' });
+  } catch (err) {
+    console.error('[cotizaciones/:id/consideraciones DELETE]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

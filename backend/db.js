@@ -528,6 +528,10 @@ async function initDb() {
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_descripcion BOOLEAN NOT NULL DEFAULT true`);
   // Igual que mostrar_imagen, pero para el link de la ficha técnica (PDF).
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS mostrar_ficha BOOLEAN NOT NULL DEFAULT true`);
+  // Multiplicador de línea (ej. 0.5 para media unidad, o ajustar un precio
+  // matcheado) — solo se edita/muestra en el flujo de Cotizador Operaciones
+  // (nota v1.18); Ventas Directas lo deja siempre en 1.
+  await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS factor NUMERIC(6,3) NOT NULL DEFAULT 1`);
 
   // === Cotizador Operaciones (v1.17) — HT-AP-03 nota de cambio v1.17 ===
   // Comunas para el cálculo de traslado/tránsito (reemplaza el array
@@ -561,6 +565,22 @@ async function initDb() {
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS comuna_id INTEGER REFERENCES comunas_operaciones(id)`);
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS horas_normales NUMERIC(6,2) NOT NULL DEFAULT 0`);
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS horas_extra NUMERIC(6,2) NOT NULL DEFAULT 0`);
+  // Snapshot de la UF usada al calcular: una cotización de Operaciones ya
+  // enviada no debe cambiar de precio en CLP solo porque cambió la UF del
+  // día al reabrirla.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS uf_valor NUMERIC(10,2)`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS uf_fecha DATE`);
+
+  // Caché diaria de la UF (findic.cl). Evita golpear la API externa en cada
+  // cotización y deja registro de qué valor estuvo disponible cada día, para
+  // poder auditar contra qué UF se calculó una cotización antigua.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS uf_diaria (
+      fecha DATE PRIMARY KEY,
+      valor NUMERIC(10,2) NOT NULL,
+      obtenido_en TIMESTAMPTZ NOT NULL DEFAULT now()
+    )
+  `);
 
   // Consideraciones de ejecución del PDF de Operaciones (§7): lista de ítems
   // etiquetados, orden propio, independiente de las líneas de materiales.
@@ -607,6 +627,111 @@ async function initDb() {
       activo BOOLEAN NOT NULL DEFAULT true
     )
   `);
+
+  // === Cotizador Operaciones (v1.18) — HT-AP-03 nota de cambio v1.18 ===
+  // Plantilla de propuesta en Word (HTCO01-04) para cualquier cotización
+  // (Ventas Directas u Operaciones) — independiente del cálculo de MO/comuna,
+  // que sigue siendo exclusivo de Operaciones (origen='operaciones').
+  await db.run(`
+    ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS tipo_plantilla TEXT NOT NULL DEFAULT 'ninguna'
+    CHECK (tipo_plantilla IN ('ninguna','simple_suministro','estandar_suministro_montaje','llave_en_mano_regulado','lavado_sanitizacion'))
+  `);
+  // Secciones narrativas de la plantilla: texto libre editable, se inicializan
+  // con el texto tipo de la plantilla elegida y el operador las ajusta al
+  // proyecto específico antes de generar el Word.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS objeto_propuesta TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS alcances_texto TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS exclusiones_texto TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS condiciones_ejecucion_texto TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS otras_consideraciones_texto TEXT`);
+  // El Word generado se descarga para retocar (fotos, ajustes) fuera del
+  // sistema; el PDF ya retocado se sube aquí antes de poder enviarlo con el
+  // botón "Enviar cotización" existente.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS documento_final_url TEXT`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS documento_final_subido_en TIMESTAMP`);
+
+  // Los tipos originales (NUMERIC(8,2) / NUMERIC(5,2), v1.17) truncaban a 2
+  // decimales — insuficiente para los valores reales de la herramienta
+  // standalone (ej. hh_uf=0.456426, costo_traslado_uf=0.042301). Se amplían
+  // antes de resembrar para no perder precisión.
+  await db.run(`ALTER TABLE config_operaciones_mo ALTER COLUMN hh_uf TYPE NUMERIC(10,6)`);
+  await db.run(`ALTER TABLE config_operaciones_mo ALTER COLUMN hm_uf TYPE NUMERIC(10,6)`);
+  await db.run(`ALTER TABLE config_operaciones_mo ALTER COLUMN elem_furg_uf TYPE NUMERIC(10,6)`);
+  await db.run(`ALTER TABLE comunas_operaciones ALTER COLUMN horas_transito TYPE NUMERIC(10,6)`);
+  await db.run(`ALTER TABLE comunas_operaciones ALTER COLUMN costo_traslado_uf TYPE NUMERIC(10,6)`);
+
+  // Resiembra de los valores reales de la herramienta standalone
+  // `cotizador_hidrotecnica.html` (en uso actual del equipo de Operaciones),
+  // que v1.17 dejó en 0/vacío. Solo se resiembra si nadie los tocó todavía —
+  // no pisa configuración ya editada por un administrador.
+  const moDefault = await db.get(
+    `SELECT 1 FROM config_operaciones_mo WHERE id=1 AND hh_uf=0 AND hm_uf=0 AND markup=1 AND elem_mat_pct=0 AND elem_furg_uf=0`
+  );
+  if (moDefault) {
+    await db.run(
+      `UPDATE config_operaciones_mo SET hh_uf=0.456426, hm_uf=0.069477, markup=1.47, elem_mat_pct=0.07, elem_furg_uf=0.358 WHERE id=1`
+    );
+    console.log('[DB] Config de mano de obra de Operaciones resembrada con valores reales.');
+  }
+
+  const comunasExisten = await db.get('SELECT 1 FROM comunas_operaciones LIMIT 1');
+  if (!comunasExisten) {
+    const comunasSeed = [
+      { c: 'Cerrillos', km: 10.0, ht: 0.6667, ct: 0.285954 }, { c: 'Cerro Navia', km: 10.0, ht: 0.6667, ct: 0.285954 },
+      { c: 'Conchalí', km: 8.0, ht: 0.5333, ct: 0.269034 }, { c: 'El Bosque', km: 12.0, ht: 0.8, ct: 0.40355 },
+      { c: 'Estación Central', km: 5.0, ht: 0.3333, ct: 0.042301 }, { c: 'Huechuraba', km: 11.0, ht: 0.7333, ct: 0.39509 },
+      { c: 'Independencia', km: 5.0, ht: 0.3333, ct: 0.14297 }, { c: 'La Cisterna', km: 11.0, ht: 0.7333, ct: 0.185956 },
+      { c: 'La Florida', km: 14.0, ht: 0.9333, ct: 0.169036 }, { c: 'La Granja', km: 12.0, ht: 0.8, ct: 0.135196 },
+      { c: 'La Pintana', km: 18.0, ht: 1.2, ct: 0.270377 }, { c: 'La Reina', km: 11.0, ht: 0.7333, ct: 0.152116 },
+      { c: 'Las Condes', km: 12.0, ht: 0.8, ct: 0.203876 }, { c: 'Lo Barnechea', km: 18.0, ht: 1.2, ct: 0.372838 },
+      { c: 'Lo Espejo', km: 12.0, ht: 0.8, ct: 0.152116 }, { c: 'Lo Prado', km: 8.0, ht: 0.5333, ct: 0.101718 },
+      { c: 'Macul', km: 10.0, ht: 0.6667, ct: 0.118637 }, { c: 'Maipú', km: 15.0, ht: 1.0, ct: 0.219915 },
+      { c: 'Ñuñoa', km: 8.0, ht: 0.5333, ct: 0.084798 }, { c: 'Pedro Aguirre Cerda', km: 9.0, ht: 0.6, ct: 0.118637 },
+      { c: 'Peñalolén', km: 14.0, ht: 0.9333, ct: 0.185956 }, { c: 'Providencia', km: 6.0, ht: 0.4, ct: 0.033921 },
+      { c: 'Pudahuel', km: 13.0, ht: 0.8667, ct: 0.219915 }, { c: 'Quilicura', km: 14.0, ht: 0.9333, ct: 0.320477 },
+      { c: 'Quinta Normal', km: 7.0, ht: 0.4667, ct: 0.084798 }, { c: 'Recoleta', km: 5.0, ht: 0.3333, ct: 0.118637 },
+      { c: 'Renca', km: 10.0, ht: 0.6667, ct: 0.235397 }, { c: 'San Joaquín', km: 6.0, ht: 0.4, ct: 0.050761 },
+      { c: 'San Miguel', km: 6.0, ht: 0.4, ct: 0.151437 }, { c: 'San Ramón', km: 11.0, ht: 0.7333, ct: 0.294414 },
+      { c: 'Santiago', km: 3.0, ht: 0.2, ct: 0.025381 },
+    ];
+    for (const co of comunasSeed) {
+      await db.run(
+        `INSERT INTO comunas_operaciones (nombre, km, horas_transito, costo_traslado_uf) VALUES ($1,$2,$3,$4)`,
+        [co.c, co.km, co.ht, co.ct]
+      );
+    }
+    console.log(`[DB] Comunas de Operaciones resembradas (${comunasSeed.length}).`);
+  }
+
+  const sinonimosExisten = await db.get('SELECT 1 FROM cotizacion_sinonimos_operaciones LIMIT 1');
+  if (!sinonimosExisten) {
+    const sinonimosSeed = [
+      ['tripolar', 'automatico'], ['tripolares', 'automatico'], ['disyuntor', 'automatico'], ['breaker', 'automatico'],
+      ['contactor', 'contactor'], ['contactores', 'contactor'],
+      ['termico', 'rele termico'], ['relé térmico', 'rele termico'], ['rele termico', 'rele termico'], ['relés termicos', 'rele termico'],
+      ['rele', 'rele miniatura'], ['relé', 'rele miniatura'],
+      ['ferrule', 'terminal ferrule'], ['ferrul', 'terminal ferrule'],
+      ['cable control', 'cable thhn'],
+      ['flange', 'flange'], ['brida', 'flange'],
+      ['chapaleta', 'valvula chapaleta'], ['chapa leta', 'valvula chapaleta'],
+      ['pera de nivel', 'pera nivel'], ['peras de nivel', 'pera nivel'],
+      ['mufa', 'mufa resina'], ['mufas', 'mufa resina'],
+      ['perno anclaje', 'perno anclaje'], ['pernos anclaje', 'perno anclaje'], ['pernos de anclaje', 'perno anclaje'],
+      ['copla pvc', 'copla pvc'], ['terminal pvc', 'terminal he pvc'],
+      ['terminal he pvc', 'terminal he pvc'], ['union americana pvc', 'union americ. pvc'],
+      ['hilo tuerca galvanizado', 'hilo tuerca galvanizado'],
+      ['codo galvanizado', 'codo galvanizado'],
+      ['bomba pedrollo', 'bomba pedrollo'], ['vx', 'pedrollo vx'],
+      ['pera', 'pera nivel'], ['cordel', 'cordel polipropileno'],
+    ];
+    for (const [fracttal, bbdd] of sinonimosSeed) {
+      await db.run(
+        `INSERT INTO cotizacion_sinonimos_operaciones (termino_fracttal, termino_bbdd) VALUES ($1,$2)`,
+        [fracttal, bbdd]
+      );
+    }
+    console.log(`[DB] Sinónimos de Operaciones resembrados (${sinonimosSeed.length}).`);
+  }
 
   // Datos del emisor y banco para el documento de cotización (fila única id=1).
   await db.run(`

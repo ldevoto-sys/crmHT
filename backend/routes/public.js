@@ -41,13 +41,25 @@ router.get('/cotizacion/:token', async (req, res) => {
   }
 });
 
-// GET /api/public/cotizacion/:token/pdf — PDF público
+// GET /api/public/cotizacion/:token/pdf — PDF público (también la URL que
+// WhatsApp descarga al enviar el documento). Si la cotización usa una
+// plantilla de propuesta (tipo_plantilla), sirve el documento final ya
+// subido en vez del PDF de tabla de ítems generado por el sistema.
 router.get('/cotizacion/:token/pdf', async (req, res) => {
   try {
     const data = await fetchCompleta({ token: req.params.token });
     if (!data) return res.status(404).json({ error: 'Cotización no encontrada' });
+    const nombreArchivo = `${numeroCompleto(data.cot.numero, data.cot.version)}.pdf`;
+    if (data.cot.tipo_plantilla !== 'ninguna') {
+      if (!data.cot.documento_final_url) return res.status(404).json({ error: 'Documento final no disponible todavía' });
+      const archivo = await r2.descargarDespacho(data.cot.documento_final_url);
+      if (!archivo) return res.status(404).json({ error: 'Documento no encontrado en el almacenamiento' });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${nombreArchivo}"`);
+      return res.send(archivo.buffer);
+    }
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${numeroCompleto(data.cot.numero, data.cot.version)}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${nombreArchivo}"`);
     await generarCotizacionPDF(data, res);
   } catch (err) {
     console.error('[public/cotizacion/pdf]', err);

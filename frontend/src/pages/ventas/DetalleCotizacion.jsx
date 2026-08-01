@@ -57,6 +57,56 @@ export default function DetalleCotizacion() {
     } catch { setError('No se pudo generar el PDF.'); }
   };
 
+  const descargarWord = async () => {
+    try {
+      const { data } = await api.get(`/cotizaciones/${id}/word`, { responseType: 'blob' });
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${numeroCompleto(cot.numero, cot.version)}.docx`;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch { setError('No se pudo generar el Word.'); }
+  };
+
+  const verDocumentoFinal = async () => {
+    try {
+      const { data } = await api.get(`/cotizaciones/${id}/documento-final`, { responseType: 'blob' });
+      window.open(URL.createObjectURL(data), '_blank');
+    } catch { setError('No se pudo abrir el documento final.'); }
+  };
+
+  const [subiendoFinal, setSubiendoFinal] = useState(false);
+  const subirDocumentoFinal = async (ev) => {
+    const archivo = ev.target.files?.[0];
+    ev.target.value = '';
+    if (!archivo) return;
+    setError(''); setMsg(''); setSubiendoFinal(true);
+    try {
+      const form = new FormData();
+      form.append('archivo', archivo);
+      await api.post(`/cotizaciones/${id}/documento-final`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setMsg('Documento final subido.');
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo subir el documento.'); }
+    setSubiendoFinal(false);
+  };
+
+  // --- Consideraciones de ejecución (solo cotizaciones con plantilla) ---
+  const TAGS_CONSIDERACION = [
+    { value: 'info', label: 'Info' }, { value: 'atencion', label: 'Atención' },
+    { value: 'corte_agua', label: 'Corte agua' }, { value: 'horario_no_habil', label: 'Horario no hábil' },
+    { value: 'acceso', label: 'Acceso' }, { value: 'otro', label: 'Otro' },
+  ];
+  const [nuevaConsideracionTag, setNuevaConsideracionTag] = useState('info');
+  const [nuevaConsideracionTexto, setNuevaConsideracionTexto] = useState('');
+  const agregarConsideracion = async () => {
+    if (!nuevaConsideracionTexto.trim()) return;
+    await accion(() => api.post(`/cotizaciones/${id}/consideraciones`, { tag: nuevaConsideracionTag, texto: nuevaConsideracionTexto.trim() }));
+    setNuevaConsideracionTexto('');
+  };
+  const quitarConsideracion = async (considId) => {
+    await accion(() => api.delete(`/cotizaciones/${id}/consideraciones/${considId}`));
+  };
+
   const copiarLink = () => {
     const link = `${window.location.origin}/c/${cot.token_publico}`;
     navigator.clipboard.writeText(link).then(() => setMsg('Link público copiado al portapapeles.'));
@@ -158,9 +208,27 @@ export default function DetalleCotizacion() {
         <div className="space-y-6">
           <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-2">
             <h2 className="font-semibold text-ht-navy mb-1">Acciones</h2>
-            <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90">Descargar PDF</button>
+            {cot.tipo_plantilla === 'ninguna' && (
+              <button onClick={descargarPDF} className="w-full text-sm px-3 py-2 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90">Descargar PDF</button>
+            )}
+            {cot.tipo_plantilla !== 'ninguna' && (
+              <div className="border border-gray-200 rounded p-2 space-y-1.5">
+                <p className="text-xs text-gray-500">Esta cotización usa una plantilla de propuesta. Descarga el Word, retócalo (fotos, ajustes) y sube el PDF final antes de enviar.</p>
+                <button onClick={descargarWord} className="w-full text-sm px-3 py-2 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90">Descargar Word</button>
+                <label className="w-full block text-center text-sm px-3 py-2 rounded border border-gray-300 text-gray-700 hover:bg-slate-50 cursor-pointer">
+                  {subiendoFinal ? 'Subiendo…' : cot.documento_final_url ? 'Reemplazar documento final' : 'Subir documento final (PDF)'}
+                  <input type="file" accept="application/pdf" className="hidden" onChange={subirDocumentoFinal} disabled={subiendoFinal} />
+                </label>
+                {cot.documento_final_url && (
+                  <button onClick={verDocumentoFinal} className="block w-full text-center text-xs text-ht-accent hover:underline">Ver documento final subido</button>
+                )}
+              </div>
+            )}
             {cot.puede_editar && (
               <div className="border border-gray-200 rounded p-2 space-y-1.5">
+                {cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url && (
+                  <p className="text-xs text-amber-600">Sube el documento final antes de enviar.</p>
+                )}
                 <label className={`flex items-center gap-2 text-sm ${cot.contacto_email ? 'text-gray-700' : 'text-gray-300'}`}>
                   <input type="checkbox" checked={canalCorreo} disabled={!cot.contacto_email}
                     onChange={e => setCanalCorreo(e.target.checked)} />
@@ -171,7 +239,7 @@ export default function DetalleCotizacion() {
                     onChange={e => setCanalWhatsapp(e.target.checked)} />
                   WhatsApp{!cot.contacto_telefono && ' (sin teléfono registrado)'}
                 </label>
-                <button onClick={enviarCotizacion} disabled={enviando || (!canalCorreo && !canalWhatsapp)}
+                <button onClick={enviarCotizacion} disabled={enviando || (!canalCorreo && !canalWhatsapp) || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
                   className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50 mt-1">
                   {enviando ? 'Enviando…' : 'Enviar cotización'}
                 </button>
@@ -210,6 +278,34 @@ export default function DetalleCotizacion() {
                 </div>
               </div>
               <p className="text-xs text-gray-400">El monto del negocio se actualiza desde la cotización, no aquí.</p>
+            </div>
+          )}
+
+          {cot.tipo_plantilla !== 'ninguna' && (
+            <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-3">
+              <h2 className="font-semibold text-ht-navy">Consideraciones de ejecución</h2>
+              <p className="text-xs text-gray-400">Aparecen al final de "Condiciones de ejecución" en el Word.</p>
+              {(cot.consideraciones || []).map(c => (
+                <div key={c.id} className="flex items-start gap-2 text-sm border-t border-gray-100 pt-2">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy flex-shrink-0">{TAGS_CONSIDERACION.find(t => t.value === c.tag)?.label || c.tag}</span>
+                  <span className="flex-1 text-gray-700">{c.texto}</span>
+                  {cot.puede_editar && cot.estado === 'borrador' && (
+                    <button onClick={() => quitarConsideracion(c.id)} className="text-red-400 hover:text-red-600 flex-shrink-0">✕</button>
+                  )}
+                </div>
+              ))}
+              {cot.puede_editar && cot.estado === 'borrador' && (
+                <div className="border-t border-gray-100 pt-2 space-y-1.5">
+                  <select value={nuevaConsideracionTag} onChange={e => setNuevaConsideracionTag(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                    {TAGS_CONSIDERACION.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                  <textarea value={nuevaConsideracionTexto} onChange={e => setNuevaConsideracionTexto(e.target.value)} rows={2}
+                    placeholder="Texto de la consideración…"
+                    className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                  <button onClick={agregarConsideracion} className="w-full text-sm px-3 py-1.5 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5">+ Agregar</button>
+                </div>
+              )}
             </div>
           )}
         </div>
