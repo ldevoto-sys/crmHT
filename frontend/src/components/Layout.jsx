@@ -206,6 +206,9 @@ export default function Layout() {
             );
           })}
         </nav>
+        <div className="px-5 py-2 text-[10px] text-gray-300 border-t border-gray-100" title={`Build ${__APP_BUILD_FECHA__}`}>
+          v{__APP_VERSION__}
+        </div>
       </aside>
 
       <div className="flex-1 flex flex-col overflow-hidden">
