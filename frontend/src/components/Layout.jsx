@@ -10,8 +10,6 @@ const menuByRole = {
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Cotizaciones', to: '/cotizaciones' },
     { label: 'Mis Tareas', to: '/tareas' },
-    { label: 'Bandeja WhatsApp', to: '/bandeja' },
-    { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
@@ -24,8 +22,6 @@ const menuByRole = {
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Cotizaciones', to: '/cotizaciones' },
     { label: 'Mis Tareas', to: '/tareas' },
-    { label: 'Bandeja WhatsApp', to: '/bandeja' },
-    { label: 'Cola de asignación', to: '/cola' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
@@ -35,7 +31,6 @@ const menuByRole = {
   ],
   vendedor: [
     { label: 'Dashboard', to: '/dashboard' },
-    { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Cotizaciones', to: '/cotizaciones' },
     { label: 'Mis Tareas', to: '/tareas' },
@@ -48,9 +43,7 @@ const menuByRole = {
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },
-    { label: 'Cola de asignación', to: '/cola' },
     { label: 'Mis Tareas', to: '/tareas' },
-    { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
   ],
@@ -58,7 +51,6 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Reportes', to: '/reportes' },
-    { label: 'Bandeja WhatsApp', to: '/bandeja' },
   ],
 };
 

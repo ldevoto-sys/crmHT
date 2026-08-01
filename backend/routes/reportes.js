@@ -131,6 +131,50 @@ async function cotizacionesPorDia(req) {
   );
 }
 
+// Actividad del mes en curso por vendedor, para el gráfico del Dashboard:
+// monto (y cantidad) de cotizaciones emitidas y de negocios pasados a
+// cerrado-ganado dentro del rango. Mismos filtros de fecha que usan por
+// separado cotizacionesPorDia (c.created_at) y rankingVendedores (n.fecha_cierre).
+async function actividadMesPorVendedor(req) {
+  const vendedorId = vendedorFiltro(req);
+  const { desde, hasta, pipeline_id } = req.query;
+  const pipelineId = pipeline_id || 1;
+  const params = [pipelineId, desde, hasta, vendedorId];
+  return db.all(
+    `SELECT coalesce(cot.vendedor_id, gan.vendedor_id) AS vendedor_id,
+            coalesce(cot.vendedor_nombre, gan.vendedor_nombre) AS vendedor_nombre,
+            coalesce(cot.cantidad, 0) AS cotizaciones_cantidad,
+            coalesce(cot.monto, 0) AS cotizaciones_monto,
+            coalesce(gan.cantidad, 0) AS ganados_cantidad,
+            coalesce(gan.monto, 0) AS ganados_monto
+     FROM (
+       SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
+              count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto
+       FROM cotizaciones c
+       JOIN negocios n ON n.id = c.negocio_id
+       JOIN users u ON u.id = n.vendedor_id
+       WHERE c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)
+         AND n.pipeline_id = $1
+         AND c.created_at >= $2 AND c.created_at < ($3::date + interval '1 day')
+         AND ($4::int IS NULL OR n.vendedor_id = $4)
+       GROUP BY u.id, u.nombre
+     ) cot
+     FULL JOIN (
+       SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
+              count(*)::int AS cantidad, coalesce(sum(n.monto_estimado), 0) AS monto
+       FROM negocios n
+       JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       JOIN users u ON u.id = n.vendedor_id
+       WHERE pe.tipo = 'ganada' AND n.pipeline_id = $1
+         AND n.fecha_cierre >= $2 AND n.fecha_cierre <= $3
+         AND ($4::int IS NULL OR n.vendedor_id = $4)
+       GROUP BY u.id, u.nombre
+     ) gan ON gan.vendedor_id = cot.vendedor_id
+     ORDER BY cotizaciones_monto DESC, ganados_monto DESC`,
+    params
+  );
+}
+
 // Detalle por vendedor de la actividad comercial de un día puntual:
 // contactos recién asignados, cotizaciones generadas y cotizaciones ganadas
 // (el negocio se cerró ganado ese día; se usa la última cotización del
@@ -203,6 +247,10 @@ router.get('/tiempos-etapa', async (req, res) => {
 router.get('/ranking-vendedores', async (req, res) => {
   try { res.json(await rankingVendedores(req)); }
   catch (err) { console.error('[reportes/ranking]', err); res.status(500).json({ error: 'Error interno' }); }
+});
+router.get('/actividad-mes', async (req, res) => {
+  try { res.json(await actividadMesPorVendedor(req)); }
+  catch (err) { console.error('[reportes/actividad-mes]', err); res.status(500).json({ error: 'Error interno' }); }
 });
 router.get('/cotizaciones-por-dia', async (req, res) => {
   try { res.json(await cotizacionesPorDia(req)); }
