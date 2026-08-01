@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react'
 import { execSync } from 'child_process'
 
 // Commit corto del build, para poder confirmar en pantalla qué versión está
-// desplegada en cada ambiente (Railway sí clona el repo con historial git).
+// desplegada en cada ambiente. Railway arma el build sin carpeta .git, por
+// eso prioriza la variable que Railway sí inyecta en el build
+// (RAILWAY_GIT_COMMIT_SHA); git rev-parse queda como respaldo para local.
 function commitActual() {
+  if (process.env.RAILWAY_GIT_COMMIT_SHA) return process.env.RAILWAY_GIT_COMMIT_SHA.slice(0, 7);
   try { return execSync('git rev-parse --short HEAD').toString().trim(); }
   catch { return 'dev'; }
 }
