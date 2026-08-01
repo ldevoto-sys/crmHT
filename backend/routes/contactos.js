@@ -195,40 +195,107 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR), uploadCSV.single(
   }
 });
 
+// Tamaño de lote para los INSERT ... ON CONFLICT masivos.
+const LOTE_IMPORTACION_CONTACTOS = 500;
+
+// Resuelve (creando si hace falta) el id de empresa de cada contacto que
+// referencia una por rut y/o nombre, con consultas masivas en vez de una por
+// fila. Prioridad rut > nombre, igual que la versión fila a fila anterior.
+async function resolverEmpresasEnBloque(client, validos) {
+  const refs = validos.map(v => v.contacto).filter(c => c.empresa_rut || c.empresa_nombre);
+  const rutsUnicos = [...new Set(refs.filter(c => c.empresa_rut).map(c => c.empresa_rut))];
+  const nombresUnicos = [...new Set(refs.filter(c => !c.empresa_rut && c.empresa_nombre).map(c => c.empresa_nombre.toLowerCase()))];
+
+  const empresaPorRut = new Map();
+  if (rutsUnicos.length) {
+    const r = await client.query('SELECT id, rut FROM empresas WHERE rut = ANY($1)', [rutsUnicos]);
+    r.rows.forEach(row => empresaPorRut.set(row.rut, row.id));
+  }
+  const empresaPorNombre = new Map();
+  if (nombresUnicos.length) {
+    const r = await client.query('SELECT id, lower(razon_social) AS n FROM empresas WHERE activo=true AND lower(razon_social) = ANY($1)', [nombresUnicos]);
+    r.rows.forEach(row => empresaPorNombre.set(row.n, row.id));
+  }
+
+  // Empresas que no existen todavía, dedupe por rut si tiene (si no, por nombre).
+  const porCrear = new Map();
+  for (const c of refs) {
+    const clave = c.empresa_rut || c.empresa_nombre.toLowerCase();
+    const yaExiste = c.empresa_rut ? empresaPorRut.has(c.empresa_rut) : empresaPorNombre.has(clave);
+    if (yaExiste || porCrear.has(clave)) continue;
+    porCrear.set(clave, { razon_social: c.empresa_nombre || c.empresa_rut, rut: c.empresa_rut || null });
+  }
+
+  const nuevas = [...porCrear.entries()];
+  for (let i = 0; i < nuevas.length; i += LOTE_IMPORTACION_CONTACTOS) {
+    const lote = nuevas.slice(i, i + LOTE_IMPORTACION_CONTACTOS);
+    const params = [];
+    const filas = lote.map(([, v], idx) => {
+      const b = idx * 2;
+      params.push(v.razon_social, v.rut);
+      return `($${b + 1},$${b + 2})`;
+    }).join(',');
+    const r = await client.query(`INSERT INTO empresas (razon_social, rut) VALUES ${filas} RETURNING id, rut`, params);
+    r.rows.forEach((row, idx) => {
+      const [clave] = lote[idx];
+      if (row.rut) empresaPorRut.set(row.rut, row.id);
+      else empresaPorNombre.set(clave, row.id);
+    });
+  }
+
+  const resolver = c => {
+    if (!c.empresa_rut && !c.empresa_nombre) return null;
+    if (c.empresa_rut) return empresaPorRut.get(c.empresa_rut) || null;
+    return empresaPorNombre.get(c.empresa_nombre.toLowerCase()) || null;
+  };
+  return { resolver, empresasCreadas: nuevas.length };
+}
+
 // POST /api/contactos/importar/confirmar
 router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.single('archivo'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
   const { rows } = parseCSV(req.file.buffer.toString('utf8'));
   const { validos } = mapearContactos(rows);
+  // Con teléfono (el caso normal, y es UNIQUE en la tabla): se resuelve en
+  // lotes con INSERT ... ON CONFLICT. Sin teléfono (matcheo por email, con la
+  // regla de "revisar" si el email ya existe en más de un contacto) se deja
+  // fila a fila, igual que antes — son casos ambiguos y normalmente pocos.
+  const conTelefono = validos.filter(v => v.contacto.telefono_e164);
+  const sinTelefono = validos.filter(v => !v.contacto.telefono_e164);
+
   const client = await db.pool.connect();
-  const empresaCache = new Map();
-  let empresasCreadas = 0;
-
-  async function resolverEmpresa({ empresa_rut, empresa_nombre }) {
-    if (!empresa_rut && !empresa_nombre) return null;
-    const key = (empresa_rut || '') + '|' + (empresa_nombre || '').toLowerCase();
-    if (empresaCache.has(key)) return empresaCache.get(key);
-    let emp = null;
-    if (empresa_rut) emp = (await client.query('SELECT id FROM empresas WHERE rut = $1', [empresa_rut])).rows[0];
-    if (!emp && empresa_nombre) emp = (await client.query('SELECT id FROM empresas WHERE lower(razon_social) = lower($1) AND activo = true LIMIT 1', [empresa_nombre])).rows[0];
-    if (!emp) {
-      emp = (await client.query('INSERT INTO empresas (razon_social, rut) VALUES ($1,$2) RETURNING id', [empresa_nombre || empresa_rut, empresa_rut || null])).rows[0];
-      empresasCreadas++;
-    }
-    empresaCache.set(key, emp.id);
-    return emp.id;
-  }
-
   try {
     await client.query('BEGIN');
+    const { resolver: resolverEmpresa, empresasCreadas } = await resolverEmpresasEnBloque(client, validos);
     let insertados = 0, actualizados = 0;
 
-    for (const { contacto: c } of validos) {
-      const empresaId = await resolverEmpresa(c);
+    for (let i = 0; i < conTelefono.length; i += LOTE_IMPORTACION_CONTACTOS) {
+      const lote = conTelefono.slice(i, i + LOTE_IMPORTACION_CONTACTOS);
+      const params = [];
+      const filas = lote.map(({ contacto: c }, idx) => {
+        const b = idx * 8;
+        params.push(c.nombre, c.apellido || null, c.email || null, c.telefono_e164, resolverEmpresa(c), c.rut_comprador || null, c.cargo || null, false);
+        return `($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},'importacion_csv',$${b + 8})`;
+      }).join(',');
+      const r = await client.query(
+        `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado)
+         VALUES ${filas}
+         ON CONFLICT (telefono_e164) DO UPDATE SET
+           apellido      = COALESCE(contactos.apellido, EXCLUDED.apellido),
+           email         = COALESCE(contactos.email, EXCLUDED.email),
+           rut_comprador = COALESCE(contactos.rut_comprador, EXCLUDED.rut_comprador),
+           cargo         = COALESCE(contactos.cargo, EXCLUDED.cargo),
+           empresa_id    = COALESCE(contactos.empresa_id, EXCLUDED.empresa_id)
+         RETURNING (xmax = 0) AS es_nuevo`,
+        params
+      );
+      for (const fila of r.rows) { if (fila.es_nuevo) insertados++; else actualizados++; }
+    }
+
+    for (const { contacto: c } of sinTelefono) {
+      const empresaId = resolverEmpresa(c);
       let existente = null;
-      if (c.telefono_e164) {
-        existente = (await client.query('SELECT id FROM contactos WHERE telefono_e164 = $1', [c.telefono_e164])).rows[0];
-      } else if (c.email) {
+      if (c.email) {
         const matches = (await client.query('SELECT id FROM contactos WHERE lower(email) = lower($1) AND activo = true', [c.email])).rows;
         if (matches.length === 1) existente = matches[0];
       }
@@ -242,26 +309,26 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.singl
         );
         actualizados++;
       } else {
-        // Sin teléfono, si el email ya existe en otros → marcar revisar.
         let revisar = false;
-        if (!c.telefono_e164 && c.email) {
+        if (c.email) {
           const n = (await client.query('SELECT count(*)::int AS n FROM contactos WHERE lower(email)=lower($1) AND activo=true', [c.email])).rows[0].n;
           revisar = n > 0;
         }
         await client.query(
           `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado)
            VALUES ($1,$2,$3,$4,$5,$6,$7,'importacion_csv',$8)`,
-          [c.nombre, c.apellido || null, c.email || null, c.telefono_e164, empresaId, c.rut_comprador || null, c.cargo || null, revisar]
+          [c.nombre, c.apellido || null, c.email || null, null, empresaId, c.rut_comprador || null, c.cargo || null, revisar]
         );
         insertados++;
       }
     }
+
     await client.query('COMMIT');
     res.json({ message: 'Importación completada', insertados, actualizados, empresas_referenciadas: empresasCreadas });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[contactos/importar/confirmar]', err);
-    res.status(500).json({ error: 'Error al importar: ' + err.message });
+    res.status(500).json({ error: 'Error al importar: ' + err.message + (err.detail ? ' — ' + err.detail : '') });
   } finally {
     client.release();
   }

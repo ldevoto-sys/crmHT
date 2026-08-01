@@ -1,7 +1,7 @@
 // Mapea filas CSV a contactos normalizados (HT-AP-03 v1.2 §importador).
 // Plantilla: nombre, apellido, email, telefono, empresa_rut, empresa_nombre, rut_comprador, cargo
 const { normalizarTelefono } = require('./dedup');
-const { validarRut, validarEmail } = require('../utils/validaciones');
+const { validarRut, normalizarRut, validarEmail } = require('../utils/validaciones');
 
 const MAPA = {
   'nombre': 'nombre', 'nombres': 'nombre', 'first name': 'nombre', 'firstname': 'nombre',
@@ -30,8 +30,14 @@ function mapearFila(row) {
   c.telefono_e164 = normalizarTelefono(c.telefono);
   if (c.telefono && !c.telefono_e164) advertencias.push('teléfono no normalizable');
   if (c.email && !validarEmail(c.email)) { advertencias.push('email con formato inválido'); c.email = null; }
-  if (c.rut_comprador && !validarRut(c.rut_comprador)) { advertencias.push('RUT comprador inválido (se ignoró)'); c.rut_comprador = null; }
-  if (c.empresa_rut && !validarRut(c.empresa_rut)) { advertencias.push('RUT empresa inválido (se ignoró)'); c.empresa_rut = null; }
+  if (c.rut_comprador) {
+    if (!validarRut(c.rut_comprador)) { advertencias.push('RUT comprador inválido (se ignoró)'); c.rut_comprador = null; }
+    else c.rut_comprador = normalizarRut(c.rut_comprador);
+  }
+  if (c.empresa_rut) {
+    if (!validarRut(c.empresa_rut)) { advertencias.push('RUT empresa inválido (se ignoró)'); c.empresa_rut = null; }
+    else c.empresa_rut = normalizarRut(c.empresa_rut);
+  }
 
   const errores = [];
   if (!c.nombre) errores.push('falta nombre');
