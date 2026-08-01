@@ -176,7 +176,9 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR), uploadCSV.singl
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[empresas/importar/confirmar]', err);
-    res.status(500).json({ error: 'Error al importar: ' + err.message });
+    // err.detail trae el valor exacto que chocó (ej. "Key (rut)=(...) already
+    // exists."), pero Postgres lo manda separado de err.message.
+    res.status(500).json({ error: 'Error al importar: ' + err.message + (err.detail ? ' — ' + err.detail : '') });
   } finally {
     client.release();
   }
