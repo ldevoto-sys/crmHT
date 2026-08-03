@@ -69,10 +69,18 @@ async function generarCotizacionPDF(data, stream) {
   doc.text(nombreCliente, M, y, { width: 260 });
   doc.fontSize(9).font('Helvetica').fillColor(GRAY);
   let yc = y + Math.max(16, nombreClienteAltura + 4);
-  if (cliente.empresa_direccion) { doc.text(`${cliente.empresa_direccion}${cliente.empresa_comuna ? ', ' + cliente.empresa_comuna : ''}`, M, yc, { width: 260 }); yc += 12; }
-  if (cliente.empresa_rut) { doc.text(`RUT: ${cliente.empresa_rut}`, M, yc); yc += 12; }
-  doc.text(`Contacto: ${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim(), M, yc); yc += 12;
-  if (cliente.contacto_email) { doc.text(cliente.contacto_email, M, yc); yc += 12; }
+  // Cualquiera de estas líneas puede envolver a 2+ líneas (dirección larga,
+  // email largo, nombre+apellido largo) — se mide cada una antes de avanzar,
+  // en vez de un salto fijo de 12pt que solo sirve para una línea.
+  const lineaCliente = (texto) => {
+    const altura = doc.heightOfString(texto, { width: 260 });
+    doc.text(texto, M, yc, { width: 260 });
+    yc += Math.max(12, altura + 2);
+  };
+  if (cliente.empresa_direccion) lineaCliente(`${cliente.empresa_direccion}${cliente.empresa_comuna ? ', ' + cliente.empresa_comuna : ''}`);
+  if (cliente.empresa_rut) lineaCliente(`RUT: ${cliente.empresa_rut}`);
+  lineaCliente(`Contacto: ${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim());
+  if (cliente.contacto_email) lineaCliente(cliente.contacto_email);
 
   // Info (col derecha).
   const info = [['Vendedor', vendedor.nombre], ['Email', vendedor.email],
