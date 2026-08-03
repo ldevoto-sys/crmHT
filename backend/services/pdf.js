@@ -60,9 +60,15 @@ async function generarCotizacionPDF(data, stream) {
   doc.fillColor(CYAN).fontSize(9).font('Helvetica-Bold').text('CLIENTE', M, y);
   doc.fillColor(CYAN).text('INFORMACIÓN', 320, y);
   y += 14;
-  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold').text(cliente.empresa_nombre || `${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim(), M, y, { width: 260 });
+  const nombreCliente = cliente.empresa_nombre || `${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim();
+  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold');
+  // Con nombres/razones sociales largas, el texto envuelve a 2+ líneas — si
+  // el siguiente bloque arranca a una distancia fija (16pt, la de una sola
+  // línea) queda pisado por la segunda línea del nombre.
+  const nombreClienteAltura = doc.heightOfString(nombreCliente, { width: 260 });
+  doc.text(nombreCliente, M, y, { width: 260 });
   doc.fontSize(9).font('Helvetica').fillColor(GRAY);
-  let yc = y + 16;
+  let yc = y + Math.max(16, nombreClienteAltura + 4);
   if (cliente.empresa_direccion) { doc.text(`${cliente.empresa_direccion}${cliente.empresa_comuna ? ', ' + cliente.empresa_comuna : ''}`, M, yc, { width: 260 }); yc += 12; }
   if (cliente.empresa_rut) { doc.text(`RUT: ${cliente.empresa_rut}`, M, yc); yc += 12; }
   doc.text(`Contacto: ${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim(), M, yc); yc += 12;
