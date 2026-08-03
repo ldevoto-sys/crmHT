@@ -21,7 +21,10 @@ function validarPasos(pasos) {
 router.get('/', async (req, res) => {
   try {
     const secuencias = await db.all(
-      `SELECT s.*, (SELECT count(*)::int FROM secuencia_pasos sp WHERE sp.secuencia_id = s.id) AS total_pasos
+      `SELECT s.*, (SELECT count(*)::int FROM secuencia_pasos sp WHERE sp.secuencia_id = s.id) AS total_pasos,
+              (SELECT json_agg(json_build_object('etapa_id', pe.id, 'etapa_nombre', pe.nombre, 'pipeline_nombre', p.nombre) ORDER BY p.nombre, pe.orden)
+                 FROM pipeline_etapas pe JOIN pipelines p ON p.id = pe.pipeline_id
+                 WHERE pe.secuencia_id = s.id) AS etapas
        FROM secuencias s ORDER BY s.nombre`
     );
     res.json(secuencias);

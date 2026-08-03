@@ -68,6 +68,7 @@ export default function ConfigSecuencias() {
           <thead className="bg-slate-50 text-gray-600">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Nombre</th>
+              <th className="text-left px-4 py-2 font-medium">Etapa que la activa</th>
               <th className="text-left px-4 py-2 font-medium">Pasos</th>
               <th className="text-left px-4 py-2 font-medium">Horario hábil</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
@@ -78,6 +79,11 @@ export default function ConfigSecuencias() {
             {secuencias.map(s => (
               <tr key={s.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy">{s.nombre}</td>
+                <td className="px-4 py-2 text-gray-600">
+                  {s.etapas?.length
+                    ? s.etapas.map(e => `${e.etapa_nombre} (${e.pipeline_nombre})`).join(', ')
+                    : <span className="text-gray-400 italic">Sin asignar — Configuración → Pipeline</span>}
+                </td>
                 <td className="px-4 py-2 text-gray-600">{s.total_pasos}</td>
                 <td className="px-4 py-2 text-gray-600">{s.respetar_horario ? 'Sí' : 'No'}</td>
                 <td className="px-4 py-2 text-gray-600">{s.activo ? 'Activa' : 'Inactiva'}</td>
@@ -87,7 +93,7 @@ export default function ConfigSecuencias() {
                 </td>
               </tr>
             ))}
-            {secuencias.length === 0 && <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
+            {secuencias.length === 0 && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin secuencias.</td></tr>}
           </tbody>
         </table>
       </div>
