@@ -22,20 +22,6 @@ const { mayusculas } = require('../utils/texto');
 
 router.use(authenticate);
 
-// GET /api/cotizaciones/_debug/r2-config — TEMPORAL, para diagnosticar por
-// qué "documento-final" reporta el bucket como no configurado cuando
-// Despacho (misma función, mismas variables) sube fotos sin problema.
-// Solo booleanos de presencia, nunca valores. Quitar una vez resuelto.
-router.get('/_debug/r2-config', authorize('administrador'), (req, res) => {
-  res.json({
-    R2_ACCOUNT_ID: !!process.env.R2_ACCOUNT_ID,
-    R2_DESPACHO_ACCESS_KEY_ID: !!process.env.R2_DESPACHO_ACCESS_KEY_ID,
-    R2_DESPACHO_SECRET_ACCESS_KEY: !!process.env.R2_DESPACHO_SECRET_ACCESS_KEY,
-    R2_DESPACHO_BUCKET_NAME: !!process.env.R2_DESPACHO_BUCKET_NAME,
-    configuradoDespacho: r2.configuradoDespacho(),
-  });
-});
-
 // GET /api/cotizaciones/uf-del-dia — para precargar el valor de UF al
 // calcular una cotización de Operaciones (siempre editable a mano).
 router.get('/uf-del-dia', async (req, res) => {
@@ -362,16 +348,6 @@ router.post('/:id/documento-final', upload.single('archivo'), async (req, res) =
     if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
     if (req.file.mimetype !== 'application/pdf') return res.status(400).json({ error: 'El documento final debe ser un PDF' });
     if (!r2.configuradoDespacho()) {
-      // Diagnóstico temporal (v1.19.1): Despacho sube fotos sin problema con
-      // las mismas 4 variables, pero este endpoint las reporta como
-      // faltantes — se deja este log para ver, sin exponer secretos, cuál
-      // de las 4 falta en el proceso real que atiende esta ruta.
-      console.warn('[cotizaciones/documento-final] R2 despacho no configurado. Presentes:', {
-        R2_ACCOUNT_ID: !!process.env.R2_ACCOUNT_ID,
-        R2_DESPACHO_ACCESS_KEY_ID: !!process.env.R2_DESPACHO_ACCESS_KEY_ID,
-        R2_DESPACHO_SECRET_ACCESS_KEY: !!process.env.R2_DESPACHO_SECRET_ACCESS_KEY,
-        R2_DESPACHO_BUCKET_NAME: !!process.env.R2_DESPACHO_BUCKET_NAME,
-      });
       return res.status(503).json({ error: 'El almacenamiento de documentos no está configurado todavía.' });
     }
     const key = `cotizaciones/${req.params.id}/final_${crypto.randomBytes(6).toString('hex')}.pdf`;
