@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const CANALES = ['correo', 'whatsapp', 'llamada', 'tarea'];
-const pasoVacio = () => ({ dias_espera: 1, canal: 'correo', asunto: '', mensaje: '' });
+const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '' });
 
 export default function ConfigSecuencias() {
   const [secuencias, setSecuencias] = useState([]);
@@ -25,7 +25,7 @@ export default function ConfigSecuencias() {
       const { data } = await api.get(`/secuencias/${s.id}`);
       setEditId(s.id); setNombre(data.nombre); setDescripcion(data.descripcion || '');
       setRespetarHorario(!!data.respetar_horario);
-      setPasos(data.pasos.map(p => ({ dias_espera: p.dias_espera, canal: p.canal, asunto: p.asunto || '', mensaje: p.mensaje })));
+      setPasos(data.pasos.map(p => ({ dias_espera: p.dias_espera, horas_espera: p.horas_espera || 0, canal: p.canal, asunto: p.asunto || '', mensaje: p.mensaje })));
       setShowForm(true);
     } catch { setError('No se pudo cargar la secuencia.'); }
   };
@@ -119,34 +119,40 @@ export default function ConfigSecuencias() {
           <div className="space-y-3">
             <label className="block text-sm font-medium text-ht-navy">Pasos (en orden)</label>
             {pasos.map((p, i) => (
-              <div key={i} className="border border-gray-200 rounded p-3 flex flex-wrap gap-2 items-start">
+              <div key={i} className="border border-gray-200 rounded p-4 flex flex-wrap gap-3 items-start">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Días de espera</label>
                   <input type="number" min="0" value={p.dias_espera}
                     onChange={e => cambiarPaso(i, 'dias_espera', Number(e.target.value))}
-                    className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm" />
+                    className="w-24 border border-gray-300 rounded px-3 py-2 text-base" />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Horas de espera</label>
+                  <input type="number" min="0" max="23" value={p.horas_espera}
+                    onChange={e => cambiarPaso(i, 'horas_espera', Number(e.target.value))}
+                    className="w-24 border border-gray-300 rounded px-3 py-2 text-base" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Canal</label>
                   <select value={p.canal} onChange={e => cambiarPaso(i, 'canal', e.target.value)}
-                    className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+                    className="border border-gray-300 rounded px-3 py-2 text-base">
                     {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 {p.canal === 'correo' && (
-                  <div className="flex-1 min-w-[160px]">
+                  <div className="flex-1 min-w-[220px]">
                     <label className="block text-xs text-gray-500 mb-1">Asunto</label>
                     <input value={p.asunto} onChange={e => cambiarPaso(i, 'asunto', e.target.value)}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
                   </div>
                 )}
-                <div className="flex-1 min-w-[200px]">
+                <div className="flex-1 min-w-[280px] basis-full">
                   <label className="block text-xs text-gray-500 mb-1">Mensaje / guion</label>
-                  <textarea required rows={2} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+                  <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
                 </div>
                 {pasos.length > 1 && (
-                  <button type="button" onClick={() => quitarPaso(i)} className="text-red-500 hover:underline text-xs self-center">Quitar</button>
+                  <button type="button" onClick={() => quitarPaso(i)} className="text-red-500 hover:underline text-xs">Quitar</button>
                 )}
               </div>
             ))}

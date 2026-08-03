@@ -58,7 +58,7 @@ async function avanzarPasosPendientes() {
 
     const siguiente = await pasoSiguiente(ns.secuencia_id, paso.orden + 1);
     const nuevoEstado = siguiente ? 'activa' : 'completada';
-    const proxima = siguiente ? new Date(Date.now() + siguiente.dias_espera * 86400000) : null;
+    const proxima = siguiente ? new Date(Date.now() + siguiente.dias_espera * 86400000 + siguiente.horas_espera * 3600000) : null;
     await db.run(
       `UPDATE negocio_secuencias SET paso_actual=$1, estado=$2, proxima_ejecucion=$3, updated_at=now() WHERE id=$4`,
       [paso.orden, nuevoEstado, proxima, ns.id]
@@ -112,7 +112,7 @@ async function activarSecuencia(negocio, secuenciaId, usuarioId, client, origenD
   const primerPaso = await fila(client, 'SELECT * FROM secuencia_pasos WHERE secuencia_id = $1 AND orden = 1', [secuencia.id]);
   if (!primerPaso) return; // secuencia sin pasos configurados
 
-  const proxima = new Date(Date.now() + primerPaso.dias_espera * 86400000);
+  const proxima = new Date(Date.now() + primerPaso.dias_espera * 86400000 + primerPaso.horas_espera * 3600000);
   const r = await ejecutar(
     client,
     `INSERT INTO negocio_secuencias (negocio_id, secuencia_id, proxima_ejecucion, iniciado_por_id) VALUES ($1,$2,$3,$4) RETURNING id`,

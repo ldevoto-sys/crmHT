@@ -903,6 +903,10 @@ async function initDb() {
       UNIQUE (secuencia_id, orden)
     )
   `);
+  // Espera fina en horas, además de los días (ej. "1 día y 4 horas"). Acotada
+  // a 0-23 para que las horas sean siempre el resto de un día — el total se
+  // sigue expresando como dias_espera días + horas_espera horas, nunca al revés.
+  await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS horas_espera INTEGER NOT NULL DEFAULT 0 CHECK (horas_espera >= 0 AND horas_espera < 24)`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS negocio_secuencias (

@@ -13,6 +13,7 @@ function validarPasos(pasos) {
     if (!p.canal || !['correo', 'whatsapp', 'llamada', 'tarea'].includes(p.canal)) return 'Canal inválido en un paso';
     if (!p.mensaje || !p.mensaje.trim()) return 'Cada paso requiere un mensaje';
     if (p.dias_espera === undefined || p.dias_espera === null || Number(p.dias_espera) < 0) return 'dias_espera inválido en un paso';
+    if (p.horas_espera !== undefined && p.horas_espera !== null && (Number(p.horas_espera) < 0 || Number(p.horas_espera) >= 24)) return 'horas_espera inválido en un paso (debe ser 0-23)';
   }
   return null;
 }
@@ -65,9 +66,9 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, canal, asunto, mensaje)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [secuenciaId, orden++, p.dias_espera, p.canal, p.asunto || null, p.mensaje.trim()]
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [secuenciaId, orden++, p.dias_espera, p.horas_espera || 0, p.canal, p.asunto || null, p.mensaje.trim()]
       );
     }
     await client.query('COMMIT');
@@ -107,9 +108,9 @@ router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, canal, asunto, mensaje)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [req.params.id, orden++, p.dias_espera, p.canal, p.asunto || null, p.mensaje.trim()]
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.params.id, orden++, p.dias_espera, p.horas_espera || 0, p.canal, p.asunto || null, p.mensaje.trim()]
       );
     }
     await client.query('COMMIT');
