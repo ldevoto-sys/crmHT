@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -56,10 +56,22 @@ export default function Cotizaciones() {
     } catch { /* silencioso */ }
   };
 
-  const buscarContactos = async val => {
+  // Debounce + descarte de respuestas obsoletas: sin esto, tipear rápido
+  // dispara una consulta por tecla y una respuesta antigua puede llegar
+  // después de la más reciente y pisarla con una lista vacía o parcial.
+  const buscarContactosTimeout = useRef(null);
+  const buscarContactosUltimaQ = useRef('');
+  const buscarContactos = val => {
     setQ(val);
+    buscarContactosUltimaQ.current = val;
+    clearTimeout(buscarContactosTimeout.current);
     if (val.length < 2) { setContactos([]); return; }
-    try { setContactos((await api.get('/contactos', { params: { q: val } })).data.slice(0, 15)); } catch { /* */ }
+    buscarContactosTimeout.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/contactos', { params: { q: val } });
+        if (buscarContactosUltimaQ.current === val) setContactos(data.slice(0, 15));
+      } catch { /* */ }
+    }, 300);
   };
 
   const filtrados = negocios.filter(n => {
