@@ -1148,6 +1148,17 @@ async function initDb() {
     console.log('[DB] Usuario administrador creado (admin@hidrotecnica.cl).');
   }
 
+  // === Informe diario por correo (cotizaciones generadas + negocios ganados) ===
+  // Una fila por día ya informado, para que el chequeo horario en server.js
+  // (cada 15 min) no reenvíe el mismo informe dos veces si cae dentro de la
+  // misma ventana de las 8am.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS informe_diario_envios (
+      fecha DATE PRIMARY KEY,
+      enviado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
   // === Rol de solo lectura para BI externo (Power BI, Looker Studio, etc.) ===
   // Se provisiona solo si BI_READONLY_PASSWORD está definida (variable de
   // entorno en Railway). La contraseña se resincroniza en cada arranque: para

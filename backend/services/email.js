@@ -11,6 +11,8 @@
 // cambio v1.8, §7).
 const { numeroCompleto } = require('./cotizacion_data');
 
+const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
@@ -104,6 +106,34 @@ function boton(url, texto, { fondo = '#34B3DE', color = '#112548' } = {}) {
   `;
 }
 
+// Filas de tabla del informe diario. header: true agrega la fila de títulos
+// (fondo navy) — misma tabla se reutiliza para cotizaciones y para ganados,
+// que tienen columnas equivalentes salvo la primera (numero vs. negocio).
+function filaInforme(cols, { header = false } = {}) {
+  const estiloCelda = header
+    ? 'color:#FFFFFF; padding:8px 10px; font-weight:normal;'
+    : 'padding:8px 10px;';
+  const fondo = header ? 'background:#112548;' : '';
+  const celdas = cols.map((c, i) => {
+    const alinear = i === cols.length - 1 ? 'right' : 'left';
+    const numerico = i === cols.length - 1 ? ' font-variant-numeric: tabular-nums;' : '';
+    return `<td align="${alinear}" style="${estiloCelda}${numerico}">${c}</td>`;
+  }).join('');
+  return `<tr style="${fondo} border-bottom:1px solid #e5e7eb;">${celdas}</tr>`;
+}
+
+function tablaInforme(titulos, filas) {
+  if (!filas.length) {
+    return `<p style="color:#555555; font-size:13px; margin:4px 0 0;">Sin registros.</p>`;
+  }
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size:13px;">
+      ${filaInforme(titulos, { header: true })}
+      ${filas.join('')}
+    </table>
+  `;
+}
+
 module.exports = {
   bienvenida: (user, passwordTemporal) => enviar(
     user.email,
@@ -182,6 +212,62 @@ module.exports = {
       {
         replyTo: vendedor?.email || undefined,
         attachments: pdfBuffer ? [{ filename: `${numeroCompleto(cot.numero, cot.version)}.pdf`, content: pdfBuffer }] : [],
+      }
+    );
+  },
+
+  // Informe diario a todos los usuarios activos: cotizaciones generadas y
+  // negocios ganados el día anterior (ambos pipelines). usuario: {nombre,
+  // email}; fecha: 'YYYY-MM-DD'; cotizaciones/ganados: filas de
+  // services/informeDiario.js; resumen: {totalCotizaciones, totalGanados};
+  // csvCotizaciones/csvGanados: strings CSV (con BOM) para adjuntar.
+  informeDiario: (usuario, fecha, cotizaciones, ganados, resumen, csvCotizaciones, csvGanados) => {
+    const fechaLegible = new Date(`${fecha}T12:00:00Z`).toLocaleDateString('es-CL', {
+      weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago',
+    });
+    const filasCotizaciones = cotizaciones.map(c => filaInforme([
+      numeroCompleto(c.numero, c.version), c.cliente_nombre, c.vendedor_nombre, c.pipeline_nombre, money(c.total),
+    ]));
+    const filasGanados = ganados.map(g => filaInforme([
+      g.negocio_titulo, g.cliente_nombre, g.vendedor_nombre, g.pipeline_nombre, money(g.monto),
+    ]));
+    return enviar(
+      usuario.email,
+      `Informe diario CRM — ${fechaLegible}`,
+      template(`Informe diario — ${fechaLegible}`, `
+        <p>Cotizaciones generadas y negocios ganados el día anterior, Ventas Directas + Operaciones.</p>
+
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 16px 0 24px; border-collapse: collapse;">
+          <tr>
+            <td width="50%" style="background:#f3f4f6; border-radius:4px; padding:14px 16px;">
+              <div style="font-size:12px; color:#555555; text-transform:uppercase; letter-spacing:0.03em;">Cotizaciones generadas</div>
+              <div style="font-size:22px; color:#112548; font-weight:bold; margin-top:4px;">${cotizaciones.length}</div>
+              <div style="font-size:12px; color:#555555; margin-top:2px;">${money(resumen.totalCotizaciones)}</div>
+            </td>
+            <td width="16"></td>
+            <td width="50%" style="background:#f3f4f6; border-radius:4px; padding:14px 16px;">
+              <div style="font-size:12px; color:#555555; text-transform:uppercase; letter-spacing:0.03em;">Negocios ganados</div>
+              <div style="font-size:22px; color:#112548; font-weight:bold; margin-top:4px;">${ganados.length}</div>
+              <div style="font-size:12px; color:#555555; margin-top:2px;">${money(resumen.totalGanados)}</div>
+            </td>
+          </tr>
+        </table>
+
+        <h3 style="color:#112548; font-size:15px; margin-bottom:8px;">Cotizaciones generadas ayer</h3>
+        ${tablaInforme(['N°', 'Cliente', 'Vendedor', 'Pipeline', 'Monto'], filasCotizaciones)}
+
+        <h3 style="color:#112548; font-size:15px; margin:24px 0 8px;">Negocios ganados ayer</h3>
+        ${tablaInforme(['Negocio', 'Cliente', 'Vendedor', 'Pipeline', 'Monto'], filasGanados)}
+
+        <p style="margin-top:24px; font-size:13px; color:#555555;">
+          Se adjuntan <strong>cotizaciones_generadas_${fecha}.csv</strong> y <strong>negocios_ganados_${fecha}.csv</strong> con el detalle completo.
+        </p>
+      `),
+      {
+        attachments: [
+          { filename: `cotizaciones_generadas_${fecha}.csv`, content: csvCotizaciones },
+          { filename: `negocios_ganados_${fecha}.csv`, content: csvGanados },
+        ],
       }
     );
   },

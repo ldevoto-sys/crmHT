@@ -1,10 +1,10 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-08-01
+**Fecha de consolidación:** 2026-08-03
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.19 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.20 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
@@ -13,14 +13,16 @@ backlog priorizado post-lanzamiento (§15); de v1.16: optimización de ruta de
 Despacho con Google Maps Platform; de v1.17-v1.18: el **Cotizador
 Operaciones** completo (§7 de esta versión) — parser de solicitudes Fracttal,
 motor de cálculo de mano de obra/traslado, y generación de propuestas en Word
-a partir de 4 plantillas corporativas; y de v1.19: secuencias de seguimiento
+a partir de 4 plantillas corporativas; de v1.19: secuencias de seguimiento
 disparadas por etapa de pipeline (reemplaza el mecanismo anterior de
 "secuencia predeterminada post-cotización"), el Dashboard con actividad real
 del mes, el fix de rendimiento/normalización de RUT en los importadores
 masivos, el retiro temporal del canal WhatsApp del envío de cotizaciones, y
-la puesta en producción del sistema (01-08-2026). Este documento es el que
-debe subirse a SharePoint reemplazando la versión anterior del documento
-base.
+la puesta en producción del sistema (01-08-2026); y de v1.20: el **informe
+diario por correo** de cotizaciones generadas y negocios ganados (§9 de esta
+versión) — construido y verificado localmente, **pendiente de despliegue a
+producción** al momento de esta consolidación. Este documento es el que debe
+subirse a SharePoint reemplazando la versión anterior del documento base.
 
 ---
 
@@ -547,6 +549,17 @@ mismo criterio que Secuencias (§8).
   `BI_READONLY_PASSWORD`, con `SELECT` sobre todas las tablas actuales y
   futuras. Pensado para Power BI / Looker Studio combinando esta fuente con
   Softland. La contraseña se resincroniza en cada arranque.
+- **Informe diario por correo (v1.20 — pendiente de despliegue):**
+  alternativa al acceso de BI externo cuando la conexión al proxy público de
+  Railway no es viable (ej. firewall corporativo bloqueando el puerto no
+  estándar). Un job interno (`services/informeDiario.js`, sin pasar por el
+  proxy público) envía a las 8:00 AM hora de Chile, a todos los usuarios
+  activos, un correo con las cotizaciones generadas y los negocios ganados el
+  día anterior (ambos pipelines) — mismo criterio de "última versión cuenta
+  una sola vez" que "Cotizaciones por día", con 2 CSV adjuntos. Tabla
+  `informe_diario_envios` evita reenviarlo dos veces el mismo día. Endpoint
+  manual `POST /api/reportes/informe-diario/enviar-ahora` para pruebas o
+  reenvíos. Ver nota de cambio v1.20 para el detalle completo.
 
 ## 10. Encuesta post-cierre
 

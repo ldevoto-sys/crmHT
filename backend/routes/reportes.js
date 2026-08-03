@@ -3,6 +3,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { toCSV } = require('../utils/csv');
+const { enviarInformeDiario, diaAnterior, fechaChileHoy } = require('../services/informeDiario');
 
 const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor'];
@@ -276,6 +277,21 @@ router.get('/export', async (req, res) => {
     res.send('﻿' + csv);
   } catch (err) {
     console.error('[reportes/export]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/reportes/informe-diario/enviar-ahora — dispara el informe diario
+// fuera de su horario programado (8am), para poder probarlo o reenviarlo tras
+// una falla. Por defecto usa el día anterior; ?fecha=YYYY-MM-DD fuerza otro día.
+router.post('/informe-diario/enviar-ahora', async (req, res) => {
+  if (!PUEDE_VER_TODOS.includes(req.user.rol)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const fecha = req.query.fecha || diaAnterior(fechaChileHoy());
+    const resultado = await enviarInformeDiario(fecha);
+    res.json({ fecha, ...resultado });
+  } catch (err) {
+    console.error('[reportes/informe-diario]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

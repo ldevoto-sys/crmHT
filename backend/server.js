@@ -8,6 +8,7 @@ const { initDb } = require('./db');
 const { avanzarPasosPendientes } = require('./services/secuencias');
 const { enviarRecordatorios } = require('./services/encuestas');
 const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
+const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -104,6 +105,12 @@ if (require.main === module) {
       setInterval(() => {
         enviarRecordatorios().catch(err => console.error('[encuestas] Error al enviar recordatorios:', err));
       }, UNA_HORA);
+      // Informe diario por correo (cotizaciones generadas + negocios ganados):
+      // dispara solo a las 8am hora de Chile, y solo una vez por día (ver
+      // tabla informe_diario_envios).
+      setInterval(() => {
+        enviarInformeDiarioSiCorresponde().catch(err => console.error('[informeDiario] Error:', err));
+      }, QUINCE_MIN);
     })
     .catch((err) => {
       console.error('[Server] Error al inicializar DB:', err);
