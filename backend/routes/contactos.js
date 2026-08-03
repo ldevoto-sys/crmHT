@@ -426,12 +426,17 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
     const candidatos = await buscarDuplicados({ email, telefono_e164, nombre, apellido, empresa_id });
     const revisar = candidatos.length > 0;
 
+    // Un vendedor no elige a qué vendedor se asigna un contacto que crea —
+    // queda asignado a sí mismo. Solo administrador/jefe comercial/call
+    // center pueden asignarlo a otro vendedor.
+    const vendedorIdFinal = req.user.rol === 'vendedor' ? req.user.id : (vendedor_id || null);
+
     const result = await db.run(
       `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, rut_comprador, cargo, origen, revisar_duplicado, vendedor_id, vendedor_asignado_en)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [nombre, apellido || null, email || null, telefono_e164, empresa_id || null,
-       rut_comprador || null, cargo || null, origen || 'manual', revisar, vendedor_id || null,
-       vendedor_id ? new Date() : null]
+       rut_comprador || null, cargo || null, origen || 'manual', revisar, vendedorIdFinal,
+       vendedorIdFinal ? new Date() : null]
     );
     res.status(201).json({ contacto: result.rows[0], duplicados_detectados: candidatos });
   } catch (err) {
@@ -458,7 +463,9 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
       if (existe) return res.status(409).json({ error: 'Otro contacto ya usa ese teléfono' });
     }
 
-    const nuevoVendedorId = vendedor_id || null;
+    // Un vendedor no puede reasignar el contacto a otro vendedor: al editar,
+    // se ignora lo que haya mandado y se mantiene la asignación existente.
+    const nuevoVendedorId = req.user.rol === 'vendedor' ? contacto.vendedor_id : (vendedor_id || null);
     const cambiaAsignacion = nuevoVendedorId && nuevoVendedorId != contacto.vendedor_id;
 
     await db.run(

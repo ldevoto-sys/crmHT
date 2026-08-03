@@ -246,11 +246,19 @@ export default function Contactos() {
             </div>
             <div>
               <label className="block text-sm text-gray-700 mb-1">Vendedor asignado</label>
-              <select value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-                <option value="">— Sin asignar —</option>
-                {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-              </select>
+              {user?.rol === 'vendedor' ? (
+                <input disabled value={vendedores.find(v => v.id === Number(form.vendedor_id))?.nombre || 'Sin asignar'}
+                  className="w-full border border-gray-200 bg-gray-50 text-gray-500 rounded px-3 py-2 text-sm" />
+              ) : (
+                <select value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                  <option value="">— Sin asignar —</option>
+                  {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                </select>
+              )}
+              {user?.rol === 'vendedor' && (
+                <p className="text-xs text-gray-400 mt-1">Solo administrador, jefe comercial o call center pueden reasignarlo.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Campo label="RUT comprador" value={form.rut_comprador} onChange={v => setForm({ ...form, rut_comprador: v })} placeholder="12.345.678-9" />

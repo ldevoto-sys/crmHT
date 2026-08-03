@@ -136,11 +136,19 @@ export default function Empresas() {
             </div>
             <div>
               <label className="block text-sm text-gray-700 mb-1">Vendedor de cuenta</label>
-              <select value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-                <option value="">— Sin asignar —</option>
-                {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-              </select>
+              {user?.rol === 'vendedor' ? (
+                <input disabled value={vendedores.find(v => v.id === Number(form.vendedor_id))?.nombre || 'Sin asignar'}
+                  className="w-full border border-gray-200 bg-gray-50 text-gray-500 rounded px-3 py-2 text-sm" />
+              ) : (
+                <select value={form.vendedor_id} onChange={e => setForm({ ...form, vendedor_id: e.target.value })}
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                  <option value="">— Sin asignar —</option>
+                  {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                </select>
+              )}
+              {user?.rol === 'vendedor' && (
+                <p className="text-xs text-gray-400 mt-1">Solo administrador, jefe comercial o call center pueden reasignarla.</p>
+              )}
             </div>
             <div className="flex gap-2 pt-2">
               <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>

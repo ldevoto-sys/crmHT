@@ -229,11 +229,16 @@ router.post('/', authorize(...PUEDE_EDITAR), async (req, res) => {
       if (existe) return res.status(409).json({ error: 'Ya existe una empresa con ese RUT' });
     }
 
+    // Un vendedor no elige a qué vendedor se asigna una empresa que crea —
+    // queda asignada a sí mismo. Solo administrador/jefe comercial/call
+    // center pueden asignarla a otro vendedor.
+    const vendedorIdFinal = req.user.rol === 'vendedor' ? req.user.id : (vendedor_id || null);
+
     const result = await db.run(
       `INSERT INTO empresas (razon_social, rut, dominio_correo, giro, direccion, comuna, ciudad, telefono_e164, vendedor_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [razon_social, rut || null, dominio_correo || null, giro || null, direccion || null,
-       comuna || null, ciudad || null, normalizarTelefono(telefono), vendedor_id || null]
+       comuna || null, ciudad || null, normalizarTelefono(telefono), vendedorIdFinal]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -251,7 +256,7 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
     if (!razon_social) return res.status(400).json({ error: 'Razón social requerida' });
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
 
-    const empresa = await db.get('SELECT id FROM empresas WHERE id = $1', [id]);
+    const empresa = await db.get('SELECT id, vendedor_id FROM empresas WHERE id = $1', [id]);
     if (!empresa) return res.status(404).json({ error: 'Empresa no encontrada' });
 
     if (rut) {
@@ -259,11 +264,15 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
       if (existe) return res.status(409).json({ error: 'Otra empresa ya usa ese RUT' });
     }
 
+    // Un vendedor no puede reasignar la empresa a otro vendedor: al editar,
+    // se ignora lo que haya mandado y se mantiene la asignación existente.
+    const vendedorIdFinal = req.user.rol === 'vendedor' ? empresa.vendedor_id : (vendedor_id || null);
+
     await db.run(
       `UPDATE empresas SET razon_social=$1, rut=$2, dominio_correo=$3, giro=$4, direccion=$5,
               comuna=$6, ciudad=$7, telefono_e164=$8, vendedor_id=$9, activo=$10 WHERE id=$11`,
       [razon_social, rut || null, dominio_correo || null, giro || null, direccion || null,
-       comuna || null, ciudad || null, normalizarTelefono(telefono), vendedor_id || null,
+       comuna || null, ciudad || null, normalizarTelefono(telefono), vendedorIdFinal,
        activo !== undefined ? activo : true, id]
     );
     res.json({ message: 'Empresa actualizada' });

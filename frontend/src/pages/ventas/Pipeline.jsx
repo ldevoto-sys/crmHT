@@ -49,7 +49,7 @@ export default function Pipeline() {
   useEffect(() => {
     if (puedeCambiarPipeline) {
       api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {});
-      api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+      api.get('/users/con-cotizaciones').then(r => setVendedores(r.data)).catch(() => {});
     }
     // eslint-disable-next-line
   }, []);

@@ -34,7 +34,7 @@ export default function Cotizaciones() {
   const puedeFiltrarVendedor = PUEDE_FILTRAR_VENDEDOR.includes(user?.rol);
 
   useEffect(() => {
-    if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+    if (puedeFiltrarVendedor) api.get('/users/con-cotizaciones').then(r => setVendedores(r.data)).catch(() => {});
     // eslint-disable-next-line
   }, []);
 

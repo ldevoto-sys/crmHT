@@ -40,6 +40,28 @@ router.get('/vendedores', async (req, res) => {
   }
 });
 
+// GET /api/users/con-cotizaciones — usuarios activos que son dueños de al
+// menos un negocio con al menos una cotización emitida, sin importar su rol
+// (ej. un administrador que también cotiza). Distinto de /vendedores: ese es
+// para asignación real de cuentas/leads (solo rol vendedor); este es solo
+// para poblar los filtros "por vendedor" de Pipeline/Cotizaciones/Reportes.
+router.get('/con-cotizaciones', async (req, res) => {
+  try {
+    const users = await db.all(
+      `SELECT DISTINCT u.id, u.nombre
+       FROM users u
+       JOIN negocios n ON n.vendedor_id = u.id
+       JOIN cotizaciones c ON c.negocio_id = n.id
+       WHERE u.activo = true
+       ORDER BY u.nombre`
+    );
+    res.json(users);
+  } catch (err) {
+    console.error('[users/GET /con-cotizaciones]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // POST /api/users {password?} — si no se indica password, se genera una temporal.
 // Mientras el envío de correo no esté configurado (BREVO_API_KEY), la
 // respuesta siempre incluye password_temporal para que el administrador la

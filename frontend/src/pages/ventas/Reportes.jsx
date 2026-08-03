@@ -46,7 +46,7 @@ export default function Reportes() {
   const [cargandoDia, setCargandoDia] = useState(null);
 
   useEffect(() => {
-    if (puedeFiltrarVendedor) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+    if (puedeFiltrarVendedor) api.get('/users/con-cotizaciones').then(r => setVendedores(r.data)).catch(() => {});
     api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {});
     // eslint-disable-next-line
   }, []);
