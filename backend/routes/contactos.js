@@ -22,8 +22,17 @@ function filtrosContactos(query) {
   const params = [];
   let i = 1;
   if (q) {
-    clauses.push(`(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i} OR e.razon_social ILIKE $${i})`);
-    params.push(`%${q}%`); i++;
+    // Cada palabra escrita debe aparecer en alguno de los campos (no la
+    // frase completa como substring de una sola columna) — nombre y
+    // apellido están en columnas separadas, así que buscar "gerardo godoy"
+    // antes no encontraba un contacto con nombre=GERARDO apellido=GODOY.
+    const palabras = q.trim().split(/\s+/).filter(Boolean);
+    const porPalabra = palabras.map((palabra) => {
+      const clausula = `(c.nombre ILIKE $${i} OR c.apellido ILIKE $${i} OR c.email ILIKE $${i} OR c.telefono_e164 ILIKE $${i} OR e.razon_social ILIKE $${i})`;
+      params.push(`%${palabra}%`); i++;
+      return clausula;
+    });
+    if (porPalabra.length) clauses.push(`(${porPalabra.join(' AND ')})`);
   }
   if (empresa_id) { clauses.push(`c.empresa_id = $${i++}`); params.push(empresa_id); }
   if (revisar === '1') { clauses.push('c.revisar_duplicado = true'); }

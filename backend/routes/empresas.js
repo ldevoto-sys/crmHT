@@ -23,8 +23,17 @@ router.get('/', async (req, res) => {
     const params = [];
     let i = 1;
     if (q) {
-      clauses.push(`(e.razon_social ILIKE $${i} OR e.rut ILIKE $${i} OR e.dominio_correo ILIKE $${i})`);
-      params.push(`%${q}%`); i++;
+      // Cada palabra escrita debe aparecer en alguno de los campos, no la
+      // frase completa como substring de una sola columna — evita que una
+      // razón social con las palabras en otro orden o con texto de por
+      // medio quede invisible para una búsqueda por nombre.
+      const palabras = q.trim().split(/\s+/).filter(Boolean);
+      const porPalabra = palabras.map((palabra) => {
+        const clausula = `(e.razon_social ILIKE $${i} OR e.rut ILIKE $${i} OR e.dominio_correo ILIKE $${i})`;
+        params.push(`%${palabra}%`); i++;
+        return clausula;
+      });
+      if (porPalabra.length) clauses.push(`(${porPalabra.join(' AND ')})`);
     }
     if (sin_vendedor === '1') { clauses.push('e.vendedor_id IS NULL'); }
     else if (vendedor_id) { clauses.push(`e.vendedor_id = $${i++}`); params.push(vendedor_id); }
