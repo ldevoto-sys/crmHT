@@ -3,19 +3,40 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
 import NotasYTareas from '../../components/NotasYTareas';
 import { formatFechaHora } from '../../utils/fecha';
+import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = formatFechaHora;
+const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial', 'callcenter'];
 
 export default function DetalleContacto() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [c, setC] = useState(null);
   const [error, setError] = useState('');
   const [showNuevoNegocio, setShowNuevoNegocio] = useState(false);
   const [titulo, setTitulo] = useState(''); const [monto, setMonto] = useState('');
+  const [vendedores, setVendedores] = useState([]);
+  const [guardandoVendedor, setGuardandoVendedor] = useState(false);
 
   const cargar = () => api.get(`/contactos/${id}`).then(r => setC(r.data)).catch(() => setError('No se pudo cargar el contacto.'));
   useEffect(() => { cargar(); }, [id]);
+  useEffect(() => {
+    if (PUEDE_REASIGNAR_VENDEDOR.includes(user?.rol)) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+  }, [user]);
+
+  const cambiarVendedor = async vendedorId => {
+    setError(''); setGuardandoVendedor(true);
+    try {
+      await api.put(`/contactos/${id}`, {
+        nombre: c.nombre, apellido: c.apellido, email: c.email, telefono: c.telefono_e164,
+        empresa_id: c.empresa_id, rut_comprador: c.rut_comprador, cargo: c.cargo,
+        activo: c.activo, revisar_duplicado: c.revisar_duplicado, vendedor_id: vendedorId || null,
+      });
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar el vendedor.'); }
+    finally { setGuardandoVendedor(false); }
+  };
 
   const crearNegocio = async e => {
     e.preventDefault(); setError('');
@@ -50,7 +71,19 @@ export default function DetalleContacto() {
               {dato('Teléfono', c.telefono_e164)}
               {dato('RUT comprador', c.rut_comprador)}
               {dato('Origen', c.origen)}
-              {dato('Vendedor asignado', c.vendedor_nombre)}
+              {PUEDE_REASIGNAR_VENDEDOR.includes(user?.rol) ? (
+                <div>
+                  <dt className="text-xs text-gray-500">Vendedor asignado</dt>
+                  <dd>
+                    <select value={c.vendedor_id || ''} disabled={guardandoVendedor}
+                      onChange={e => cambiarVendedor(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:opacity-50">
+                      <option value="">— Sin asignar —</option>
+                      {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                    </select>
+                  </dd>
+                </div>
+              ) : dato('Vendedor asignado', c.vendedor_nombre)}
             </dl>
           </div>
 
