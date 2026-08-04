@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
-const { validarRut } = require('../utils/validaciones');
+const { validarRut, validarEmail } = require('../utils/validaciones');
 const { normalizarTelefono, buscarDuplicados, sugerirEmpresaPorEmail } = require('../services/dedup');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
@@ -480,6 +480,27 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
     res.json({ message: 'Contacto actualizado' });
   } catch (err) {
     console.error('[contactos/PUT /:id]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/contactos/:id/email — actualiza solo el email, sin tocar el resto
+// de los datos del contacto. Pensado para completar el email al vuelo desde
+// pantallas ajenas a la ficha (ej. al enviar una cotización a un contacto sin
+// email), donde solo se cuenta con ese dato y no con el contacto completo —
+// usar el PUT genérico ahí pisaría teléfono/empresa/cargo/etc. con null.
+router.put('/:id/email', authorize(...PUEDE_EDITAR), async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !validarEmail(email)) return res.status(400).json({ error: 'Email inválido' });
+
+    const contacto = await db.get('SELECT id FROM contactos WHERE id = $1', [req.params.id]);
+    if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
+
+    await db.run('UPDATE contactos SET email = $1 WHERE id = $2', [email, req.params.id]);
+    res.json({ message: 'Email actualizado' });
+  } catch (err) {
+    console.error('[contactos/PUT /:id/email]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

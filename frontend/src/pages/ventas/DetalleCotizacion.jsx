@@ -131,6 +131,35 @@ export default function DetalleCotizacion() {
     setEnviando(false);
   };
 
+  // Completa el email del contacto al vuelo (sin ir a su ficha) y envía la
+  // cotización de inmediato, para el caso frecuente de una cotización lista
+  // para enviar cuyo contacto simplemente no tenía email cargado.
+  const [nuevoEmail, setNuevoEmail] = useState('');
+  const [guardandoEmail, setGuardandoEmail] = useState(false);
+  const guardarEmailYEnviar = async () => {
+    if (!nuevoEmail.trim()) { setError('Ingresa un email.'); return; }
+    setError(''); setMsg(''); setGuardandoEmail(true);
+    try {
+      await api.put(`/contactos/${cot.contacto_id}/email`, { email: nuevoEmail.trim() });
+      setNuevoEmail(''); setCanalCorreo(true);
+    } catch (err) {
+      setError(err.response?.data?.error || 'No se pudo guardar el email.');
+      setGuardandoEmail(false);
+      return;
+    }
+    // El email ya quedó guardado en el contacto aunque el envío falle —
+    // siempre recargamos para reflejarlo y sacar el aviso, y distinguimos
+    // el error de envío del de guardado en el mensaje.
+    try {
+      const { data } = await api.post(`/cotizaciones/${id}/enviar`);
+      setMsg(data.message);
+    } catch (err) {
+      setError('Email guardado. ' + (err.response?.data?.error || 'No se pudo enviar el correo.'));
+    }
+    await cargar();
+    setGuardandoEmail(false);
+  };
+
   const accion = async (fn) => { setError(''); setMsg(''); try { await fn(); cargar(); } catch (err) { setError(err.response?.data?.error || 'Error.'); } };
 
   if (error && !cot) return <div className="p-6 text-red-600">{error}</div>;
@@ -225,9 +254,17 @@ export default function DetalleCotizacion() {
                   <p className="text-xs text-amber-600">Sube el documento final antes de enviar.</p>
                 )}
                 {!cot.contacto_email && (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                    Este contacto no tiene email registrado — no se puede enviar la cotización. Agrégalo en la ficha del contacto.
-                  </p>
+                  <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 space-y-1.5">
+                    <p>Este contacto no tiene email registrado.</p>
+                    <input type="email" value={nuevoEmail} onChange={e => setNuevoEmail(e.target.value)}
+                      placeholder="correo@cliente.cl"
+                      className="w-full border border-amber-300 rounded px-2 py-1 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                    <button onClick={guardarEmailYEnviar}
+                      disabled={guardandoEmail || !nuevoEmail.trim() || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
+                      className="w-full text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50">
+                      {guardandoEmail ? 'Guardando y enviando…' : 'Guardar email y enviar'}
+                    </button>
+                  </div>
                 )}
                 <label className={`flex items-center gap-2 text-sm ${cot.contacto_email ? 'text-gray-700' : 'text-gray-300'}`}>
                   <input type="checkbox" checked={canalCorreo} disabled={!cot.contacto_email}
