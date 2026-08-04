@@ -3,7 +3,44 @@ import { Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
-const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '', rut_comprador: '', cargo: '', vendedor_id: '' };
+const vacio = { nombre: '', apellido: '', email: '', telefono: '', empresa_id: '', empresa_nombre: '', rut_comprador: '', cargo: '', vendedor_id: '' };
+
+// Busca por nombre/RUT en vez de cargar todas las empresas: con ~49.000
+// empresas reales, un <select> con todas no alcanza a mostrar más allá de
+// la letra "A" (GET /api/empresas sin filtro trae ORDER BY razon_social
+// LIMIT 500). Mismo patrón que BuscadorProducto en NuevaCotizacion.jsx.
+function BuscadorEmpresa({ value, onChange, onElegir, placeholder = 'Buscar por nombre o RUT…' }) {
+  const [resultados, setResultados] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+
+  const buscar = async val => {
+    onChange(val);
+    if (val.length < 2) { setResultados([]); return; }
+    try {
+      setResultados((await api.get('/empresas', { params: { q: val } })).data.slice(0, 15));
+    } catch { /* */ }
+  };
+
+  return (
+    <div className="relative">
+      <input value={value} onChange={e => buscar(e.target.value)}
+        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder={placeholder}
+        className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+      {abierto && resultados.length > 0 && (
+        <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-64 overflow-y-auto shadow">
+          {resultados.map(e => (
+            <button key={e.id} type="button" onMouseDown={() => { onElegir(e); setResultados([]); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+              <span className="text-ht-navy">{e.razon_social}</span>
+              {e.rut && <span className="text-gray-400"> · {e.rut}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Contactos() {
   const { user } = useAuth();
@@ -11,7 +48,6 @@ export default function Contactos() {
   const puedeVerDuplicados = ['administrador', 'jefe_comercial', 'callcenter'].includes(user?.rol);
   const puedeExportar = ['administrador', 'jefe_comercial'].includes(user?.rol);
   const [contactos, setContactos] = useState([]);
-  const [empresas, setEmpresas] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [q, setQ] = useState('');
   const [filtroVendedor, setFiltroVendedor] = useState('');
@@ -25,6 +61,7 @@ export default function Contactos() {
   // Selección múltiple
   const [sel, setSel] = useState(() => new Set());
   const [bulkEmpresa, setBulkEmpresa] = useState('');
+  const [bulkEmpresaNombre, setBulkEmpresaNombre] = useState('');
 
   const cargar = async () => {
     const params = {};
@@ -40,7 +77,6 @@ export default function Contactos() {
     return () => clearTimeout(t);
     // eslint-disable-next-line
   }, [q, filtroVendedor]);
-  useEffect(() => { api.get('/empresas').then(r => setEmpresas(r.data)).catch(() => {}); }, []);
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const toggle = id => setSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -52,7 +88,7 @@ export default function Contactos() {
     try {
       const { data } = await api.post('/contactos/bulk-accion', { ids: [...sel], accion, ...extra });
       setMsg(`${data.message} (${data.afectados}).`);
-      setBulkEmpresa('');
+      setBulkEmpresa(''); setBulkEmpresaNombre('');
       cargar();
     } catch (err) { setError(err.response?.data?.error || 'Error en la acción en lote.'); }
   };
@@ -62,8 +98,8 @@ export default function Contactos() {
     const { data } = await api.get(`/contactos/${c.id}`);
     setEditId(c.id);
     setForm({ nombre: data.nombre || '', apellido: data.apellido || '', email: data.email || '',
-      telefono: data.telefono_e164 || '', empresa_id: data.empresa_id || '', rut_comprador: data.rut_comprador || '',
-      cargo: data.cargo || '', vendedor_id: data.vendedor_id || '' });
+      telefono: data.telefono_e164 || '', empresa_id: data.empresa_id || '', empresa_nombre: data.empresa_nombre || '',
+      rut_comprador: data.rut_comprador || '', cargo: data.cargo || '', vendedor_id: data.vendedor_id || '' });
     setCandidatos([]); setEmpresaSugerida(null); setError(''); setMsg(''); setShowForm(true);
   };
 
@@ -152,14 +188,13 @@ export default function Contactos() {
       {puedeEditar && sel.size > 0 && (
         <div className="mb-3 p-3 bg-ht-navy/5 border border-ht-navy/20 rounded flex items-center gap-3 flex-wrap">
           <span className="text-sm font-medium text-ht-navy">{sel.size} seleccionado(s)</span>
-          <div className="flex items-center gap-2">
-            <select value={bulkEmpresa} onChange={e => setBulkEmpresa(e.target.value)}
-              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-              <option value="">Asignar a empresa…</option>
-              {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
-            </select>
+          <div className="flex items-center gap-2 w-64">
+            <BuscadorEmpresa value={bulkEmpresaNombre}
+              onChange={v => { setBulkEmpresaNombre(v); setBulkEmpresa(''); }}
+              onElegir={e => { setBulkEmpresa(e.id); setBulkEmpresaNombre(e.razon_social); }}
+              placeholder="Asignar a empresa…" />
             <button disabled={!bulkEmpresa} onClick={() => bulk('asignar_empresa', { empresa_id: Number(bulkEmpresa) })}
-              className="text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50">Asignar</button>
+              className="text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50 flex-shrink-0">Asignar</button>
           </div>
           <button onClick={() => bulk('marcar_revisado')} className="text-sm px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50">Marcar revisado</button>
           <button onClick={() => { if (window.confirm(`¿Desactivar ${sel.size} contacto(s)?`)) bulk('desactivar'); }}
@@ -231,18 +266,20 @@ export default function Contactos() {
             {empresaSugerida && !form.empresa_id && (
               <div className="p-3 bg-ht-accent/10 border border-ht-accent/30 rounded text-sm text-ht-navy flex items-center justify-between">
                 <span>Empresa sugerida por dominio: <strong>{empresaSugerida.razon_social}</strong></span>
-                <button type="button" onClick={() => setForm({ ...form, empresa_id: empresaSugerida.id })}
+                <button type="button" onClick={() => setForm({ ...form, empresa_id: empresaSugerida.id, empresa_nombre: empresaSugerida.razon_social })}
                   className="text-ht-navy underline">Asociar</button>
               </div>
             )}
 
             <div>
               <label className="block text-sm text-gray-700 mb-1">Empresa</label>
-              <select value={form.empresa_id} onChange={e => setForm({ ...form, empresa_id: e.target.value })}
-                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-                <option value="">— Sin empresa —</option>
-                {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
-              </select>
+              <BuscadorEmpresa value={form.empresa_nombre}
+                onChange={v => setForm({ ...form, empresa_nombre: v, empresa_id: '' })}
+                onElegir={e => setForm({ ...form, empresa_id: e.id, empresa_nombre: e.razon_social })} />
+              {form.empresa_id && (
+                <button type="button" onClick={() => setForm({ ...form, empresa_id: '', empresa_nombre: '' })}
+                  className="text-xs text-gray-400 hover:underline mt-1">Quitar empresa</button>
+              )}
             </div>
             <div>
               <label className="block text-sm text-gray-700 mb-1">Vendedor asignado</label>
