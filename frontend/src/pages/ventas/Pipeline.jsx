@@ -112,6 +112,11 @@ export default function Pipeline() {
               Exportar CSV
             </button>
           )}
+          {PUEDE_EXPORTAR.includes(user?.rol) && (
+            <Link to="/pipeline/importar" className="px-4 py-2 rounded text-sm font-medium border border-ht-navy text-ht-navy hover:bg-ht-navy/5">
+              Importar oportunidades
+            </Link>
+          )}
           <button onClick={() => setShowNuevo(true)} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nuevo negocio</button>
         </div>
       </div>

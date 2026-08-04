@@ -5,7 +5,11 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
-const { toCSV } = require('../utils/csv');
+const { toCSV, parseCSV } = require('../utils/csv');
+const { uploadCSV } = require('../middleware/upload');
+const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
+
+const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
@@ -550,6 +554,208 @@ router.get('/:id/encuesta', async (req, res) => {
   } catch (err) {
     console.error('[negocios/GET /:id/encuesta]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// === Importador CSV de oportunidades (O/C contra contrato, sin cotización) ===
+// Cada fila crea un negocio directo en la etapa "Aceptado" (tipo='ganada')
+// del pipeline "Operaciones", sin pasar por PUT /:id/etapa — por eso no
+// dispara encuesta de satisfacción ni tarea de seguimiento, a diferencia de
+// cerrar un negocio manualmente desde el Pipeline.
+
+// GET /api/negocios/importar/plantilla
+router.get('/importar/plantilla', (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_oportunidades.csv"');
+  res.send('﻿' + PLANTILLA_HEADERS_NEGOCIOS.join(',') + '\n');
+});
+
+// Resuelve por lote el pipeline "Operaciones" y su etapa tipo='ganada'.
+// No existe hoy una forma de identificar el pipeline por nombre salvo el
+// texto seedado ("Operaciones") — si se renombra desde Configuración, el
+// importador deja de encontrarlo y conviene que sea un error explícito.
+async function resolverPipelineOperaciones(client) {
+  const pipeline = await client.query(`SELECT id FROM pipelines WHERE nombre = 'Operaciones' AND activo = true LIMIT 1`);
+  if (!pipeline.rows[0]) return { error: 'No se encontró el pipeline "Operaciones" (revisa que no haya sido renombrado).' };
+  const etapa = await client.query(
+    `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'ganada' AND activo = true LIMIT 1`,
+    [pipeline.rows[0].id]
+  );
+  if (!etapa.rows[0]) return { error: 'El pipeline "Operaciones" no tiene una etapa de tipo "ganada" configurada.' };
+  return { pipelineId: pipeline.rows[0].id, etapa: etapa.rows[0] };
+}
+
+// Resuelve cada "vendedor" del CSV (email o nombre) contra los usuarios
+// activos. No crea usuarios nuevos: si no matchea a nadie, la fila se
+// rechaza — el vendedor responsable debe existir de antemano en el sistema.
+async function resolverVendedores(client, validos) {
+  const valores = [...new Set(validos.map(v => v.negocio.vendedor).filter(Boolean))];
+  const porEmail = valores.filter(v => v.includes('@')).map(v => v.toLowerCase());
+  const porNombre = valores.filter(v => !v.includes('@')).map(v => v.toLowerCase());
+
+  const mapaEmail = new Map();
+  const mapaNombre = new Map();
+  if (porEmail.length) {
+    const r = await client.query('SELECT id, lower(email) AS e FROM users WHERE activo = true AND lower(email) = ANY($1)', [porEmail]);
+    r.rows.forEach(row => mapaEmail.set(row.e, row.id));
+  }
+  if (porNombre.length) {
+    const r = await client.query('SELECT id, lower(nombre) AS n FROM users WHERE activo = true AND lower(nombre) = ANY($1)', [porNombre]);
+    r.rows.forEach(row => mapaNombre.set(row.n, row.id));
+  }
+
+  const resolver = valor => {
+    if (!valor) return null;
+    const v = valor.toLowerCase();
+    return v.includes('@') ? (mapaEmail.get(v) || null) : (mapaNombre.get(v) || null);
+  };
+  return resolver;
+}
+
+// Resuelve (creando si hace falta) la empresa referenciada por rut/nombre.
+// Cachea en memoria dentro de la misma corrida para no duplicar una empresa
+// citada en varias filas del mismo archivo (ej: 40 O/C de "CENCOSUD S.A.").
+function crearResolverEmpresas(client) {
+  const cache = new Map();
+  return async ({ empresa_rut, empresa_nombre }) => {
+    const clave = empresa_rut || empresa_nombre.toLowerCase();
+    if (cache.has(clave)) return cache.get(clave);
+
+    let fila = empresa_rut
+      ? (await client.query('SELECT id FROM empresas WHERE rut = $1', [empresa_rut])).rows[0]
+      : (await client.query('SELECT id FROM empresas WHERE activo = true AND lower(razon_social) = $1', [empresa_nombre.toLowerCase()])).rows[0];
+
+    if (!fila) {
+      fila = (await client.query(
+        'INSERT INTO empresas (razon_social, rut) VALUES ($1,$2) RETURNING id',
+        [empresa_nombre || empresa_rut, empresa_rut || null]
+      )).rows[0];
+    }
+    cache.set(clave, fila.id);
+    return fila.id;
+  };
+}
+
+// Resuelve (creando si hace falta) el contacto de la fila, dentro de la
+// empresa ya resuelta. Prioridad teléfono (UNIQUE) > email > crear nuevo,
+// igual que el importador de contactos.
+async function resolverOCrearContacto(client, n, empresaId) {
+  if (n.contacto_telefono_e164) {
+    const existente = (await client.query('SELECT id, empresa_id FROM contactos WHERE telefono_e164 = $1', [n.contacto_telefono_e164])).rows[0];
+    if (existente) {
+      if (!existente.empresa_id && empresaId) {
+        await client.query('UPDATE contactos SET empresa_id = $1 WHERE id = $2', [empresaId, existente.id]);
+      }
+      return existente.id;
+    }
+  } else if (n.contacto_email) {
+    const matches = (await client.query('SELECT id FROM contactos WHERE lower(email) = lower($1) AND activo = true', [n.contacto_email])).rows;
+    if (matches.length === 1) return matches[0].id;
+  }
+  const r = await client.query(
+    `INSERT INTO contactos (nombre, apellido, email, telefono_e164, empresa_id, origen)
+     VALUES ($1,$2,$3,$4,$5,'importacion_csv') RETURNING id`,
+    [n.contacto_nombre, n.contacto_apellido || null, n.contacto_email || null, n.contacto_telefono_e164 || null, empresaId]
+  );
+  return r.rows[0].id;
+}
+
+// POST /api/negocios/importar/preview
+router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCSV.single('archivo'), async (req, res) => {
+  const client = await db.pool.connect();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+    const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+    const { validos, rechazos } = mapearNegocios(rows);
+
+    const pipelineInfo = await resolverPipelineOperaciones(client);
+    if (pipelineInfo.error) return res.status(400).json({ error: pipelineInfo.error });
+
+    const resolverVendedor = await resolverVendedores(client, validos);
+    const finales = [];
+    for (const v of validos) {
+      const vendedorId = resolverVendedor(v.negocio.vendedor);
+      if (!vendedorId) { rechazos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${v.negocio.vendedor}"` }); continue; }
+      finales.push(v);
+    }
+
+    const conAdvertencia = finales.filter(v => v.advertencias.length > 0).length;
+    res.json({
+      resumen: {
+        total_filas_validas: finales.length,
+        con_advertencia: conAdvertencia,
+        rechazos: rechazos.length,
+      },
+      muestra: finales.slice(0, 20).map(v => ({
+        empresa: v.negocio.empresa_nombre || v.negocio.empresa_rut,
+        contacto: `${v.negocio.contacto_nombre} ${v.negocio.contacto_apellido || ''}`.trim(),
+        titulo: v.negocio.titulo,
+        n_oc: v.negocio.n_oc || '',
+        monto: v.negocio.monto,
+        fecha_cierre: v.negocio.fecha_cierre || '',
+        vendedor: v.negocio.vendedor,
+        advertencias: v.advertencias,
+      })),
+      rechazos: rechazos.slice(0, 200),
+    });
+  } catch (err) {
+    console.error('[negocios/importar/preview]', err);
+    res.status(500).json({ error: 'Error al procesar el archivo: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/negocios/importar/confirmar
+router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCSV.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+  const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+  const { validos } = mapearNegocios(rows);
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const pipelineInfo = await resolverPipelineOperaciones(client);
+    if (pipelineInfo.error) { await client.query('ROLLBACK'); return res.status(400).json({ error: pipelineInfo.error }); }
+    const { pipelineId, etapa } = pipelineInfo;
+
+    const resolverVendedor = await resolverVendedores(client, validos);
+    const resolverEmpresa = crearResolverEmpresas(client);
+
+    let creados = 0;
+    const omitidos = [];
+    for (const v of validos) {
+      const n = v.negocio;
+      const vendedorId = resolverVendedor(n.vendedor);
+      if (!vendedorId) { omitidos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${n.vendedor}"` }); continue; }
+
+      const empresaId = await resolverEmpresa({ empresa_rut: n.empresa_rut, empresa_nombre: n.empresa_nombre });
+      const contactoId = await resolverOCrearContacto(client, n, empresaId);
+      const fechaCierre = n.fecha_cierre || new Date().toISOString().slice(0, 10);
+
+      const r = await client.query(
+        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, pipeline_id, n_oc)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, pipelineId, n.n_oc || null]
+      );
+      const negocioId = r.rows[0].id;
+      await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocioId, etapa.id]);
+      await timeline.registrar({
+        contacto_id: contactoId, empresa_id: empresaId, negocio_id: negocioId, tipo: 'cambio_etapa',
+        descripcion: 'Negocio creado por importación de oportunidades (O/C directo a Aceptado)', usuario_id: req.user.id,
+      }, client);
+      creados++;
+    }
+
+    await client.query('COMMIT');
+    res.json({ message: 'Importación completada', creados, omitidos });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[negocios/importar/confirmar]', err);
+    res.status(500).json({ error: 'Error al importar: ' + err.message + (err.detail ? ' — ' + err.detail : '') });
+  } finally {
+    client.release();
   }
 });
 

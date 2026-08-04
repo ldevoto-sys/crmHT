@@ -251,6 +251,11 @@ async function initDb() {
   // Todos parten en "Ventas Directas" (id=1); se cambia desde Configuración → Usuarios.
   await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pipeline_default_id INTEGER NOT NULL REFERENCES pipelines(id) DEFAULT 1`);
 
+  // N° de orden de compra del cliente (Cencosud, Sodimac, etc.), para negocios
+  // que nacen de una O/C contra un contrato en vez de una cotización propia
+  // (importador masivo de oportunidades — HT-AP-03).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS n_oc TEXT`);
+
   // Línea de tiempo unificada. cotizacion_id sin FK todavía (la tabla llega en 2B).
   await db.run(`
     CREATE TABLE IF NOT EXISTS timeline (

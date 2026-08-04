@@ -27,6 +27,7 @@ import Productos from './pages/maestros/Productos';
 import DetalleProducto from './pages/maestros/DetalleProducto';
 import ImportarProductos from './pages/maestros/ImportarProductos';
 import Pipeline from './pages/ventas/Pipeline';
+import ImportarNegocios from './pages/ventas/ImportarNegocios';
 import DetalleNegocio from './pages/ventas/DetalleNegocio';
 import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
@@ -83,6 +84,9 @@ export default function App() {
 
             {/* Etapa 2 — Cotizador y pipeline */}
             <Route path="pipeline" element={<Pipeline />} />
+            <Route path="pipeline/importar" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarNegocios /></ProtectedRoute>
+            } />
             <Route path="negocios/:id" element={<DetalleNegocio />} />
             <Route path="negocios/:negocioId/cotizar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
