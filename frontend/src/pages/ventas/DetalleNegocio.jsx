@@ -22,10 +22,14 @@ export default function DetalleNegocio() {
 
   const [cots, setCots] = useState([]);
   const [encuesta, setEncuesta] = useState(null);
+  const [contactoNombre, setContactoNombre] = useState('');
+  const [empresaNombre, setEmpresaNombre] = useState('');
   const cargar = async () => {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
       setFechaEstimada(data.fecha_cierre_estimada ? data.fecha_cierre_estimada.slice(0, 10) : '');
+      setContactoNombre(`${data.contacto_nombre} ${data.contacto_apellido || ''}`.trim());
+      setEmpresaNombre(data.empresa_nombre || '');
       setCots((await api.get('/cotizaciones', { params: { negocio_id: id } })).data);
       if (data.etapa_tipo === 'ganada') setEncuesta((await api.get(`/negocios/${id}/encuesta`)).data);
     }
@@ -56,6 +60,16 @@ export default function DetalleNegocio() {
     catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la fecha estimada.'); }
   };
 
+  const cambiarContacto = async contacto => {
+    try { await api.put(`/negocios/${id}`, { contacto_id: contacto.id }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar el contacto.'); }
+  };
+
+  const cambiarEmpresa = async empresa => {
+    try { await api.put(`/negocios/${id}`, { empresa_id: empresa.id }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la empresa.'); }
+  };
+
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!n) return <div className="p-6 text-gray-400">Cargando…</div>;
 
@@ -72,8 +86,18 @@ export default function DetalleNegocio() {
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <h2 className="font-semibold text-ht-navy mb-3">Datos</h2>
             <dl className="grid grid-cols-2 gap-3 text-sm">
-              <Dato label="Contacto" val={`${n.contacto_nombre} ${n.contacto_apellido || ''}`} />
-              <Dato label="Empresa" val={n.empresa_nombre} />
+              {n.puede_editar ? (
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Contacto</dt>
+                  <dd><BuscadorContacto value={contactoNombre} onChange={setContactoNombre} onElegir={cambiarContacto} /></dd>
+                </div>
+              ) : <Dato label="Contacto" val={`${n.contacto_nombre} ${n.contacto_apellido || ''}`} />}
+              {n.puede_editar ? (
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Empresa</dt>
+                  <dd><BuscadorEmpresa value={empresaNombre} onChange={setEmpresaNombre} onElegir={cambiarEmpresa} /></dd>
+                </div>
+              ) : <Dato label="Empresa" val={n.empresa_nombre} />}
               <Dato label="Email" val={n.contacto_email} />
               <Dato label="Teléfono" val={n.contacto_telefono} />
               <Dato label="Vendedor" val={n.vendedor_nombre} />
@@ -217,6 +241,70 @@ function Dato({ label, val }) {
     <div>
       <dt className="text-xs text-gray-500">{label}</dt>
       <dd className="text-ht-navy">{val || '—'}</dd>
+    </div>
+  );
+}
+
+function BuscadorContacto({ value, onChange, onElegir }) {
+  const [resultados, setResultados] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+
+  const buscar = async val => {
+    onChange(val);
+    if (val.length < 2) { setResultados([]); return; }
+    try { setResultados((await api.get('/contactos', { params: { q: val } })).data.slice(0, 15)); }
+    catch { /* */ }
+  };
+
+  return (
+    <div className="relative">
+      <input value={value} onChange={e => buscar(e.target.value)}
+        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Buscar por nombre, email o teléfono…"
+        className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+      {abierto && resultados.length > 0 && (
+        <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-64 overflow-y-auto shadow">
+          {resultados.map(c => (
+            <button key={c.id} type="button" onMouseDown={() => { onElegir(c); setResultados([]); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+              <span className="text-ht-navy">{c.nombre} {c.apellido || ''}</span>
+              {c.empresa_nombre && <span className="text-gray-400"> · {c.empresa_nombre}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuscadorEmpresa({ value, onChange, onElegir }) {
+  const [resultados, setResultados] = useState([]);
+  const [abierto, setAbierto] = useState(false);
+
+  const buscar = async val => {
+    onChange(val);
+    if (val.length < 2) { setResultados([]); return; }
+    try { setResultados((await api.get('/empresas', { params: { q: val } })).data.slice(0, 15)); }
+    catch { /* */ }
+  };
+
+  return (
+    <div className="relative">
+      <input value={value} onChange={e => buscar(e.target.value)}
+        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+        placeholder="Buscar por nombre o RUT…"
+        className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+      {abierto && resultados.length > 0 && (
+        <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-64 overflow-y-auto shadow">
+          {resultados.map(e => (
+            <button key={e.id} type="button" onMouseDown={() => { onElegir(e); setResultados([]); }}
+              className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+              <span className="text-ht-navy">{e.razon_social}</span>
+              {e.rut && <span className="text-gray-400"> · {e.rut}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
