@@ -183,18 +183,23 @@ router.put('/:id', async (req, res) => {
     if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
     if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-    const { titulo, monto_estimado, empresa_id, vendedor_id, probabilidad_cierre, fecha_cierre_estimada } = req.body;
+    const { titulo, monto_estimado, empresa_id, vendedor_id, probabilidad_cierre, fecha_cierre_estimada, contacto_id } = req.body;
     if (probabilidad_cierre !== undefined && probabilidad_cierre !== null &&
         (probabilidad_cierre < 0 || probabilidad_cierre > 100)) {
       return res.status(400).json({ error: 'La probabilidad debe estar entre 0 y 100' });
     }
+    if (contacto_id) {
+      const contactoExiste = await db.get('SELECT id FROM contactos WHERE id = $1', [contacto_id]);
+      if (!contactoExiste) return res.status(400).json({ error: 'Contacto inexistente' });
+    }
     const nuevoVendedor = (req.user.rol === 'administrador' && vendedor_id) ? vendedor_id : negocio.vendedor_id;
     await db.run(
       `UPDATE negocios SET titulo=$1, monto_estimado=$2, empresa_id=$3, vendedor_id=$4,
-              probabilidad_cierre=$5, fecha_cierre_estimada=$6, ultima_actividad=now() WHERE id=$7`,
+              probabilidad_cierre=$5, fecha_cierre_estimada=$6, contacto_id=$7, ultima_actividad=now() WHERE id=$8`,
       [titulo || negocio.titulo, monto_estimado ?? negocio.monto_estimado, empresa_id ?? negocio.empresa_id,
        nuevoVendedor, probabilidad_cierre ?? negocio.probabilidad_cierre,
        fecha_cierre_estimada !== undefined ? (fecha_cierre_estimada || null) : negocio.fecha_cierre_estimada,
+       contacto_id || negocio.contacto_id,
        req.params.id]
     );
     res.json({ message: 'Negocio actualizado' });
