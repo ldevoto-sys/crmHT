@@ -227,9 +227,9 @@ export default function Contactos() {
                     {c.revisar_duplicado && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-ht-accent/20 text-ht-navy">revisar</span>}
                   </div>
                 </td>
-                <td className="px-4 py-2 text-gray-600">{c.empresa_nombre || '—'}</td>
-                <td className="px-4 py-2 text-gray-600">{c.email || '—'}</td>
-                <td className="px-4 py-2 text-gray-600">{c.telefono_e164 || '—'}</td>
+                <td className="px-4 py-2 text-gray-600 max-w-[160px] truncate" title={c.empresa_nombre || ''}>{c.empresa_nombre || '—'}</td>
+                <td className="px-4 py-2 text-gray-600 max-w-[200px] truncate" title={c.email || ''}>{c.email || '—'}</td>
+                <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{c.telefono_e164 || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.vendedor_nombre || '—'}</td>
                 <td className="px-4 py-2 text-right">
                   <button onClick={() => abrirEditar(c)} className="text-ht-accent hover:underline">Editar</button>
