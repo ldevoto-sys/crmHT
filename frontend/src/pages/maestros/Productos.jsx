@@ -3,13 +3,14 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../api';
 import BusquedaEquivalentes from './BusquedaEquivalentes';
+import { formatFecha } from '../../utils/fecha';
 
 function StockBadge({ p }) {
   if (p.stock_gestionado_por_proveedor && p.stock_prov !== null && p.stock_prov !== undefined) {
     const fecha = p.stock_fecha ? new Date(p.stock_fecha) : null;
     const dias = fecha ? Math.floor((Date.now() - fecha.getTime()) / 86400000) : null;
     const viejo = dias !== null && dias > 10;
-    const fstr = fecha ? fecha.toLocaleDateString('es-CL') : '';
+    const fstr = formatFecha(p.stock_fecha);
     return (
       <span className={`text-xs px-2 py-0.5 rounded-full ${viejo ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}>
         Stock: {p.stock_prov} — {fstr}{viejo ? ' ⚠' : ''}

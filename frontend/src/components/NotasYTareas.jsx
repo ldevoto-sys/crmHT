@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
 import { useAuth } from '../contexts/AuthContext';
+import { formatFechaHora } from '../utils/fecha';
 
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 const PUEDE_ASIGNAR_A_OTROS = ['administrador', 'jefe_comercial'];
 
 // Notas y tareas de un contacto, empresa o negocio (uno de los tres ids).

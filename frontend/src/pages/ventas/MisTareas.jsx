@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatFechaHora } from '../../utils/fecha';
 
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 const PUEDE_VER_TODAS = ['administrador', 'jefe_comercial'];
 
 export default function MisTareas() {

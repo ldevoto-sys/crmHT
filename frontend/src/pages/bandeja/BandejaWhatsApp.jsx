@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import api from '../../api';
+import { formatFechaHora } from '../../utils/fecha';
 
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 const ESTADOS = ['todos', 'nuevo', 'asignado', 'convertido', 'descartado'];
 const EMOJIS = ['😀', '😂', '🙂', '👍', '🙏', '👋', '✅', '❌', '📄', '📞', '⏳', '🎉'];
 

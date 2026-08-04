@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatFecha } from '../../utils/fecha';
 
 const PUEDE_COTIZAR = ['administrador', 'jefe_comercial', 'vendedor'];
 const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
-const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
+const fecha = formatFecha;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 const estadoColor = {

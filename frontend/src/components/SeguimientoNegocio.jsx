@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import api from '../api';
+import { formatFechaHora } from '../utils/fecha';
 
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 
 // Panel de seguimiento de un negocio: secuencia activa (si hay) + seguimiento manual.
 export default function SeguimientoNegocio({ negocioId, puedeEditar }) {

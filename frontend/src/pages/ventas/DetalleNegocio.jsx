@@ -3,9 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
 import NotasYTareas from '../../components/NotasYTareas';
 import SeguimientoNegocio from '../../components/SeguimientoNegocio';
+import { formatFechaHora } from '../../utils/fecha';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 export default function DetalleNegocio() {

@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
 import NotasYTareas from '../../components/NotasYTareas';
+import { formatFechaHora } from '../../utils/fecha';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 
 export default function DetalleContacto() {
   const { id } = useParams();

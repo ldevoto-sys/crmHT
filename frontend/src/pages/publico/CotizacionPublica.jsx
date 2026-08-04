@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../api';
+import { formatFecha } from '../../utils/fecha';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
-const fecha = d => d ? new Date(d).toLocaleDateString('es-CL') : '';
+const fecha = formatFecha;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
 const NAVY = '#112548', CYAN = '#34B3DE';

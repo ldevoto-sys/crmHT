@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api';
+import { formatFechaHora } from '../../utils/fecha';
 
-const fecha = d => d ? new Date(d).toLocaleString('es-CL') : '';
+const fecha = formatFechaHora;
 
 export default function ColaAsignacion() {
   const navigate = useNavigate();
