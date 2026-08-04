@@ -221,9 +221,11 @@ export default function Contactos() {
             {contactos.map(c => (
               <tr key={c.id} className={`border-t border-gray-100 hover:bg-gray-50 ${sel.has(c.id) ? 'bg-ht-accent/5' : ''}`}>
                 {puedeEditar && <td className="px-4 py-2"><input type="checkbox" checked={sel.has(c.id)} onChange={() => toggle(c.id)} /></td>}
-                <td className="px-4 py-2 text-ht-navy font-medium">
-                  <Link to={`/contactos/${c.id}`} className="hover:underline">{c.nombre} {c.apellido}</Link>
-                  {c.revisar_duplicado && <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-ht-accent/20 text-ht-navy">revisar</span>}
+                <td className="px-4 py-2 text-ht-navy font-medium max-w-[240px]">
+                  <div className="flex items-center gap-2">
+                    <Link to={`/contactos/${c.id}`} title={`${c.nombre} ${c.apellido || ''}`} className="truncate hover:underline">{c.nombre} {c.apellido}</Link>
+                    {c.revisar_duplicado && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-ht-accent/20 text-ht-navy">revisar</span>}
+                  </div>
                 </td>
                 <td className="px-4 py-2 text-gray-600">{c.empresa_nombre || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.email || '—'}</td>

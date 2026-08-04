@@ -42,6 +42,7 @@ async function enviar(to, subject, html, opts = {}) {
     htmlContent: html,
   };
   if (opts.replyTo) body.replyTo = { email: opts.replyTo };
+  if (opts.cc && opts.cc.length) body.cc = opts.cc.map(email => ({ email }));
   if (opts.attachments && opts.attachments.length) {
     body.attachment = opts.attachments.map(a => ({
       name: a.filename,
@@ -185,7 +186,7 @@ module.exports = {
   ),
 
   // Envío de una cotización al cliente. destinatario: email del contacto;
-  // vendedor: {nombre,email} (se usa como "Responder a"); cot: fila de
+  // vendedor: {nombre,email} (va en copia y como "Responder a"); cot: fila de
   // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar;
   // emisor: fila de config_empresa (mensaje_cotizacion_email,
   // incluir_whatsapp_email, mensaje_whatsapp_email, whatsapp).
@@ -211,6 +212,7 @@ module.exports = {
       `),
       {
         replyTo: vendedor?.email || undefined,
+        cc: (vendedor?.email && vendedor.email.toLowerCase() !== String(destinatario).toLowerCase()) ? [vendedor.email] : [],
         attachments: pdfBuffer ? [{ filename: `${numeroCompleto(cot.numero, cot.version)}.pdf`, content: pdfBuffer }] : [],
       }
     );
