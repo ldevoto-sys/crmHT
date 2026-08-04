@@ -274,8 +274,8 @@ router.get('/:id', async (req, res) => {
       `SELECT c.*, n.titulo AS negocio_titulo, n.vendedor_id,
               n.etapa_id AS negocio_etapa_id, n.probabilidad_cierre AS negocio_probabilidad_cierre,
               pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
-              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.telefono_e164 AS contacto_telefono,
-              ct.email AS contacto_email,
+              ct.id AS contacto_id, ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
+              ct.telefono_e164 AS contacto_telefono, ct.email AS contacto_email,
               e.razon_social AS empresa_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
