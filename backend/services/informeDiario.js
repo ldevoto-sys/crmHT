@@ -5,7 +5,6 @@
 // ganado = última cotización asociada).
 const { db } = require('../db');
 const { toCSV } = require('../utils/csv');
-const { numeroCompleto } = require('./cotizacion_data');
 const email = require('./email');
 
 // "Ayer" se calcula en hora de Chile: el job corre a las 8am America/Santiago
@@ -46,7 +45,7 @@ async function negociosGanados(fecha) {
     `SELECT n.titulo AS negocio_titulo, p.nombre AS pipeline_nombre,
             coalesce(e.razon_social, trim(ct.nombre || ' ' || coalesce(ct.apellido, ''))) AS cliente_nombre,
             u.nombre AS vendedor_nombre,
-            uc.total AS monto
+            uc.numero, uc.version, uc.total AS monto
      FROM negocios n
      JOIN pipeline_etapas pe ON pe.id = n.etapa_id
      JOIN pipelines p ON p.id = n.pipeline_id
@@ -54,7 +53,7 @@ async function negociosGanados(fecha) {
      LEFT JOIN empresas e ON e.id = n.empresa_id
      LEFT JOIN users u ON u.id = n.vendedor_id
      JOIN LATERAL (
-       SELECT total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
+       SELECT numero, version, total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
      ) uc ON true
      WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada'
      ORDER BY p.nombre, n.fecha_cierre`,
@@ -83,11 +82,11 @@ async function enviarInformeDiario(fecha = diaAnterior(fechaChileHoy())) {
   };
 
   const csvCotizaciones = '﻿' + toCSV(
-    ['numero', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'total'],
-    cotizaciones.map(c => ({ ...c, numero: numeroCompleto(c.numero, c.version) }))
+    ['numero', 'version', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'total'],
+    cotizaciones
   );
   const csvGanados = '﻿' + toCSV(
-    ['negocio_titulo', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'monto'],
+    ['numero', 'version', 'negocio_titulo', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'monto'],
     ganados
   );
 
@@ -107,6 +106,13 @@ async function enviarInformeDiario(fecha = diaAnterior(fechaChileHoy())) {
 // Llamado desde el chequeo horario de server.js: solo dispara a las 8am hora
 // de Chile, y solo una vez por día (queda registrado en informe_diario_envios).
 async function enviarInformeDiarioSiCorresponde() {
+  // VITE_AMBIENTE_LABEL solo está definida en ambientes que no son producción
+  // (mismo mecanismo que usa BannerAmbiente.jsx en el frontend). El envío
+  // automático diario solo debe salir desde producción; el endpoint manual
+  // de prueba (/informe-diario/enviar-ahora) no pasa por aquí y sigue
+  // funcionando igual en staging.
+  if (process.env.VITE_AMBIENTE_LABEL) return;
+
   const hora = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', hour: '2-digit', hourCycle: 'h23' }).format(new Date());
   if (hora !== '08') return;
 

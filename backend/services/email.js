@@ -229,7 +229,7 @@ module.exports = {
       numeroCompleto(c.numero, c.version), c.cliente_nombre, c.vendedor_nombre, c.pipeline_nombre, money(c.total),
     ]));
     const filasGanados = ganados.map(g => filaInforme([
-      g.negocio_titulo, g.cliente_nombre, g.vendedor_nombre, g.pipeline_nombre, money(g.monto),
+      numeroCompleto(g.numero, g.version), g.negocio_titulo, g.cliente_nombre, g.vendedor_nombre, g.pipeline_nombre, money(g.monto),
     ]));
     return enviar(
       usuario.email,
@@ -257,7 +257,7 @@ module.exports = {
         ${tablaInforme(['N°', 'Cliente', 'Vendedor', 'Pipeline', 'Monto'], filasCotizaciones)}
 
         <h3 style="color:#112548; font-size:15px; margin:24px 0 8px;">Negocios ganados ayer</h3>
-        ${tablaInforme(['Negocio', 'Cliente', 'Vendedor', 'Pipeline', 'Monto'], filasGanados)}
+        ${tablaInforme(['N°', 'Negocio', 'Cliente', 'Vendedor', 'Pipeline', 'Monto'], filasGanados)}
 
         <p style="margin-top:24px; font-size:13px; color:#555555;">
           Se adjuntan <strong>cotizaciones_generadas_${fecha}.csv</strong> y <strong>negocios_ganados_${fecha}.csv</strong> con el detalle completo.
