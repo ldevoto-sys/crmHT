@@ -209,6 +209,9 @@ function Modal({ children, onClose }) {
 function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
   const [negocio, setNegocio] = useState(null);
+  const [sinNegocio, setSinNegocio] = useState(false);
+  const [contactoQ, setContactoQ] = useState(''); const [contactosResultados, setContactosResultados] = useState([]);
+  const [contacto, setContacto] = useState(null);
   const [form, setForm] = useState({ titulo: '', descripcion: '', prioridad: 'media', detalle_equipo: '', fecha_limite_respuesta: '' });
   const [productoQ, setProductoQ] = useState(''); const [productos, setProductos] = useState([]);
   const [productoSel, setProductoSel] = useState(null);
@@ -226,6 +229,12 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
     try { setResultados((await api.get('/negocios', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
   };
 
+  const buscarContacto = async val => {
+    setContactoQ(val);
+    if (val.length < 2) { setContactosResultados([]); return; }
+    try { setContactosResultados((await api.get('/contactos', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
+  };
+
   const buscarProducto = async val => {
     setProductoQ(val);
     if (val.length < 2) { setProductos([]); return; }
@@ -234,10 +243,13 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
 
   const crear = async e => {
     e.preventDefault(); setError('');
-    if (!negocio) { setError('Selecciona el negocio de origen (la venta a la que corresponde este caso).'); return; }
+    if (sinNegocio) {
+      if (!contacto) { setError('Selecciona el contacto del caso.'); return; }
+    } else if (!negocio) { setError('Selecciona el negocio de origen (la venta a la que corresponde este caso).'); return; }
     try {
       await api.post('/postventa', {
-        negocio_id: negocio.id, titulo: form.titulo, descripcion: form.descripcion || undefined,
+        negocio_id: sinNegocio ? undefined : negocio.id, contacto_id: sinNegocio ? contacto.id : undefined,
+        titulo: form.titulo, descripcion: form.descripcion || undefined,
         prioridad: form.prioridad, detalle_equipo: form.detalle_equipo || undefined,
         fecha_limite_respuesta: form.fecha_limite_respuesta || undefined,
         producto_id: productoSel?.id,
@@ -252,8 +264,38 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
       {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       <form onSubmit={crear} className="space-y-3">
         <div>
-          <label className="block text-sm text-gray-700 mb-1">Negocio de origen (la venta a la que corresponde)</label>
-          {negocio ? (
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-sm text-gray-700">
+              {sinNegocio ? 'Contacto (sin venta previa asociada)' : 'Negocio de origen (la venta a la que corresponde)'}
+            </label>
+            <button type="button" onClick={() => { setSinNegocio(!sinNegocio); setNegocio(null); setContacto(null); }}
+              className="text-ht-accent text-xs hover:underline">
+              {sinNegocio ? 'Tiene venta asociada' : '¿Sin venta asociada?'}
+            </button>
+          </div>
+          {sinNegocio ? (
+            contacto ? (
+              <div className="flex items-center justify-between border border-gray-300 rounded px-3 py-2 text-sm">
+                <span>{contacto.nombre} {contacto.apellido || ''}{contacto.empresa_nombre ? ` · ${contacto.empresa_nombre}` : ''}</span>
+                <button type="button" onClick={() => setContacto(null)} className="text-ht-accent text-xs hover:underline">cambiar</button>
+              </div>
+            ) : (
+              <>
+                <input value={contactoQ} onChange={e => buscarContacto(e.target.value)} placeholder="Buscar contacto por nombre, email o empresa…"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                {contactosResultados.length > 0 && (
+                  <div className="border border-gray-200 rounded mt-1 max-h-40 overflow-y-auto">
+                    {contactosResultados.map(c => (
+                      <button type="button" key={c.id} onClick={() => { setContacto(c); setContactosResultados([]); }}
+                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50">
+                        {c.nombre} {c.apellido || ''} <span className="text-gray-400">{c.empresa_nombre ? `· ${c.empresa_nombre}` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )
+          ) : negocio ? (
             <div className="flex items-center justify-between border border-gray-300 rounded px-3 py-2 text-sm">
               <span>{negocio.titulo} · {negocio.contacto_nombre} {negocio.contacto_apellido || ''}</span>
               <button type="button" onClick={() => setNegocio(null)} className="text-ht-accent text-xs hover:underline">cambiar</button>
@@ -343,7 +385,7 @@ function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGu
   return (
     <Modal onClose={onClose}>
       <h2 className="font-semibold text-ht-navy text-lg mb-1">{caso.titulo}</h2>
-      <p className="text-xs text-gray-400 mb-3">Venta de origen: {caso.negocio_titulo}</p>
+      <p className="text-xs text-gray-400 mb-3">{caso.negocio_id ? `Venta de origen: ${caso.negocio_titulo}` : 'Sin venta previa asociada'}</p>
       {caso.descripcion && <p className="text-sm text-gray-600 mb-3">{caso.descripcion}</p>}
       <dl className="grid grid-cols-2 gap-2 text-sm mb-4">
         <div><dt className="text-xs text-gray-500">Contacto</dt><dd className="text-ht-navy">{caso.contacto_nombre} {caso.contacto_apellido}</dd></div>
@@ -386,7 +428,9 @@ function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGu
       )}
 
       <div className="mt-3 flex items-center justify-between">
-        <Link to={`/negocios/${caso.negocio_id}`} className="text-sm text-ht-accent hover:underline">Ver negocio de origen →</Link>
+        {caso.negocio_id ? (
+          <Link to={`/negocios/${caso.negocio_id}`} className="text-sm text-ht-accent hover:underline">Ver negocio de origen →</Link>
+        ) : <span />}
         <Link to={`/despacho?caso_postventa_id=${caso.id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
       </div>
     </Modal>

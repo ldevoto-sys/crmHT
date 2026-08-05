@@ -342,7 +342,7 @@ async function initDb() {
   await db.run(`
     CREATE TABLE IF NOT EXISTS casos_postventa (
       id SERIAL PRIMARY KEY,
-      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      negocio_id INTEGER REFERENCES negocios(id),
       contacto_id INTEGER NOT NULL REFERENCES contactos(id),
       empresa_id INTEGER REFERENCES empresas(id),
       producto_id INTEGER REFERENCES productos(id),
@@ -359,6 +359,12 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Un caso puede originarse en una venta cerrada o crearse directo desde un
+  // cliente sin venta previa (ej. reclamo de garantía de un equipo de otro
+  // canal) — por eso negocio_id es opcional. En instalaciones creadas antes
+  // de esta versión la columna quedó NOT NULL; DROP NOT NULL es un no-op si
+  // ya es nullable, así que corre seguro en cualquier caso.
+  await db.run(`ALTER TABLE casos_postventa ALTER COLUMN negocio_id DROP NOT NULL`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_etapa ON casos_postventa (etapa_id)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_creador ON casos_postventa (creado_por_id)`);
 

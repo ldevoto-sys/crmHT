@@ -170,15 +170,27 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-// POST /api/postventa — crea un caso (vendedor, admin, jefe comercial)
+// POST /api/postventa — crea un caso (vendedor, admin, jefe comercial).
+// Requiere venta de origen (negocio_id) O un contacto directo (contacto_id)
+// para casos sin venta previa — no ambos, negocio_id tiene prioridad si
+// llegan los dos.
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   try {
-    const { negocio_id, titulo, descripcion, producto_id, detalle_equipo, prioridad, fecha_limite_respuesta } = req.body;
-    if (!negocio_id || !titulo) return res.status(400).json({ error: 'Negocio de origen y título son requeridos' });
+    const { negocio_id, contacto_id, titulo, descripcion, producto_id, detalle_equipo, prioridad, fecha_limite_respuesta } = req.body;
+    if (!negocio_id && !contacto_id) return res.status(400).json({ error: 'Selecciona el negocio de origen o el contacto del caso' });
+    if (!titulo) return res.status(400).json({ error: 'El título es requerido' });
     if (!fecha_limite_respuesta) return res.status(400).json({ error: 'La fecha límite de respuesta es requerida' });
 
-    const negocio = await db.get('SELECT id, contacto_id, empresa_id FROM negocios WHERE id = $1', [negocio_id]);
-    if (!negocio) return res.status(400).json({ error: 'Negocio inexistente' });
+    let contactoFinal, empresaFinal, negocioFinal = null;
+    if (negocio_id) {
+      const negocio = await db.get('SELECT id, contacto_id, empresa_id FROM negocios WHERE id = $1', [negocio_id]);
+      if (!negocio) return res.status(400).json({ error: 'Negocio inexistente' });
+      negocioFinal = negocio.id; contactoFinal = negocio.contacto_id; empresaFinal = negocio.empresa_id;
+    } else {
+      const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
+      if (!contacto) return res.status(400).json({ error: 'Contacto inexistente' });
+      contactoFinal = contacto.id; empresaFinal = contacto.empresa_id;
+    }
 
     const primeraEtapa = await db.get(`SELECT id FROM postventa_etapas WHERE tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`);
 
@@ -186,7 +198,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
       `INSERT INTO casos_postventa
          (negocio_id, contacto_id, empresa_id, producto_id, detalle_equipo, titulo, descripcion, prioridad, fecha_limite_respuesta, creado_por_id, etapa_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [negocio_id, negocio.contacto_id, negocio.empresa_id, producto_id || null, detalle_equipo || null,
+      [negocioFinal, contactoFinal, empresaFinal, producto_id || null, detalle_equipo || null,
        titulo, descripcion || null, prioridad || 'media', fecha_limite_respuesta || null,
        req.user.id, primeraEtapa ? primeraEtapa.id : null]
     );
