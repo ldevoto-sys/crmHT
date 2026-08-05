@@ -271,7 +271,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const cot = await db.get(
-      `SELECT c.*, n.titulo AS negocio_titulo, n.vendedor_id,
+      `SELECT c.*, n.titulo AS negocio_titulo, n.vendedor_id, n.pipeline_id AS negocio_pipeline_id,
               n.etapa_id AS negocio_etapa_id, n.probabilidad_cierre AS negocio_probabilidad_cierre,
               pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
               ct.id AS contacto_id, ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
