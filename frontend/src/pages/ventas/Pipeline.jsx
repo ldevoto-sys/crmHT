@@ -25,6 +25,7 @@ export default function Pipeline() {
   const [vendedorId, setVendedorId] = useState('');
   const [cierreDesde, setCierreDesde] = useState('');
   const [cierreHasta, setCierreHasta] = useState('');
+  const [busqueda, setBusqueda] = useState('');
   const [error, setError] = useState('');
   const [drag, setDrag] = useState(null);
   const [modalPerdido, setModalPerdido] = useState(null); // {negocio, etapa}
@@ -90,7 +91,12 @@ export default function Pipeline() {
     setModalPerdido(null);
   };
 
-  const porEtapa = id => negocios.filter(n => n.etapa_id === id);
+  // Filtro por nombre de oportunidad, aplicado antes de repartir por columna
+  // — mismo patrón que los demás filtros de la barra superior.
+  const negociosFiltrados = busqueda.trim()
+    ? negocios.filter(n => n.titulo.toLowerCase().includes(busqueda.trim().toLowerCase()))
+    : negocios;
+  const porEtapa = id => negociosFiltrados.filter(n => n.etapa_id === id);
 
   const exportar = async () => {
     try {
@@ -103,8 +109,8 @@ export default function Pipeline() {
   };
 
   return (
-    <div>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+    <div className="h-full flex flex-col">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 flex-shrink-0">
         <h1 className="text-2xl font-bold text-ht-navy">Pipeline</h1>
         <div className="flex gap-2">
           {PUEDE_EXPORTAR.includes(user?.rol) && (
@@ -120,9 +126,11 @@ export default function Pipeline() {
           <button onClick={() => setShowNuevo(true)} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">+ Nuevo negocio</button>
         </div>
       </div>
-      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm flex-shrink-0">{error}</div>}
 
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4 flex-shrink-0">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar oportunidad por nombre…"
+          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         {puedeCambiarPipeline && (
           <div className="flex items-center gap-2">
             <label className="text-sm text-gray-700">Pipeline</label>
@@ -155,7 +163,8 @@ export default function Pipeline() {
         </div>
       </div>
 
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      <div className="flex-1 min-h-0 overflow-x-auto pb-2">
+        <div className="flex gap-3 h-full">
         {etapas.map(et => {
           const items = porEtapa(et.id);
           const total = items.reduce((s, n) => s + (Number(n.monto_estimado) || 0), 0);
@@ -164,15 +173,15 @@ export default function Pipeline() {
             <div key={et.id}
               onDragOver={e => e.preventDefault()}
               onDrop={() => onDrop(et)}
-              className="flex-shrink-0 w-64 bg-slate-100 rounded-lg p-2">
-              <div className="flex items-center justify-between px-1 mb-1">
+              className="flex-shrink-0 w-64 bg-slate-100 rounded-lg p-2 flex flex-col h-full">
+              <div className="flex items-center justify-between px-1 mb-1 flex-shrink-0">
                 <span className="text-sm font-semibold text-ht-navy">{et.nombre}</span>
                 <span className="text-xs text-gray-500">{items.length} · {et.probabilidad_cierre}%</span>
               </div>
-              <div className="text-xs text-gray-500 px-1 mb-2">
+              <div className="text-xs text-gray-500 px-1 mb-2 flex-shrink-0">
                 {money(total)}{et.tipo === 'abierta' && ponderado > 0 && <span className="text-ht-accent"> · pond. {money(Math.round(ponderado))}</span>}
               </div>
-              <div className="space-y-2 min-h-[40px]">
+              <div className="space-y-2 min-h-[40px] overflow-y-auto flex-1 pr-1">
                 {items.map(n => (
                   <div key={n.id} draggable onDragStart={() => setDrag(n)}
                     className="bg-white rounded-md border border-gray-200 p-3 cursor-move hover:border-ht-accent">
@@ -216,6 +225,7 @@ export default function Pipeline() {
             </div>
           );
         })}
+        </div>
       </div>
 
       {modalPerdido && (

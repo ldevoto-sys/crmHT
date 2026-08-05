@@ -5,7 +5,7 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
-const { toCSV, parseCSV } = require('../utils/csv');
+const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
 
@@ -73,8 +73,8 @@ router.get('/', async (req, res) => {
 router.get('/exportar', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
     const { where, params } = filtrosNegocios(req.query, req.user);
-    const negocios = await db.all(
-      `SELECT n.titulo, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
+    const negociosRows = await db.all(
+      `SELECT n.id, n.titulo, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
               e.razon_social AS empresa, u.nombre AS vendedor, pe.nombre AS etapa,
               n.probabilidad_cierre, n.monto_estimado, n.fecha_cierre_estimada, n.fecha_cierre,
               ca.nombre AS causa_no_cierre, n.causa_no_cierre_detalle, n.created_at
@@ -88,7 +88,13 @@ router.get('/exportar', authorize('administrador', 'jefe_comercial'), async (req
        ORDER BY n.created_at DESC`,
       params
     );
-    const headers = ['titulo', 'contacto_nombre', 'contacto_apellido', 'empresa', 'vendedor', 'etapa',
+    const negocios = negociosRows.map(n => ({
+      ...n,
+      fecha_cierre_estimada: fechaDDMMAAAA(n.fecha_cierre_estimada),
+      fecha_cierre: fechaDDMMAAAA(n.fecha_cierre),
+      created_at: fechaDDMMAAAA(n.created_at),
+    }));
+    const headers = ['id', 'titulo', 'contacto_nombre', 'contacto_apellido', 'empresa', 'vendedor', 'etapa',
       'probabilidad_cierre', 'monto_estimado', 'fecha_cierre_estimada', 'fecha_cierre',
       'causa_no_cierre', 'causa_no_cierre_detalle', 'created_at'];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -558,10 +564,11 @@ router.get('/:id/encuesta', async (req, res) => {
 });
 
 // === Importador CSV de oportunidades (O/C contra contrato, sin cotización) ===
-// Cada fila crea un negocio directo en la etapa "Aceptado" (tipo='ganada')
-// del pipeline "Operaciones", sin pasar por PUT /:id/etapa — por eso no
-// dispara encuesta de satisfacción ni tarea de seguimiento, a diferencia de
-// cerrar un negocio manualmente desde el Pipeline.
+// Cada fila crea un negocio directo en una etapa del pipeline "Operaciones"
+// (columna "estado" del CSV, por nombre; si viene vacía, la etapa "Aceptado"
+// por defecto), sin pasar por PUT /:id/etapa — por eso no dispara encuesta
+// de satisfacción ni tarea de seguimiento, a diferencia de cerrar un negocio
+// manualmente desde el Pipeline.
 
 // GET /api/negocios/importar/plantilla
 router.get('/importar/plantilla', (req, res) => {
@@ -570,19 +577,35 @@ router.get('/importar/plantilla', (req, res) => {
   res.send('﻿' + PLANTILLA_HEADERS_NEGOCIOS.join(',') + '\n');
 });
 
-// Resuelve por lote el pipeline "Operaciones" y su etapa tipo='ganada'.
-// No existe hoy una forma de identificar el pipeline por nombre salvo el
-// texto seedado ("Operaciones") — si se renombra desde Configuración, el
-// importador deja de encontrarlo y conviene que sea un error explícito.
+// Resuelve por lote el pipeline "Operaciones" y todas sus etapas activas
+// (para matchear la columna "estado" del CSV por nombre). No existe hoy una
+// forma de identificar el pipeline por nombre salvo el texto seedado
+// ("Operaciones") — si se renombra desde Configuración, el importador deja
+// de encontrarlo y conviene que sea un error explícito.
 async function resolverPipelineOperaciones(client) {
   const pipeline = await client.query(`SELECT id FROM pipelines WHERE nombre = 'Operaciones' AND activo = true LIMIT 1`);
   if (!pipeline.rows[0]) return { error: 'No se encontró el pipeline "Operaciones" (revisa que no haya sido renombrado).' };
-  const etapa = await client.query(
-    `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'ganada' AND activo = true LIMIT 1`,
-    [pipeline.rows[0].id]
+  const pipelineId = pipeline.rows[0].id;
+
+  const etapas = await client.query(
+    `SELECT id, nombre, tipo, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND activo = true`,
+    [pipelineId]
   );
-  if (!etapa.rows[0]) return { error: 'El pipeline "Operaciones" no tiene una etapa de tipo "ganada" configurada.' };
-  return { pipelineId: pipeline.rows[0].id, etapa: etapa.rows[0] };
+  if (!etapas.rows.length) return { error: 'El pipeline "Operaciones" no tiene etapas activas configuradas.' };
+
+  const porNombre = new Map(etapas.rows.map(e => [e.nombre.toLowerCase(), e]));
+  const porDefecto = etapas.rows.find(e => e.tipo === 'ganada');
+  if (!porDefecto) return { error: 'El pipeline "Operaciones" no tiene una etapa de tipo "ganada" configurada (se usa por defecto cuando la fila no indica estado).' };
+
+  return { pipelineId, porNombre, porDefecto };
+}
+
+// Resuelve la etapa de destino de una fila según su columna "estado" (por
+// nombre, sin distinguir mayúsculas) — vacía usa la etapa por defecto
+// ("Aceptado"). Devuelve null si el estado no matchea ninguna etapa activa.
+function resolverEtapaFila(pipelineInfo, estado) {
+  if (!estado) return pipelineInfo.porDefecto;
+  return pipelineInfo.porNombre.get(estado.toLowerCase()) || null;
 }
 
 // Resuelve cada "vendedor" del CSV (email o nombre) contra los usuarios
@@ -676,6 +699,9 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
     for (const v of validos) {
       const vendedorId = resolverVendedor(v.negocio.vendedor);
       if (!vendedorId) { rechazos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${v.negocio.vendedor}"` }); continue; }
+      const etapa = resolverEtapaFila(pipelineInfo, v.negocio.estado);
+      if (!etapa) { rechazos.push({ fila: v.fila, motivo: `estado "${v.negocio.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
+      v.etapaNombre = etapa.nombre;
       finales.push(v);
     }
 
@@ -690,6 +716,7 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
         empresa: v.negocio.empresa_nombre || v.negocio.empresa_rut,
         contacto: `${v.negocio.contacto_nombre} ${v.negocio.contacto_apellido || ''}`.trim(),
         titulo: v.negocio.titulo,
+        estado: v.etapaNombre,
         n_oc: v.negocio.n_oc || '',
         monto: v.negocio.monto,
         fecha_cierre: v.negocio.fecha_cierre || '',
@@ -718,7 +745,7 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
 
     const pipelineInfo = await resolverPipelineOperaciones(client);
     if (pipelineInfo.error) { await client.query('ROLLBACK'); return res.status(400).json({ error: pipelineInfo.error }); }
-    const { pipelineId, etapa } = pipelineInfo;
+    const { pipelineId } = pipelineInfo;
 
     const resolverVendedor = await resolverVendedores(client, validos);
     const resolverEmpresa = crearResolverEmpresas(client);
@@ -729,21 +756,28 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       const n = v.negocio;
       const vendedorId = resolverVendedor(n.vendedor);
       if (!vendedorId) { omitidos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${n.vendedor}"` }); continue; }
+      const etapa = resolverEtapaFila(pipelineInfo, n.estado);
+      if (!etapa) { omitidos.push({ fila: v.fila, motivo: `estado "${n.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
 
       const empresaId = await resolverEmpresa({ empresa_rut: n.empresa_rut, empresa_nombre: n.empresa_nombre });
       const contactoId = await resolverOCrearContacto(client, n, empresaId);
-      const fechaCierre = n.fecha_cierre || new Date().toISOString().slice(0, 10);
+      // Cerrada (ganada/perdida): la fecha del CSV es la fecha real de cierre
+      // (o hoy si no vino). Abierta: es una fecha estimada, no una ya cerrada
+      // — no se inventa una si no vino.
+      const esCerrada = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
+      const fechaCierre = esCerrada ? (n.fecha_cierre || new Date().toISOString().slice(0, 10)) : null;
+      const fechaCierreEstimada = esCerrada ? null : (n.fecha_cierre || null);
 
       const r = await client.query(
-        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, pipeline_id, n_oc)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, pipelineId, n.n_oc || null]
+        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, fecha_cierre_estimada, pipeline_id, n_oc)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
+        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, fechaCierreEstimada, pipelineId, n.n_oc || null]
       );
       const negocioId = r.rows[0].id;
       await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocioId, etapa.id]);
       await timeline.registrar({
         contacto_id: contactoId, empresa_id: empresaId, negocio_id: negocioId, tipo: 'cambio_etapa',
-        descripcion: 'Negocio creado por importación de oportunidades (O/C directo a Aceptado)', usuario_id: req.user.id,
+        descripcion: `Negocio creado por importación de oportunidades (O/C directo a "${etapa.nombre}")`, usuario_id: req.user.id,
       }, client);
       creados++;
     }

@@ -62,4 +62,17 @@ function toCSV(headers, rows) {
   return lineas.join('\r\n');
 }
 
-module.exports = { parseCSV, toCSV };
+// Formatea una fecha (Date, o string ISO/AAAA-MM-DD que devuelve el driver
+// de Postgres para columnas DATE) como DD-MM-AAAA para exportar a CSV — el
+// formato que usan las plantillas de importación, no el ISO interno.
+function fechaDDMMAAAA(valor) {
+  if (!valor) return '';
+  const d = valor instanceof Date ? valor : new Date(valor);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const yyyy = d.getUTCFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+}
+
+module.exports = { parseCSV, toCSV, fechaDDMMAAAA };
