@@ -362,6 +362,25 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_etapa ON casos_postventa (etapa_id)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_creador ON casos_postventa (creado_por_id)`);
 
+  // Historial de adjuntos de un caso de postventa (fotos/videos del cliente,
+  // informes técnicos, otros documentos) — una fila por archivo, mismo patrón
+  // que whatsapp_mensajes: la key de R2 no se expone directa al frontend, se
+  // sirve vía un endpoint autenticado propio.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS postventa_adjuntos (
+      id SERIAL PRIMARY KEY,
+      caso_id INTEGER NOT NULL REFERENCES casos_postventa(id),
+      tipo TEXT NOT NULL DEFAULT 'otro' CHECK (tipo IN ('foto_cliente','video_cliente','informe_tecnico','otro')),
+      descripcion TEXT,
+      archivo_key TEXT NOT NULL,
+      archivo_nombre TEXT,
+      archivo_mime TEXT,
+      subido_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_postventa_adjuntos_caso ON postventa_adjuntos (caso_id, created_at)`);
+
   // === Módulo Despacho (v1.11) ===
   // Una ruta con una o más paradas (puntos), cada una con sus propios datos
   // obligatorios. Puede originarse en un negocio cerrado, en un caso de
