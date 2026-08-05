@@ -1,10 +1,10 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-08-03
+**Fecha de consolidación:** 2026-08-05
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.20 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.21 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
@@ -18,11 +18,14 @@ disparadas por etapa de pipeline (reemplaza el mecanismo anterior de
 "secuencia predeterminada post-cotización"), el Dashboard con actividad real
 del mes, el fix de rendimiento/normalización de RUT en los importadores
 masivos, el retiro temporal del canal WhatsApp del envío de cotizaciones, y
-la puesta en producción del sistema (01-08-2026); y de v1.20: el **informe
+la puesta en producción del sistema (01-08-2026); de v1.20: el **informe
 diario por correo** de cotizaciones generadas y negocios ganados (§9 de esta
-versión) — construido y verificado localmente, **pendiente de despliegue a
-producción** al momento de esta consolidación. Este documento es el que debe
-subirse a SharePoint reemplazando la versión anterior del documento base.
+versión); y de v1.21 (05-08-2026): el **importador de oportunidades** para el
+pipeline Operaciones (§3), el **historial de adjuntos de Postventa** y la
+posibilidad de abrir un **caso de Postventa sin negocio de origen** (ambos en
+§5) — con esta versión, `staging` y `main` (producción) quedan con el mismo
+código. Este documento es el que debe subirse a SharePoint reemplazando la
+versión anterior del documento base.
 
 ---
 
@@ -222,6 +225,17 @@ reemplaza la herramienta HTML independiente que existía antes):
     convertirse a negocio nace directo en "Calificado" en vez de "Lead".
 - Exportación a CSV (Contactos y Pipeline), respetando los filtros en
   pantalla, sin el límite de filas del listado.
+- **Importador CSV de oportunidades (v1.21):** para negocios que nacen de
+  una orden de compra contra un contrato ya firmado (Cencosud, Sodimac,
+  etc.), sin pasar por una cotización. Cada fila crea el negocio directo en
+  la etapa **"Aceptado"** (tipo `ganada`) del pipeline **Operaciones** —
+  mismo patrón de subir → previsualizar → confirmar → informe de rechazos
+  que Empresas/Contactos, botón "Importar oportunidades" en Pipeline
+  (administrador/jefe comercial). La empresa y el contacto se buscan o se
+  crean automáticamente; el vendedor debe existir ya en el sistema (se
+  resuelve por email o nombre). Como entra directo a la etapa terminal, no
+  dispara encuesta de satisfacción ni tarea automática. Campo nuevo
+  `negocios.n_oc` para el N° de orden de compra.
 
 ## 4. Cotizaciones
 
@@ -303,9 +317,15 @@ junto con el resto de ese módulo.
 
 ## 5. Postventa (v1.13)
 
-- Un caso de postventa (garantía o reclamo técnico) siempre se vincula a un
-  **negocio de origen**, obligatorio — para no perder la trazabilidad hacia
-  la venta que lo originó.
+- Un caso de postventa (garantía o reclamo técnico) se vincula normalmente a
+  un **negocio de origen**, para trazar la venta que lo generó. Desde
+  **v1.21**, el negocio de origen es **opcional**: al crear un caso, el link
+  "¿Sin venta asociada?" cambia el buscador de negocio por uno de
+  **contacto** directo — pensado para reclamos de clientes sin venta
+  registrada en el CRM (equipo de otro canal, garantía de un producto
+  antiguo). La empresa del caso se toma automáticamente de la ficha del
+  contacto elegido, sin pedirla aparte. Con negocio de origen, el
+  comportamiento no cambia.
 - Tablero Kanban propio (`/postventa`), separado del Pipeline de ventas —
   usa su propia tabla de etapas (`postventa_etapas`), **no** el mecanismo de
   pipelines múltiples del §3: Postventa es un solo flujo transversal, no un
@@ -324,6 +344,13 @@ junto con el resto de ese módulo.
 - Casos sin etapa asignada (creados antes de existir alguna etapa abierta,
   o cuya etapa fue desactivada) se muestran en una columna aparte **"Sin
   etapa asignada"**, para no quedar nunca invisibles.
+- **Adjuntos (v1.21):** cada caso puede acumular varios archivos — foto
+  cliente, video cliente, informe técnico, u otro — con descripción
+  opcional, quién lo subió y cuándo. Reutiliza el bucket privado de
+  Cloudflare R2 de Despacho (§6/§14), no uno nuevo. Puede subir/ver quien
+  gestiona Postventa o el vendedor que creó el caso (mismo criterio que ver
+  el detalle); puede eliminar quien lo subió o quien gestiona Postventa.
+  Descarga autenticada desde el backend, sin URL pública.
 - **Permisos:** atribución adicional `users.es_encargado_postventa` (ver
   §1) — quien la tiene (o es administrador/jefe comercial) gestiona el
   tablero completo; un vendedor sin el atributo crea casos y ve los que él
@@ -356,9 +383,9 @@ junto con el resto de ese módulo.
   Cloudflare R2 (distinto del de imágenes de producto y del de adjuntos de
   WhatsApp, por tratarse de documentos con firmas y datos de clientes);
   visualización autenticada desde el CRM, sin URL pública directa.
-  **Pendiente de configurar en Cloudflare** (ver §15): mientras el bucket
-  no exista, subir una foto responde "no configurado todavía" sin romper
-  el resto del módulo.
+  **Configurado en ambos ambientes desde v1.21** (`R2_DESPACHO_*` cargado en
+  `staging` y producción) — mismo bucket que reutilizan los adjuntos de
+  Postventa (§5).
 - **Optimización de ruta (v1.16):** botón "Optimizar ruta" que sugiere el
   orden más eficiente para visitar las paradas pendientes de un mismo día,
   ida y vuelta desde la dirección de la empresa, usando Google Directions
@@ -549,7 +576,7 @@ mismo criterio que Secuencias (§8).
   `BI_READONLY_PASSWORD`, con `SELECT` sobre todas las tablas actuales y
   futuras. Pensado para Power BI / Looker Studio combinando esta fuente con
   Softland. La contraseña se resincroniza en cada arranque.
-- **Informe diario por correo (v1.20 — pendiente de despliegue):**
+- **Informe diario por correo (v1.20):**
   alternativa al acceso de BI externo cuando la conexión al proxy público de
   Railway no es viable (ej. firewall corporativo bloqueando el puerto no
   estándar). Un job interno (`services/informeDiario.js`, sin pasar por el
@@ -671,7 +698,8 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `pipeline_etapas.pipeline_id`, `negocios.pipeline_id` (v1.12);
   `negocios.etapa_id` (FK) + `negocios.probabilidad_cierre`;
   `pipeline_etapas.secuencia_id` (FK a `secuencias`, v1.19 — dispara la
-  secuencia asociada al mover un negocio a esa etapa, ver §8).
+  secuencia asociada al mover un negocio a esa etapa, ver §8);
+  `negocios.n_oc` (v1.21 — N° de orden de compra, ver §3).
 - **Cotizaciones:** `iva_pct`; tabla `config_empresa` (emisor/banco);
   `cotizacion_correlativo_global` (correlativo NNNNNN, reemplaza el
   correlativo por año); `cotizacion_items` agrega `mostrar_imagen`,
@@ -693,11 +721,15 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `cotizacion_sinonimos_operaciones` (termino_fracttal, termino_bbdd,
   activo). `productos` no cambia de esquema — el matching de Operaciones
   consulta esa misma tabla.
-- **Postventa (v1.13):** tabla `postventa_etapas` (nombre, orden, tipo
-  abierta/resuelto/rechazado, activo); tabla `casos_postventa`
-  (`negocio_id` obligatorio, `contacto_id`, `empresa_id`, `producto_id` y
-  `detalle_equipo` opcionales, `prioridad`, `fecha_limite_respuesta`,
-  `tecnico_asignado_id`, `creado_por_id`, `etapa_id`, `fecha_cierre`).
+- **Postventa (v1.13, v1.21):** tabla `postventa_etapas` (nombre, orden,
+  tipo abierta/resuelto/rechazado, activo); tabla `casos_postventa`
+  (`negocio_id` **opcional desde v1.21** — antes obligatorio, `contacto_id`
+  obligatorio, `empresa_id`, `producto_id` y `detalle_equipo` opcionales,
+  `prioridad`, `fecha_limite_respuesta`, `tecnico_asignado_id`,
+  `creado_por_id`, `etapa_id`, `fecha_cierre`); tabla `postventa_adjuntos`
+  (v1.21 — `caso_id`, `tipo` foto_cliente/video_cliente/informe_tecnico/
+  otro, `descripcion`, `archivo_key`, `archivo_nombre`, `archivo_mime`,
+  `subido_por_id`, `created_at`).
 - **Despacho (v1.14):** tabla `despachos` (`negocio_id` y
   `caso_postventa_id` opcionales, `titulo`, `estado` con enum fijo
   programado/en_ruta/completado/cancelado, `creado_por_id`); tabla
@@ -741,9 +773,11 @@ solo en acentos puntuales, celeste como color de interacción principal.
   la key nunca se expone al navegador, restringida en Google Cloud Console
   a esas dos APIs. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway.
 - **Cloudflare R2:** tres buckets — `crm-ht-adjuntos` (privado, WhatsApp),
-  `crm-ht-productos` (público, catálogo de imágenes/fichas) y un tercero
-  **privado, pendiente de crear** para documentos de respaldo de Despacho
-  (§6, §15).
+  `crm-ht-productos` (público, catálogo de imágenes/fichas) y el bucket
+  privado de Despacho (`R2_DESPACHO_*`, configurado desde v1.21 en
+  `staging` y producción) para documentos de respaldo de Despacho (§6) y,
+  desde v1.21, también los adjuntos de Postventa (§5) — ambos reutilizan el
+  mismo bucket, no hay uno por módulo.
 - **PostgreSQL (`bi_readonly`):** acceso de solo lectura para herramientas
   de BI externas.
 - **Microsoft 365 / SMTP AUTH (en evaluación, no confirmado):** soporte
@@ -768,10 +802,11 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    la dirección de la empresa), con Google Directions/Geocoding API. El
    encargado revisa la sugerencia y decide aplicarla o no. Falta cargar
    `GOOGLE_MAPS_API_KEY` en Railway.
-2. **Bucket de Cloudflare R2 para documentos de despacho** (§6, §14):
-   rápido — crear el bucket privado, su token de API, y cargar en Railway
-   `R2_DESPACHO_ACCESS_KEY_ID`, `R2_DESPACHO_SECRET_ACCESS_KEY`,
-   `R2_DESPACHO_BUCKET_NAME`. No bloquea el resto del módulo.
+2. ~~**Bucket de Cloudflare R2 para documentos de despacho** (§6, §14)~~ —
+   **hecho (v1.21, 05-08-2026):** bucket privado creado y
+   `R2_DESPACHO_ACCESS_KEY_ID`/`R2_DESPACHO_SECRET_ACCESS_KEY`/
+   `R2_DESPACHO_BUCKET_NAME` cargados en Railway, en `staging` y
+   producción. Los adjuntos de Postventa (§5) reutilizan el mismo bucket.
 3. **Publicar la app de Meta** y migrar del número de prueba (máx. 5
    destinatarios) al de producción (requiere verificación de negocio en
    Meta). Es requisito previo del punto 4: mientras la app siga en modo
