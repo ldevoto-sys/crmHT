@@ -1,7 +1,12 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
+const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
+const r2 = require('../services/r2');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 router.use(authenticate);
 
@@ -91,6 +96,12 @@ router.delete('/etapas/:id', async (req, res) => {
 function filtroVisibilidad(user) {
   if (puedeGestionar(user)) return { where: '', params: [] };
   return { where: 'WHERE cp.creado_por_id = $1', params: [user.id] };
+}
+
+// Mismo criterio que ver el detalle del caso (GET /:id): quien gestiona
+// Postventa, o el vendedor que creó ese caso en particular.
+function puedeAccederCaso(caso, user) {
+  return puedeGestionar(user) || caso.creado_por_id === user.id;
 }
 
 // GET /api/postventa?etapa_id=&prioridad=
@@ -230,6 +241,98 @@ router.put('/:id/etapa', async (req, res) => {
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
     console.error('[postventa PUT /:id/etapa]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// === Adjuntos de un caso (fotos/videos del cliente, informes técnicos, otros) ===
+
+// GET /api/postventa/:id/adjuntos
+router.get('/:id/adjuntos', async (req, res) => {
+  try {
+    const caso = await db.get('SELECT id, creado_por_id FROM casos_postventa WHERE id = $1', [req.params.id]);
+    if (!caso) return res.status(404).json({ error: 'Caso no encontrado' });
+    if (!puedeAccederCaso(caso, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+
+    const adjuntos = await db.all(
+      `SELECT pa.id, pa.tipo, pa.descripcion, pa.archivo_nombre, pa.archivo_mime, pa.created_at,
+              pa.subido_por_id, u.nombre AS subido_por_nombre
+       FROM postventa_adjuntos pa
+       LEFT JOIN users u ON u.id = pa.subido_por_id
+       WHERE pa.caso_id = $1 ORDER BY pa.created_at DESC`,
+      [req.params.id]
+    );
+    res.json(adjuntos);
+  } catch (err) {
+    console.error('[postventa GET /:id/adjuntos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/postventa/:id/adjuntos — multipart, campo "archivo" + {tipo, descripcion}
+router.post('/:id/adjuntos', upload.single('archivo'), async (req, res) => {
+  try {
+    const caso = await db.get('SELECT id, creado_por_id FROM casos_postventa WHERE id = $1', [req.params.id]);
+    if (!caso) return res.status(404).json({ error: 'Caso no encontrado' });
+    if (!puedeAccederCaso(caso, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
+    if (!r2.configuradoDespacho()) {
+      return res.status(503).json({ error: 'El almacenamiento de adjuntos no está configurado todavía.' });
+    }
+
+    const { tipo, descripcion } = req.body;
+    const tipoFinal = ['foto_cliente', 'video_cliente', 'informe_tecnico', 'otro'].includes(tipo) ? tipo : 'otro';
+    const ext = (req.file.originalname.match(/\.[^.]+$/) || [''])[0];
+    const key = `postventa/${req.params.id}/${crypto.randomBytes(8).toString('hex')}${ext}`;
+    const r = await r2.subirDespacho(key, req.file.buffer, req.file.mimetype);
+    if (!r.subido) return res.status(502).json({ error: r.motivo || 'No se pudo subir el archivo' });
+
+    const insertado = await db.run(
+      `INSERT INTO postventa_adjuntos (caso_id, tipo, descripcion, archivo_key, archivo_nombre, archivo_mime, subido_por_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [req.params.id, tipoFinal, descripcion || null, key, req.file.originalname, req.file.mimetype, req.user.id]
+    );
+    await db.run('UPDATE casos_postventa SET ultima_actividad = now() WHERE id = $1', [req.params.id]);
+    res.status(201).json({ id: insertado.rows[0].id, message: 'Adjunto subido' });
+  } catch (err) {
+    console.error('[postventa POST /:id/adjuntos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/postventa/adjuntos/:adjuntoId/archivo — descarga autenticada
+router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
+  try {
+    const adjunto = await db.get(
+      `SELECT pa.*, cp.creado_por_id FROM postventa_adjuntos pa
+       JOIN casos_postventa cp ON cp.id = pa.caso_id WHERE pa.id = $1`,
+      [req.params.adjuntoId]
+    );
+    if (!adjunto) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    if (!puedeAccederCaso({ creado_por_id: adjunto.creado_por_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const archivo = await r2.descargarDespacho(adjunto.archivo_key);
+    if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo' });
+    res.setHeader('Content-Type', archivo.contentType || adjunto.archivo_mime || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${adjunto.archivo_nombre || 'adjunto'}"`);
+    res.send(archivo.buffer);
+  } catch (err) {
+    console.error('[postventa GET /adjuntos/:adjuntoId/archivo]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/postventa/adjuntos/:adjuntoId — quien gestiona, o quien lo subió
+router.delete('/adjuntos/:adjuntoId', async (req, res) => {
+  try {
+    const adjunto = await db.get('SELECT * FROM postventa_adjuntos WHERE id = $1', [req.params.adjuntoId]);
+    if (!adjunto) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    if (!puedeGestionar(req.user) && adjunto.subido_por_id !== req.user.id) {
+      return res.status(403).json({ error: 'Solo quien lo subió o el encargado de postventa puede eliminarlo' });
+    }
+    await db.run('DELETE FROM postventa_adjuntos WHERE id = $1', [req.params.adjuntoId]);
+    res.json({ message: 'Adjunto eliminado' });
+  } catch (err) {
+    console.error('[postventa DELETE /adjuntos/:adjuntoId]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

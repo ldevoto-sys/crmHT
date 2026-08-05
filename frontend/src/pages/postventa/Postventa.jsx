@@ -8,6 +8,13 @@ import { useAuth } from '../../contexts/AuthContext';
 // ISO completo), no como "AAAA-MM-DD" — hay que recortar antes de parsear.
 const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
 const PRIORIDADES = ['baja', 'media', 'alta', 'urgente'];
+const TIPOS_ADJUNTO = [
+  { value: 'foto_cliente', label: 'Foto cliente' },
+  { value: 'video_cliente', label: 'Video cliente' },
+  { value: 'informe_tecnico', label: 'Informe técnico' },
+  { value: 'otro', label: 'Otro' },
+];
+const labelTipoAdjunto = t => TIPOS_ADJUNTO.find(x => x.value === t)?.label || 'Otro';
 const badgePrioridad = p => ({
   baja: 'bg-gray-100 text-gray-600',
   media: 'bg-ht-accent/15 text-ht-navy',
@@ -151,7 +158,8 @@ export default function Postventa() {
       )}
 
       {detalle && (
-        <DetalleCaso caso={detalle} puedeGestionar={puedeGestionar} tecnicos={tecnicos}
+        <DetalleCaso caso={detalle} puedeGestionar={puedeGestionar}
+          puedeSubir={puedeGestionar || detalle.creado_por_id === user?.id} tecnicos={tecnicos}
           onClose={() => setDetalle(null)} onGuardar={guardarGestion} />
       )}
     </div>
@@ -327,7 +335,7 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
   );
 }
 
-function DetalleCaso({ caso, puedeGestionar, tecnicos, onClose, onGuardar }) {
+function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGuardar }) {
   const [prioridad, setPrioridad] = useState(caso.prioridad);
   const [tecnicoId, setTecnicoId] = useState(caso.tecnico_asignado_id || '');
   const [fechaLimite, setFechaLimite] = useState(caso.fecha_limite_respuesta ? caso.fecha_limite_respuesta.slice(0, 10) : '');
@@ -345,6 +353,8 @@ function DetalleCaso({ caso, puedeGestionar, tecnicos, onClose, onGuardar }) {
         <div><dt className="text-xs text-gray-500">Creado por</dt><dd className="text-ht-navy">{caso.creado_por_nombre}</dd></div>
         <div><dt className="text-xs text-gray-500">Etapa</dt><dd className="text-ht-navy">{caso.etapa_nombre}</dd></div>
       </dl>
+
+      <AdjuntosCaso casoId={caso.id} puedeSubir={puedeSubir} puedeGestionar={puedeGestionar} />
 
       {puedeGestionar ? (
         <div className="space-y-3 border-t border-gray-100 pt-3">
@@ -380,5 +390,86 @@ function DetalleCaso({ caso, puedeGestionar, tecnicos, onClose, onGuardar }) {
         <Link to={`/despacho?caso_postventa_id=${caso.id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
       </div>
     </Modal>
+  );
+}
+
+function AdjuntosCaso({ casoId, puedeSubir }) {
+  const { user } = useAuth();
+  const [adjuntos, setAdjuntos] = useState([]);
+  const [error, setError] = useState('');
+  const [tipo, setTipo] = useState('foto_cliente');
+  const [descripcion, setDescripcion] = useState('');
+  const [archivo, setArchivo] = useState(null);
+  const [subiendo, setSubiendo] = useState(false);
+
+  const cargar = () => api.get(`/postventa/${casoId}/adjuntos`).then(r => setAdjuntos(r.data)).catch(() => {});
+  useEffect(() => { cargar(); }, [casoId]);
+
+  const subir = async e => {
+    e.preventDefault();
+    if (!archivo) return;
+    setError(''); setSubiendo(true);
+    const form = new FormData();
+    form.append('archivo', archivo);
+    form.append('tipo', tipo);
+    if (descripcion) form.append('descripcion', descripcion);
+    try {
+      await api.post(`/postventa/${casoId}/adjuntos`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setArchivo(null); setDescripcion(''); cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo subir el archivo.'); }
+    finally { setSubiendo(false); }
+  };
+
+  const ver = async adj => {
+    try {
+      const { data } = await api.get(`/postventa/adjuntos/${adj.id}/archivo`, { responseType: 'blob' });
+      window.open(URL.createObjectURL(data), '_blank');
+    } catch { setError('No se pudo abrir el archivo.'); }
+  };
+
+  const eliminar = async adjId => {
+    try { await api.delete(`/postventa/adjuntos/${adjId}`); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo eliminar el adjunto.'); }
+  };
+
+  return (
+    <div className="border-t border-gray-100 pt-3 mt-3">
+      <h3 className="text-sm font-semibold text-ht-navy mb-2">Adjuntos ({adjuntos.length})</h3>
+      {error && <div className="mb-2 text-xs text-red-600">{error}</div>}
+      {adjuntos.length === 0 ? (
+        <p className="text-xs text-gray-400 mb-2">Sin adjuntos todavía.</p>
+      ) : (
+        <ul className="space-y-1.5 mb-2">
+          {adjuntos.map(a => (
+            <li key={a.id} className="flex items-center justify-between text-sm border border-gray-100 rounded px-2 py-1.5">
+              <button type="button" onClick={() => ver(a)} className="text-left flex-1 hover:underline">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-gray-600 mr-2">{labelTipoAdjunto(a.tipo)}</span>
+                <span className="text-ht-navy">{a.archivo_nombre || 'archivo'}</span>
+                {a.descripcion && <span className="text-gray-400"> · {a.descripcion}</span>}
+                <span className="block text-[11px] text-gray-400">{a.subido_por_nombre || 'sistema'} · {new Date(a.created_at).toLocaleString('es-CL')}</span>
+              </button>
+              {(user?.id === a.subido_por_id || user?.rol === 'administrador' || user?.rol === 'jefe_comercial' || user?.es_encargado_postventa) && (
+                <button type="button" onClick={() => eliminar(a.id)} className="text-xs text-red-500 hover:underline ml-2 flex-shrink-0">Eliminar</button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {puedeSubir && (
+        <form onSubmit={subir} className="flex flex-wrap items-end gap-2">
+          <select value={tipo} onChange={e => setTipo(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            {TIPOS_ADJUNTO.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <input value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="Descripción (opcional)"
+            className="flex-1 min-w-[140px] border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          <input type="file" onChange={e => setArchivo(e.target.files?.[0] || null)} className="text-xs" />
+          <button type="submit" disabled={!archivo || subiendo}
+            className="text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50">
+            {subiendo ? 'Subiendo…' : 'Subir'}
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
