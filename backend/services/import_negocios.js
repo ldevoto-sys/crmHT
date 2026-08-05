@@ -1,7 +1,8 @@
-// Mapea filas CSV a negocios/oportunidades que nacen directo en la etapa
-// "Aceptado" de un pipeline, sin cotización asociada (O/C de Cencosud,
-// Sodimac, etc. contra un contrato ya firmado).
-// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, n_oc, monto, fecha_cierre, vendedor
+// Mapea filas CSV a negocios/oportunidades que nacen directo en una etapa
+// del pipeline "Operaciones" (por defecto "Aceptado" si la fila no indica
+// otra), sin cotización asociada (O/C de Cencosud, Sodimac, etc. contra un
+// contrato ya firmado).
+// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, estado, n_oc, monto, fecha_cierre, vendedor
 const { normalizarTelefono } = require('./dedup');
 const { validarRut, normalizarRut, validarEmail } = require('../utils/validaciones');
 
@@ -15,6 +16,7 @@ const MAPA = {
   'contacto_telefono': 'contacto_telefono', 'telefono': 'contacto_telefono', 'teléfono': 'contacto_telefono',
   'celular': 'contacto_telefono', 'fono': 'contacto_telefono',
   'titulo': 'titulo', 'título': 'titulo', 'nombre_negocio': 'titulo', 'oportunidad': 'titulo',
+  'estado': 'estado', 'etapa': 'estado',
   'n_oc': 'n_oc', 'oc': 'n_oc', 'orden_compra': 'n_oc', 'orden de compra': 'n_oc',
   'n° oc': 'n_oc', 'nº oc': 'n_oc', 'numero_oc': 'n_oc', 'número de oc': 'n_oc',
   'monto': 'monto', 'monto_estimado': 'monto', 'total': 'monto',
@@ -25,10 +27,12 @@ const MAPA = {
 
 const PLANTILLA_HEADERS = [
   'empresa', 'rut_empresa', 'contacto_nombre', 'contacto_apellido', 'contacto_email',
-  'contacto_telefono', 'titulo', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
+  'contacto_telefono', 'titulo', 'estado', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
 ];
 
-const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Fecha del CSV en formato local DD-MM-AAAA (no ISO) — se convierte a
+// AAAA-MM-DD antes de guardar, que es lo que espera la columna DATE.
+const FECHA_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
 
 function mapearFila(row) {
   const n = {};
@@ -62,11 +66,17 @@ function mapearFila(row) {
   }
 
   if (n.fecha_cierre) {
-    if (!FECHA_RE.test(n.fecha_cierre)) {
-      advertencias.push('fecha_cierre no tiene formato AAAA-MM-DD (se usó la fecha de hoy)');
+    const m = FECHA_RE.exec(n.fecha_cierre);
+    if (!m) {
+      advertencias.push('fecha_cierre no tiene formato DD-MM-AAAA (se usó la fecha de hoy)');
       n.fecha_cierre = null;
+    } else {
+      const [, dd, mm, yyyy] = m;
+      n.fecha_cierre = `${yyyy}-${mm}-${dd}`;
     }
   }
+
+  n.estado = n.estado || null;
 
   const errores = [];
   if (!n.empresa_nombre && !n.empresa_rut) errores.push('falta empresa (nombre o RUT)');
