@@ -5,6 +5,9 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
+// Mismo criterio que el tablero de Pipeline: mover de pipeline es una acción
+// más sensible que editar la cotización, acotada a admin/jefe comercial.
+const PUEDE_MOVER_PIPELINE = ['administrador', 'jefe_comercial'];
 
 export default function DetalleCotizacion() {
   const { id } = useParams();
@@ -13,6 +16,7 @@ export default function DetalleCotizacion() {
   const [cot, setCot] = useState(null);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [etapas, setEtapas] = useState([]);
+  const [pipelines, setPipelines] = useState([]);
   const [causas, setCausas] = useState([]);
   const [probEnEdicion, setProbEnEdicion] = useState('');
   const [modalPerdido, setModalPerdido] = useState(null); // { etapaId }
@@ -24,11 +28,27 @@ export default function DetalleCotizacion() {
   };
   useEffect(() => { cargar(); }, [id]);
   useEffect(() => {
-    api.get('/config/pipeline-etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
     api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+    if (PUEDE_MOVER_PIPELINE.includes(user?.rol)) {
+      api.get('/config/pipelines').then(r => setPipelines(r.data.filter(p => p.activo))).catch(() => {});
+    }
+    // eslint-disable-next-line
   }, []);
+  useEffect(() => {
+    // Las etapas deben ser las del pipeline al que pertenece ESTE negocio —
+    // sin pipeline_id, el endpoint devuelve por defecto las de "Ventas
+    // Directas" (id=1), que no son las etapas correctas si el negocio está
+    // en otro pipeline (ej. Operaciones).
+    if (!cot?.negocio_pipeline_id) return;
+    api.get('/config/pipeline-etapas', { params: { pipeline_id: cot.negocio_pipeline_id } })
+      .then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
+  }, [cot?.negocio_pipeline_id]);
   useEffect(() => { if (cot) setProbEnEdicion(cot.negocio_probabilidad_cierre ?? ''); }, [cot?.negocio_probabilidad_cierre]);
 
+  const cambiarPipeline = async pipelineId => {
+    if (!pipelineId || Number(pipelineId) === cot.negocio_pipeline_id) return;
+    await accion(() => api.put(`/negocios/${cot.negocio_id}/pipeline`, { pipeline_id: Number(pipelineId) }));
+  };
   const cambiarEtapa = async etapaId => {
     const etapa = etapas.find(e => e.id === Number(etapaId));
     if (!etapa) return;
@@ -292,6 +312,15 @@ export default function DetalleCotizacion() {
           {cot.puede_editar && (
             <div className="bg-white border border-gray-200 rounded-lg p-5 h-fit space-y-3">
               <h2 className="font-semibold text-ht-navy">Pipeline del negocio</h2>
+              {PUEDE_MOVER_PIPELINE.includes(user?.rol) && pipelines.length > 1 && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Pipeline</label>
+                  <select value={cot.negocio_pipeline_id || ''} onChange={e => cambiarPipeline(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+                    {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Etapa</label>
                 <select value={cot.negocio_etapa_id || ''} onChange={e => cambiarEtapa(e.target.value)}
