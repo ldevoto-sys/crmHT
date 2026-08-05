@@ -163,7 +163,7 @@ export default function Pipeline() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-x-auto pb-2">
+      <div className="flex-1 min-h-0 overflow-x-auto pb-2 scroll-visible">
         <div className="flex gap-3 h-full">
         {etapas.map(et => {
           const items = porEtapa(et.id);
@@ -181,7 +181,7 @@ export default function Pipeline() {
               <div className="text-xs text-gray-500 px-1 mb-2 flex-shrink-0">
                 {money(total)}{et.tipo === 'abierta' && ponderado > 0 && <span className="text-ht-accent"> · pond. {money(Math.round(ponderado))}</span>}
               </div>
-              <div className="space-y-2 min-h-[40px] overflow-y-auto flex-1 pr-1">
+              <div className="space-y-2 min-h-[40px] overflow-y-auto flex-1 pr-1 scroll-visible">
                 {items.map(n => (
                   <div key={n.id} draggable onDragStart={() => setDrag(n)}
                     className="bg-white rounded-md border border-gray-200 p-3 cursor-move hover:border-ht-accent">
