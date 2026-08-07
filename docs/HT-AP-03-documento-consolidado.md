@@ -1005,6 +1005,28 @@ Sin prioridad asignada (no comerciales / no bloquean nada):
 - **Pago por hitos (%) de la plantilla `HTCO03`** (§7): fuera de alcance de
   v1.18 — si se necesita, se agrega a mano en el Word ya descargado.
 
+## 17. Proceso de despliegue a producción
+
+**Regla vigente desde el 07-08-2026:** los cambios se promueven a `main`
+(producción) **solo fuera del horario de trabajo de la empresa**, salvo
+que se trate de un **error crítico** que no pueda esperar. `staging` no
+tiene esta restricción — sigue disponible para pruebas en cualquier
+momento.
+
+**Origen:** ese mismo día se promovió a producción una tanda importante de
+cambios (v1.24) durante horario de trabajo. En paralelo, un usuario
+(Nicolás Quezada) reportó por correo haber sido desconectado de su sesión
+dos veces mientras cotizaba, perdiendo el borrador de una cotización
+extensa. Luis Devoto planteó como hipótesis que ambos hechos estén
+relacionados. **No se investigó ni se confirmó una relación causal** entre
+los despliegues y el corte de sesión — la regla se adopta de todas formas
+como precaución, y queda registrada como instrucción permanente del
+proyecto (`CLAUDE.md`, raíz del repositorio).
+
+El reporte de sesión cortada / cotización en borrador no guardada queda
+como un problema técnico aparte, sin diagnosticar — no se investigó su
+causa real en esta nota.
+
 ---
 
 *HidroTecnica SpA — HT-AP-03 Documento Consolidado · Borrador para validación de Gerencia*
