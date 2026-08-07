@@ -4,7 +4,7 @@
 **Fecha de consolidación:** 2026-08-07
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.24 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.25 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
@@ -37,8 +37,11 @@ con el mismo código; y de v1.24 (07-08-2026): **monto estimado editable** en
 la ficha del negocio y **sincronizado automáticamente** con el total al
 generar o editar una cotización (§3), y el **aviso manual de novedades por
 correo** (§9), que queda establecido como estándar para toda futura
-promoción de cambios a producción. Este documento es el que debe subirse a
-SharePoint reemplazando la versión anterior del documento base.
+promoción de cambios a producción; y de v1.25 (07-08-2026): **autoguardado
+de borrador de cotización** y aviso honesto al expirar la sesión (§4), y el
+**aviso diario de casos de Postventa vencidos** por correo a las 8:30am
+(§5). Este documento es el que debe subirse a SharePoint reemplazando la
+versión anterior del documento base.
 
 ---
 
@@ -382,6 +385,18 @@ Word corporativas, en vez de (o adicional a) el PDF plano de este documento.
 Ver el detalle completo en §7 (Cotizador Operaciones), donde se construyó
 junto con el resto de ese módulo.
 
+**Autoguardado de borrador (v1.25):** el formulario de Nueva Cotización se
+guarda solo en `localStorage` del navegador mientras se edita (antes no
+tenía ninguna persistencia local — cualquier interrupción antes de
+guardar, como una sesión expirada, perdía todo lo tecleado). Al volver a
+entrar a esa misma cotización o a cotizar para el mismo negocio, si hay un
+borrador guardado ofrece recuperarlo; se limpia al guardar con éxito.
+Surge de un reporte de un vendedor que perdió una cotización extensa por
+un corte de sesión — junto con esto, el aviso de sesión expirada
+(interceptor de la API en el frontend) dejó de ser un corte silencioso: ahora
+avisa explícitamente y aclara que el borrador se recuperará al volver a
+entrar.
+
 ## 5. Postventa (v1.13)
 
 - Un caso de postventa (garantía o reclamo técnico) se vincula normalmente a
@@ -408,6 +423,16 @@ junto con el resto de ese módulo.
 - **Alertas de SLA** por tarjeta según la fecha límite de respuesta:
   amarillo si quedan 3 días o menos, rojo si ya venció. Filtro en el
   tablero: Todos / Vencidos / Por vencer.
+- **Aviso diario de casos vencidos por correo (v1.25):** todos los días,
+  entre las 8:30 y las 8:44 hora de Chile, si hay al menos un caso
+  **abierto** con la fecha límite de respuesta ya vencida, se envía un
+  correo (asunto "CASO DE POSTVENTA VENCIDO") con el detalle de cada caso
+  a quienes tengan el atributo `es_encargado_postventa`, o rol
+  administrador/jefe comercial/gerencia. Si no hay ningún caso vencido ese
+  día, no se envía nada. Tabla `postventa_vencidos_envios` evita reenviarlo
+  dos veces el mismo día — mismo patrón que el informe diario (§9).
+  Endpoint manual `POST /api/postventa/vencidos/enviar-ahora` para pruebas
+  o reenvíos.
 - Casos sin etapa asignada (creados antes de existir alguna etapa abierta,
   o cuya etapa fue desactivada) se muestran en una columna aparte **"Sin
   etapa asignada"**, para no quedar nunca invisibles.
