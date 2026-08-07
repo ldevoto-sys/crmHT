@@ -141,17 +141,25 @@ router.get('/:id', async (req, res) => {
 // POST /api/negocios
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   try {
-    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso } = req.body;
+    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
 
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
     if (!contacto) return res.status(400).json({ error: 'Contacto inexistente' });
 
     const dueno = (req.user.rol === 'administrador' && vendedor_id) ? vendedor_id : req.user.id;
-    // El negocio nace en el pipeline por defecto del dueño (no de quien lo crea,
-    // si un admin lo está creando para otro vendedor).
-    const duenoInfo = await db.get('SELECT pipeline_default_id FROM users WHERE id = $1', [dueno]);
-    const pipelineId = duenoInfo?.pipeline_default_id || 1;
+    // El negocio nace en el pipeline elegido al crearlo; si no se especifica,
+    // en el pipeline por defecto del dueño (no de quien lo crea, si un admin
+    // lo está creando para otro vendedor).
+    let pipelineId;
+    if (pipeline_id) {
+      const pipelineElegido = await db.get('SELECT id FROM pipelines WHERE id = $1 AND activo = true', [pipeline_id]);
+      if (!pipelineElegido) return res.status(400).json({ error: 'Pipeline inválido' });
+      pipelineId = pipelineElegido.id;
+    } else {
+      const duenoInfo = await db.get('SELECT pipeline_default_id FROM users WHERE id = $1', [dueno]);
+      pipelineId = duenoInfo?.pipeline_default_id || 1;
+    }
 
     // Etapa inicial: primera abierta por orden, dentro de ese mismo pipeline.
     const etapaInicial = await db.get(

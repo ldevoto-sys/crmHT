@@ -270,11 +270,16 @@ function Modal({ children, onClose }) {
 }
 
 function NuevoNegocio({ onClose, onCreado }) {
+  const { user } = useAuth();
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
   const [contacto, setContacto] = useState(null);
   const [titulo, setTitulo] = useState(''); const [monto, setMonto] = useState('');
   const [fechaCompromiso, setFechaCompromiso] = useState('');
+  const [pipelines, setPipelines] = useState([]);
+  const [pipelineId, setPipelineId] = useState(user?.pipeline_default_id || '');
   const [error, setError] = useState('');
+
+  useEffect(() => { api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {}); }, []);
 
   const buscar = async val => {
     setQ(val);
@@ -286,7 +291,10 @@ function NuevoNegocio({ onClose, onCreado }) {
     e.preventDefault(); setError('');
     if (!contacto) { setError('Selecciona un contacto.'); return; }
     try {
-      await api.post('/negocios', { contacto_id: contacto.id, titulo, monto_estimado: monto || null, fecha_compromiso: fechaCompromiso || null });
+      await api.post('/negocios', {
+        contacto_id: contacto.id, titulo, monto_estimado: monto || null, fecha_compromiso: fechaCompromiso || null,
+        pipeline_id: pipelineId || null,
+      });
       onCreado();
     } catch (err) { setError(err.response?.data?.error || 'Error al crear.'); }
   };
@@ -324,6 +332,13 @@ function NuevoNegocio({ onClose, onCreado }) {
           <label className="block text-sm text-gray-700 mb-1">Título</label>
           <input required value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ej: Bomba pozo profundo 2 HP"
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Pipeline</label>
+          <select value={pipelineId} onChange={e => setPipelineId(Number(e.target.value))}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            {pipelines.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
         </div>
         <div>
           <label className="block text-sm text-gray-700 mb-1">Monto estimado (opcional)</label>

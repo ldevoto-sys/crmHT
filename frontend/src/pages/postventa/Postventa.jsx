@@ -199,7 +199,9 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
   const [form, setForm] = useState({ titulo: '', descripcion: '', prioridad: 'media', detalle_equipo: '', fecha_limite_respuesta: '' });
   const [productoQ, setProductoQ] = useState(''); const [productos, setProductos] = useState([]);
   const [productoSel, setProductoSel] = useState(null);
+  const [fotos, setFotos] = useState([]);
   const [error, setError] = useState('');
+  const [creando, setCreando] = useState(false);
 
   useEffect(() => {
     if (negocioIdInicial) {
@@ -230,16 +232,26 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
     if (sinNegocio) {
       if (!contacto) { setError('Selecciona el contacto del caso.'); return; }
     } else if (!negocio) { setError('Selecciona el negocio de origen (la venta a la que corresponde este caso).'); return; }
+    setCreando(true);
     try {
-      await api.post('/postventa', {
+      const { data: caso } = await api.post('/postventa', {
         negocio_id: sinNegocio ? undefined : negocio.id, contacto_id: sinNegocio ? contacto.id : undefined,
         titulo: form.titulo, descripcion: form.descripcion || undefined,
         prioridad: form.prioridad, detalle_equipo: form.detalle_equipo || undefined,
         fecha_limite_respuesta: form.fecha_limite_respuesta || undefined,
         producto_id: productoSel?.id,
       });
+      // Las fotos se suben recién ahora, porque el adjunto necesita el id del
+      // caso — a ojos del usuario es un solo paso ("crear con fotos").
+      for (const foto of fotos) {
+        const fd = new FormData();
+        fd.append('archivo', foto);
+        fd.append('tipo', 'foto_cliente');
+        await api.post(`/postventa/${caso.id}/adjuntos`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
       onCreado();
     } catch (err) { setError(err.response?.data?.error || 'Error al crear el caso.'); }
+    finally { setCreando(false); }
   };
 
   return (
@@ -352,8 +364,16 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
           <input value={form.detalle_equipo} onChange={e => setForm({ ...form, detalle_equipo: e.target.value })} placeholder="N° de serie, ubicación, fecha de instalación…"
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Fotos (opcional)</label>
+          <input type="file" accept="image/*" multiple onChange={e => setFotos(Array.from(e.target.files || []))}
+            className="w-full text-sm" />
+          {fotos.length > 0 && <p className="text-xs text-gray-400 mt-1">{fotos.length} foto(s) seleccionada(s)</p>}
+        </div>
         <div className="flex gap-2">
-          <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Crear</button>
+          <button type="submit" disabled={creando} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+            {creando ? 'Creando…' : 'Crear'}
+          </button>
           <button type="button" onClick={onClose} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
         </div>
       </form>
