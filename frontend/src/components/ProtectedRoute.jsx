@@ -14,6 +14,11 @@ export default function ProtectedRoute({ children, roles, flag }) {
   }
   const tieneRol = !roles || roles.includes(user.rol);
   const tieneFlag = flag && user[flag] === true;
-  if (roles && !tieneRol && !tieneFlag) return <Navigate to="/dashboard" replace />;
+  // El rol "tecnico" no tiene acceso a /dashboard (queda fuera de la lista de
+  // roles de esa ruta) — si lo mandáramos siempre ahí terminaría en un loop
+  // de redirecciones. Su único destino válido es Servicio Técnico.
+  if (roles && !tieneRol && !tieneFlag) {
+    return <Navigate to={user.rol === 'tecnico' ? '/servicio-tecnico' : '/dashboard'} replace />;
+  }
   return children;
 }

@@ -74,7 +74,7 @@ export default function CambiarPassword() {
       });
       const updatedUser = { ...user, must_change_password: false };
       login(updatedUser, localStorage.getItem('token'));
-      navigate('/dashboard');
+      navigate(user.rol === 'tecnico' ? '/servicio-tecnico' : '/dashboard');
     } catch (err) {
       setError(err.response?.data?.error || 'Error al cambiar la contraseña');
     } finally {

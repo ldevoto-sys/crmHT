@@ -42,6 +42,14 @@ import Despacho from './pages/despacho/Despacho';
 import ConfigLugaresDespacho from './pages/despacho/ConfigLugaresDespacho';
 import ConfigOperaciones from './pages/admin/ConfigOperaciones';
 import ConfigFormasPago from './pages/admin/ConfigFormasPago';
+import ServicioTecnico from './pages/servicio_tecnico/ServicioTecnico';
+import ConfigServicioTecnicoEtapas from './pages/servicio_tecnico/ConfigServicioTecnicoEtapas';
+
+// Roles previos a la introducción de "tecnico" (HT-AP-03) — se usan para
+// acotar explícitamente las pantallas que antes no tenían restricción de rol
+// (abiertas a cualquier autenticado), de modo que el nuevo rol "tecnico"
+// quede con acceso solo a Servicio Técnico, sin afectar a los demás roles.
+const ROLES_SIN_TECNICO = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
 
 export default function App() {
   return (
@@ -61,34 +69,52 @@ export default function App() {
             <ProtectedRoute><Layout /></ProtectedRoute>
           }>
             <Route index element={<Navigate to="/dashboard" replace />} />
-            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="dashboard" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><Dashboard /></ProtectedRoute>
+            } />
 
             {/* Etapa 1 — Maestros */}
-            <Route path="empresas" element={<Empresas />} />
+            <Route path="empresas" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><Empresas /></ProtectedRoute>
+            } />
             <Route path="empresas/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarEmpresas /></ProtectedRoute>
             } />
-            <Route path="empresas/:id" element={<DetalleEmpresa />} />
-            <Route path="contactos" element={<Contactos />} />
-            <Route path="contactos/:id" element={<DetalleContacto />} />
+            <Route path="empresas/:id" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleEmpresa /></ProtectedRoute>
+            } />
+            <Route path="contactos" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><Contactos /></ProtectedRoute>
+            } />
+            <Route path="contactos/:id" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleContacto /></ProtectedRoute>
+            } />
             <Route path="contactos/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarContactos /></ProtectedRoute>
             } />
             <Route path="duplicados" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'callcenter']}><Duplicados /></ProtectedRoute>
             } />
-            <Route path="productos" element={<Productos />} />
+            <Route path="productos" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><Productos /></ProtectedRoute>
+            } />
             <Route path="productos/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarProductos /></ProtectedRoute>
             } />
-            <Route path="productos/:id" element={<DetalleProducto />} />
+            <Route path="productos/:id" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleProducto /></ProtectedRoute>
+            } />
 
             {/* Etapa 2 — Cotizador y pipeline */}
-            <Route path="pipeline" element={<Pipeline />} />
+            <Route path="pipeline" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><Pipeline /></ProtectedRoute>
+            } />
             <Route path="pipeline/importar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ImportarNegocios /></ProtectedRoute>
             } />
-            <Route path="negocios/:id" element={<DetalleNegocio />} />
+            <Route path="negocios/:id" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleNegocio /></ProtectedRoute>
+            } />
             <Route path="negocios/:negocioId/cotizar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
             } />
@@ -98,15 +124,25 @@ export default function App() {
             <Route path="cotizaciones/nueva" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
             } />
-            <Route path="cotizaciones/:id" element={<DetalleCotizacion />} />
+            <Route path="cotizaciones/:id" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleCotizacion /></ProtectedRoute>
+            } />
             <Route path="cotizaciones/:cotizacionId/editar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
             } />
 
             {/* Etapa 3 — Tareas y reportes */}
-            <Route path="tareas" element={<MisTareas />} />
+            <Route path="tareas" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><MisTareas /></ProtectedRoute>
+            } />
             <Route path="reportes" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Reportes /></ProtectedRoute>
+            } />
+
+            {/* Servicio Técnico — abierto a todos los roles existentes, más el rol dedicado "tecnico" */}
+            <Route path="servicio-tecnico" element={<ServicioTecnico />} />
+            <Route path="config/servicio-tecnico-etapas" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigServicioTecnicoEtapas /></ProtectedRoute>
             } />
 
             {/* Postventa */}

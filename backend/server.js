@@ -61,6 +61,7 @@ app.use('/api/reportes', require('./routes/reportes'));
 app.use('/api/whatsapp', require('./routes/whatsapp'));
 app.use('/api/postventa', require('./routes/postventa'));
 app.use('/api/despachos', require('./routes/despacho'));
+app.use('/api/servicio-tecnico', require('./routes/servicio_tecnico'));
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
