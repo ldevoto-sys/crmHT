@@ -9,6 +9,7 @@ const { avanzarPasosPendientes } = require('./services/secuencias');
 const { enviarRecordatorios } = require('./services/encuestas');
 const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
+const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -112,6 +113,13 @@ if (require.main === module) {
       // tabla informe_diario_envios).
       setInterval(() => {
         enviarInformeDiarioSiCorresponde().catch(err => console.error('[informeDiario] Error:', err));
+      }, QUINCE_MIN);
+      // Aviso de casos de Postventa vencidos: dispara solo entre las 8:30 y
+      // las 8:44 hora de Chile (cae dentro de la ventana en algún chequeo de
+      // los 15 min), y solo si hay al menos un caso vencido ese día (ver
+      // tabla postventa_vencidos_envios).
+      setInterval(() => {
+        enviarPostventaVencidosSiCorresponde().catch(err => console.error('[postventaVencidos] Error:', err));
       }, QUINCE_MIN);
     })
     .catch((err) => {

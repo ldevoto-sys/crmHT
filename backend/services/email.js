@@ -308,4 +308,31 @@ module.exports = {
       ${boton(APP_URL, 'Ir al CRM')}
     `)
   ),
+
+  // Aviso diario de casos de Postventa vencidos (HT-AP-03 nota v1.25):
+  // usuario: {nombre,email}; casos: filas de
+  // services/postventaVencidos.js (casosVencidos), ya con dias_atraso
+  // calculado. Asunto deliberadamente directo — es una alerta, no un
+  // informe informativo como el diario.
+  postventaVencido: (usuario, casos) => {
+    const filas = casos.map(c => filaInforme([
+      c.titulo,
+      c.cliente_nombre,
+      c.tecnico_nombre || '— sin asignar —',
+      new Date(c.fecha_limite_respuesta).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }),
+      `${c.dias_atraso} día${Number(c.dias_atraso) === 1 ? '' : 's'}`,
+    ]));
+    return enviar(
+      usuario.email,
+      'CASO DE POSTVENTA VENCIDO',
+      template('Caso(s) de Postventa vencido(s)', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p style="color:#b91c1c; font-weight:bold; font-size:15px;">
+          Hay ${casos.length} caso${casos.length === 1 ? '' : 's'} de Postventa con la fecha límite de respuesta ya vencida.
+        </p>
+        ${tablaInforme(['Caso', 'Cliente', 'Técnico', 'Vencido desde', 'Atraso'], filas)}
+        ${boton(`${APP_URL}/postventa`, 'Ver Postventa')}
+      `)
+    );
+  },
 };
