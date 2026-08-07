@@ -23,5 +23,12 @@ Antes de hacer `git push origin main` (o cherry-pick a `main`):
 - `staging` no tiene esta restricción — se puede promover ahí en cualquier
   momento para pruebas.
 
+**Excepción — cambios de solo documentación:** si el cambio es exclusivamente
+a `docs/`, `CLAUDE.md`, o `README.md` (sin tocar `backend/` ni `frontend/`),
+no afecta el comportamiento de la aplicación desplegada — se puede subir a
+`staging` y `main` en simultáneo, en cualquier horario, sin esperar la
+ventana fuera de horario. Confirmado explícitamente por Luis Devoto
+(07-08-2026).
+
 Ver `docs/HT-AP-03-nota-cambio-v1.24.md` y
 `docs/HT-AP-03-documento-consolidado.md` (§17) para el registro completo.
