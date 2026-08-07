@@ -352,64 +352,82 @@ function NuevoDespacho({ negocioIdInicial, casoPostventaIdInicial, lugares, onCl
   );
 }
 
-// puedeSubir: si además de ver la foto puede subir/reemplazarla (gestor) —
-// en ese caso se muestra como botones apilados a la derecha, no como links.
-function FotoPunto({ punto, onSubida, puedeSubir }) {
-  const [url, setUrl] = useState(null);
+// puedeSubir: si además de ver los adjuntos puede subir más o eliminarlos
+// (gestor). Los archivos quedan históricos — subir uno nuevo no borra los
+// anteriores, a diferencia de la "foto única" que existía antes de v1.22.
+function AdjuntosPunto({ punto, onSubida, puedeSubir }) {
+  const { user } = useAuth();
+  const [adjuntos, setAdjuntos] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState('');
+  const [abierto, setAbierto] = useState(false);
 
-  const verFoto = async () => {
-    setCargando(true); setError('');
+  const cargar = () => api.get(`/despachos/puntos/${punto.id}/adjuntos`).then(r => setAdjuntos(r.data)).catch(() => {});
+  useEffect(() => { if (abierto) cargar(); }, [abierto, punto.id]); // eslint-disable-line
+
+  const ver = async adj => {
+    setError('');
     try {
-      const { data } = await api.get(`/despachos/puntos/${punto.id}/foto`, { responseType: 'blob' });
-      setUrl(URL.createObjectURL(data));
-    } catch { setError('No se pudo obtener la foto.'); }
-    finally { setCargando(false); }
+      const { data } = await api.get(`/despachos/adjuntos/${adj.id}/archivo`, { responseType: 'blob' });
+      window.open(URL.createObjectURL(data), '_blank');
+    } catch { setError('No se pudo obtener el archivo.'); }
   };
 
-  const subirFoto = async e => {
-    const archivo = e.target.files?.[0];
-    if (!archivo) return;
+  const subir = async e => {
+    const archivos = Array.from(e.target.files || []);
+    if (archivos.length === 0) return;
     setCargando(true); setError('');
-    const form = new FormData(); form.append('archivo', archivo);
+    const form = new FormData();
+    archivos.forEach(a => form.append('archivos', a));
     try {
-      await api.post(`/despachos/puntos/${punto.id}/foto`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      onSubida();
-    } catch (err) { setError(err.response?.data?.error || 'No se pudo subir la foto.'); }
+      await api.post(`/despachos/puntos/${punto.id}/adjuntos`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      await cargar(); onSubida();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo subir el archivo.'); }
     finally { setCargando(false); e.target.value = ''; }
   };
 
-  if (url) {
-    return <img src={url} alt="Foto de respaldo" className="max-h-40 rounded border border-gray-200 mt-1" />;
-  }
+  const eliminar = async adjId => {
+    setError('');
+    try { await api.delete(`/despachos/adjuntos/${adjId}`); await cargar(); onSubida(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo eliminar el adjunto.'); }
+  };
 
-  if (puedeSubir) {
+  if (!abierto) {
     return (
-      <div className="flex flex-col items-end gap-1.5 max-w-[140px]">
-        {error && <p className="text-xs text-red-600 text-right">{error}</p>}
-        {punto.tiene_foto && (
-          <button type="button" onClick={verFoto} disabled={cargando}
-            className="text-xs px-2 py-1 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-60">
-            {cargando ? 'Cargando...' : 'Ver foto'}
-          </button>
-        )}
-        <label className="text-xs px-2 py-1 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/10 cursor-pointer whitespace-nowrap">
-          {punto.tiene_foto ? 'Reemplazar foto' : 'Subir foto'}
-          <input type="file" accept="image/*" onChange={subirFoto} className="hidden" disabled={cargando} />
-        </label>
-      </div>
+      <button type="button" onClick={() => setAbierto(true)}
+        className={`text-xs mt-1 ${puedeSubir ? 'text-ht-accent hover:underline' : 'text-gray-500 hover:underline'}`}>
+        {punto.tiene_adjuntos ? 'Ver archivos de respaldo' : 'Sin archivos de respaldo'}
+      </button>
     );
   }
 
   return (
-    <div className="mt-1">
-      {error && <p className="text-xs text-red-600">{error}</p>}
-      {punto.tiene_foto && (
-        <button type="button" onClick={verFoto} disabled={cargando} className="text-xs text-ht-accent hover:underline">
-          {cargando ? 'Cargando...' : 'Ver foto de respaldo'}
-        </button>
+    <div className="mt-1.5 border-t border-gray-100 pt-1.5">
+      {error && <p className="text-xs text-red-600 mb-1">{error}</p>}
+      {adjuntos.length === 0 ? (
+        <p className="text-xs text-gray-400 mb-1">Sin archivos todavía.</p>
+      ) : (
+        <ul className="space-y-1 mb-1.5">
+          {adjuntos.map(a => (
+            <li key={a.id} className="flex items-center justify-between text-xs">
+              <button type="button" onClick={() => ver(a)} className="text-ht-accent hover:underline text-left flex-1 truncate">
+                {a.archivo_nombre || 'archivo'}
+              </button>
+              <span className="text-gray-400 ml-2 flex-shrink-0">{new Date(a.created_at).toLocaleDateString('es-CL')}</span>
+              {puedeSubir && (user?.id === a.subido_por_id || user?.rol === 'administrador' || user?.rol === 'jefe_comercial' || user?.es_encargado_despacho) && (
+                <button type="button" onClick={() => eliminar(a.id)} className="text-red-500 hover:underline ml-2 flex-shrink-0">Eliminar</button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
+      {puedeSubir && (
+        <label className="text-xs px-2 py-1 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/10 cursor-pointer inline-block">
+          {cargando ? 'Subiendo…' : '+ Agregar archivo(s)'}
+          <input type="file" multiple onChange={subir} className="hidden" disabled={cargando} />
+        </label>
+      )}
+      <button type="button" onClick={() => setAbierto(false)} className="text-xs text-gray-400 hover:underline ml-2">cerrar</button>
     </div>
   );
 }
@@ -609,7 +627,7 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                         <button onClick={() => empezarEdicion(p)} className="text-xs text-ht-accent hover:underline">Editar</button>
                         <button onClick={() => eliminarPunto(p)} className="text-xs text-red-500 hover:underline">Eliminar</button>
                       </div>
-                      <FotoPunto punto={p} onSubida={onCambio} puedeSubir />
+                      <AdjuntosPunto punto={p} onSubida={onCambio} puedeSubir />
                     </div>
                   )}
                 </div>
@@ -620,19 +638,19 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                 </div>
                 {puedeGestionar ? (
                   <>
-                    <label className={`flex items-center gap-2 text-xs mt-2 ${!p.tiene_foto && !p.completado ? 'text-gray-400' : 'text-gray-700'}`}>
-                      <input type="checkbox" checked={p.completado} disabled={!p.tiene_foto && !p.completado}
+                    <label className={`flex items-center gap-2 text-xs mt-2 ${!p.tiene_adjuntos && !p.completado ? 'text-gray-400' : 'text-gray-700'}`}>
+                      <input type="checkbox" checked={p.completado} disabled={!p.tiene_adjuntos && !p.completado}
                         onChange={e => completar(p, e.target.checked)} />
                       Parada completada
                     </label>
-                    {!p.tiene_foto && !p.completado && (
-                      <p className="text-[11px] text-amber-600 mt-0.5">Sube la foto de respaldo para poder completarla.</p>
+                    {!p.tiene_adjuntos && !p.completado && (
+                      <p className="text-[11px] text-amber-600 mt-0.5">Sube al menos un archivo de respaldo para poder completarla.</p>
                     )}
                   </>
                 ) : (
                   <>
                     <div className="text-xs mt-2">{p.completado ? <span className="text-green-600">✓ Completada</span> : <span className="text-gray-400">Pendiente</span>}</div>
-                    <FotoPunto punto={p} onSubida={onCambio} puedeSubir={false} />
+                    <AdjuntosPunto punto={p} onSubida={onCambio} puedeSubir={false} />
                   </>
                 )}
               </>
