@@ -1,15 +1,15 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-08-05
+**Fecha de consolidación:** 2026-08-07
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.21 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.22 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
 Postventa y el módulo de Despacho; de v1.15: ajuste de UX en Despacho y el
-backlog priorizado post-lanzamiento (§15); de v1.16: optimización de ruta de
+backlog priorizado post-lanzamiento (§16); de v1.16: optimización de ruta de
 Despacho con Google Maps Platform; de v1.17-v1.18: el **Cotizador
 Operaciones** completo (§7 de esta versión) — parser de solicitudes Fracttal,
 motor de cálculo de mano de obra/traslado, y generación de propuestas en Word
@@ -20,19 +20,32 @@ del mes, el fix de rendimiento/normalización de RUT en los importadores
 masivos, el retiro temporal del canal WhatsApp del envío de cotizaciones, y
 la puesta en producción del sistema (01-08-2026); de v1.20: el **informe
 diario por correo** de cotizaciones generadas y negocios ganados (§9 de esta
-versión); y de v1.21 (05-08-2026): el **importador de oportunidades** para el
+versión); de v1.21 (05-08-2026): el **importador de oportunidades** para el
 pipeline Operaciones (§3), el **historial de adjuntos de Postventa** y la
 posibilidad de abrir un **caso de Postventa sin negocio de origen** (ambos en
-§5) — con esta versión, `staging` y `main` (producción) quedan con el mismo
-código. Este documento es el que debe subirse a SharePoint reemplazando la
-versión anterior del documento base.
+§5); y de v1.22 (07-08-2026): mensaje de correo editable y **forma de pago**
+(con datos bancarios condicionales) al enviar una cotización (§4), **fecha de
+compromiso** en el Pipeline con alerta de SLA (§3), el módulo **Servicio
+Técnico de bombas** y el rol dedicado `tecnico` (§15, nueva), y la
+posibilidad de subir fotos directo al crear un caso de Postventa o de
+Servicio Técnico (§5/§15) — con esta versión, `staging` y `main` (producción)
+quedan con el mismo código. Este documento es el que debe subirse a
+SharePoint reemplazando la versión anterior del documento base.
 
 ---
 
 ## 1. Alcance y roles
 
 **Roles del sistema:** `administrador`, `jefe_comercial`, `vendedor`,
-`callcenter`, `gerencia`.
+`callcenter`, `gerencia`, `tecnico` (v1.22).
+
+**Rol `tecnico` (v1.22):** rol acotado a un solo módulo — quien lo tiene
+**solo** ve y usa Servicio Técnico (§15), nada más del sistema (ni Dashboard,
+ni Pipeline, ni Contactos, etc., aunque no tuvieran antes una restricción de
+rol explícita). Los cinco roles preexistentes, en cambio, **suman** Servicio
+Técnico a lo que ya veían — no se les quita nada. Pensado para personal de
+terreno que solo necesita gestionar casos técnicos, sin acceso al resto del
+CRM comercial.
 
 **Atribuciones adicionales (v1.13-v1.14):** además del rol, un usuario puede
 tener marcados uno o ambos de `es_encargado_postventa` y
@@ -46,34 +59,37 @@ completas de ese módulo.
 **Matriz de permisos** (resumen; ver detalle por función en la nota v1.6 si se
 necesita el historial de por qué se definió así):
 
-| Función | Admin | Jefe Comercial | Vendedor | Call center | Gerencia |
-|---|:--:|:--:|:--:|:--:|:--:|
-| Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Pipeline / negocios | ✅ | ✅ (cualquiera) | propios | ver | ver |
-| Cotizaciones | ✅ | ✅ | propias | — | ver |
-| Aprobar descuento sobre tope | ✅ | ✅ | — | — | — |
-| Postventa (gestión completa) | ✅ | ✅ | encargado (*) | — | — |
-| Postventa (crear caso / ver propios) | ✅ | ✅ | ✅ | — | — |
-| Despacho (gestión completa) | ✅ | ✅ | encargado (*) | — | — |
-| Despacho (crear ruta / ver propios) | ✅ | ✅ | ✅ | — | — |
-| Cola de asignación (†) | ✅ | ✅ | — | ✅ | — |
-| Bandeja WhatsApp (†) | ✅ | ✅ | sus conv. | ✅ | ver |
-| Empresas / Contactos | ✅ | ✅ | ✅ | ✅ | ver |
-| Duplicados | ✅ | ✅ | — | ✅ | — |
-| Import/Export de maestros | ✅ | ✅ | — | — | — |
-| Productos (consulta) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Reportes | ✅ | ✅ | sus números | — | ✅ |
-| Configurar secuencias/flujos | ✅ | ✅ | — | — | — |
-| Gatillar/pausar una secuencia | ✅ | ✅ | propios | — | — |
-| ⚙️ Config pipeline(s) | ✅ | ✅ | — | — | — |
-| ⚙️ Config Postventa (etapas) | ✅ | ✅ | — | — | — |
-| ⚙️ Config Cotizador Operaciones | ✅ | ✅ | — | — | — |
-| ⚙️ Lugares frecuentes de despacho | ✅ | ✅ | — | — | — |
-| ⚙️ Reglas de asignación | ✅ | ✅ | — | — | — |
-| ⚙️ Datos de empresa | ✅ | ✅ | — | — | — |
-| ⚙️ Config WhatsApp/bot | ✅ | — | — | — | — |
-| ⚙️ Usuarios | ✅ | — | — | — | — |
-| ⚙️ Cambiar contraseña | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Función | Admin | Jefe Comercial | Vendedor | Call center | Gerencia | Técnico |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Pipeline / negocios | ✅ | ✅ (cualquiera) | propios | ver | ver | — |
+| Cotizaciones | ✅ | ✅ | propias | — | ver | — |
+| Aprobar descuento sobre tope | ✅ | ✅ | — | — | — | — |
+| Postventa (gestión completa) | ✅ | ✅ | encargado (*) | — | — | — |
+| Postventa (crear caso / ver propios) | ✅ | ✅ | ✅ | — | — | — |
+| Despacho (gestión completa) | ✅ | ✅ | encargado (*) | — | — | — |
+| Despacho (crear ruta / ver propios) | ✅ | ✅ | ✅ | — | — | — |
+| **Servicio Técnico (§15, v1.22)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (‡) |
+| Cola de asignación (†) | ✅ | ✅ | — | ✅ | — | — |
+| Bandeja WhatsApp (†) | ✅ | ✅ | sus conv. | ✅ | ver | — |
+| Empresas / Contactos | ✅ | ✅ | ✅ | ✅ | ver | — |
+| Duplicados | ✅ | ✅ | — | ✅ | — | — |
+| Import/Export de maestros | ✅ | ✅ | — | — | — | — |
+| Productos (consulta) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Reportes | ✅ | ✅ | sus números | — | ✅ | — |
+| Configurar secuencias/flujos | ✅ | ✅ | — | — | — | — |
+| Gatillar/pausar una secuencia | ✅ | ✅ | propios | — | — | — |
+| ⚙️ Config pipeline(s) | ✅ | ✅ | — | — | — | — |
+| ⚙️ Config Postventa (etapas) | ✅ | ✅ | — | — | — | — |
+| ⚙️ Config Servicio Técnico (etapas) | ✅ | ✅ | — | — | — | — |
+| ⚙️ Config Cotizador Operaciones | ✅ | ✅ | — | — | — | — |
+| ⚙️ Config Formas de pago | ✅ | ✅ | — | — | — | — |
+| ⚙️ Lugares frecuentes de despacho | ✅ | ✅ | — | — | — | — |
+| ⚙️ Reglas de asignación | ✅ | ✅ | — | — | — | — |
+| ⚙️ Datos de empresa | ✅ | ✅ | — | — | — | — |
+| ⚙️ Config WhatsApp/bot | ✅ | — | — | — | — | — |
+| ⚙️ Usuarios | ✅ | — | — | — | — | — |
+| ⚙️ Cambiar contraseña | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 (*) Cualquier usuario con `es_encargado_postventa`/`es_encargado_despacho`
 marcado, sin importar su rol — no solo vendedor.
@@ -83,6 +99,14 @@ para todos los roles (el canal WhatsApp no está operativo, ver §11/§14) —
 los permisos de esta tabla siguen vigentes tal cual y las rutas
 (`/bandeja`, `/cola`) siguen funcionando por URL directa; solo se sacó el
 acceso visible.
+
+(‡) `tecnico` es un rol nuevo, acotado exclusivamente a esta función (ver
+§1, arriba) — no es un rol preexistente que sumó el acceso, como pasó con los
+otros cinco. Para el resto de las filas de esta tabla `tecnico` no tiene
+acceso (marcado "—"), incluidas pantallas como Dashboard o Pipeline que hoy
+no tenían restricción de rol explícita: se les agregó una lista explícita de
+roles (los cinco preexistentes) puntualmente por este motivo, sin cambiar el
+comportamiento para ninguno de ellos.
 
 **Anti-alcance explícito (decisiones tomadas, no se construye):**
 - Nota de venta Softland: el ingreso se hace directamente y a mano en
@@ -197,7 +221,10 @@ reemplaza la herramienta HTML independiente que existía antes):
   cotizador propio que considera horas de trabajo, desplazamiento y otros
   gastos, en evaluación de integrarse a futuro con el de Ventas Directas).
   - Cada usuario tiene un **pipeline por defecto**; los negocios nuevos
-    quedan en el pipeline del **dueño del negocio**.
+    quedan en el pipeline del **dueño del negocio** salvo que se elija otro
+    al crearlo (v1.22 — el formulario "Nuevo negocio" trae un selector de
+    pipeline, preseleccionado en el default del vendedor pero editable; el
+    backend valida que el pipeline elegido exista y esté activo).
   - Mover un negocio **a otro pipeline** es una acción separada de mover de
     etapa (las etapas disponibles cambian según el pipeline), restringida a
     administrador/jefe comercial.
@@ -236,6 +263,15 @@ reemplaza la herramienta HTML independiente que existía antes):
   resuelve por email o nombre). Como entra directo a la etapa terminal, no
   dispara encuesta de satisfacción ni tarea automática. Campo nuevo
   `negocios.n_oc` para el N° de orden de compra.
+- **Fecha de compromiso (v1.22):** campo opcional `negocios.fecha_compromiso`
+  (ej. fecha de entrega pactada con el cliente) — distinto de "fecha
+  estimada de cierre" (forecast de venta). Se edita en la ficha del negocio
+  y, opcionalmente, al crearlo. Se muestra en la tarjeta del Pipeline y en
+  la ficha con la misma **alerta de SLA** que Postventa (§5): borde/texto
+  ámbar si quedan 3 días o menos, rojo si ya venció, sin alerta si está
+  lejos o no está definida. El cálculo (`slaEstado`) se extrajo a un helper
+  compartido (`frontend/src/utils/sla.js`) para no duplicarlo entre Pipeline
+  y Postventa — Servicio Técnico (§15) también lo reutiliza.
 
 ## 4. Cotizaciones
 
@@ -280,11 +316,26 @@ cotización, algunas aún en SharePoint).
 **Envío desde el CRM:** botón único **"Enviar cotización"**.
 - Correo: SMTP existente (cuenta Brevo), con el vendedor como "Responder a".
   **Pendiente de IT** que salga literalmente desde el correo del vendedor
-  (ver §14 y §15).
+  (ver §14 y §16).
+- **Mensaje del correo editable (v1.22):** el texto que acompaña el link a
+  la cotización trae por defecto el mensaje configurado en Datos de empresa
+  (`config_empresa.mensaje_cotizacion_email`), pero se puede editar en la
+  pantalla de la cotización **solo para ese envío** — no cambia el default
+  de la empresa. Mismo patrón que ya existía para el envío por WhatsApp.
+- **Forma de pago (v1.22):** selector opcional al crear/editar la
+  cotización (`cotizaciones.forma_pago_id`), con las opciones editables en
+  Configuración → Formas de pago (catálogo simple: nombre + flag "incluir
+  datos bancarios"). Si la forma de pago elegida tiene ese flag activo, el
+  **correo** de envío agrega un bloque con los datos bancarios de la
+  empresa; si no, no lo incluye. El **PDF adjunto sigue mostrando los datos
+  bancarios siempre**, sin condicionarlos a esto — es una decisión distinta,
+  específica del cuerpo del correo. Catálogo sembrado con "Transferencia
+  bancaria" (incluye datos bancarios), "Efectivo" y "Cheque" (no los
+  incluyen).
 - **Canal WhatsApp retirado de este botón (v1.19):** el envío por WhatsApp
   existía (backend `/enviar-whatsapp` sigue ahí), pero se sacó de esta
   pantalla porque el canal no está operativo todavía (sin credenciales de
-  Meta, ver §11/§14/§15). Correo queda como único canal de envío desde el
+  Meta, ver §11/§14/§16). Correo queda como único canal de envío desde el
   sistema.
 - Si el contacto no tiene email registrado, ya no queda ningún canal para
   enviar desde el sistema — se muestra una advertencia visible indicando
@@ -351,6 +402,12 @@ junto con el resto de ese módulo.
   gestiona Postventa o el vendedor que creó el caso (mismo criterio que ver
   el detalle); puede eliminar quien lo subió o quien gestiona Postventa.
   Descarga autenticada desde el backend, sin URL pública.
+- **Fotos al crear el caso (v1.22):** antes había que crear el caso primero
+  y recién después abrirlo para adjuntar fotos. El formulario "Nuevo caso"
+  ahora acepta seleccionar fotos ahí mismo — a ojos del usuario es un solo
+  paso; internamente el frontend crea el caso y sube cada foto justo
+  después (el adjunto necesita el id del caso, que no existe hasta que se
+  crea). Mismo cambio en Servicio Técnico (§15).
 - **Permisos:** atribución adicional `users.es_encargado_postventa` (ver
   §1) — quien la tiene (o es administrador/jefe comercial) gestiona el
   tablero completo; un vendedor sin el atributo crea casos y ve los que él
@@ -393,7 +450,7 @@ junto con el resto de ese módulo.
   se cachean en `despacho_puntos.lat/lng`). Solo sugiere — el encargado
   decide si aplica el orden. Rechaza con un error claro si las paradas
   pendientes tienen fechas distintas, o si Google no puede ubicar alguna
-  dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §15).
+  dirección. Pendiente cargar `GOOGLE_MAPS_API_KEY` en Railway (ver §16).
 - **Hora de llegada estimada (v1.16):** indicando una hora de salida (por
   defecto, la de apertura configurada en horario de atención), la
   sugerencia muestra la hora estimada de llegada a cada parada y de vuelta
@@ -601,7 +658,7 @@ mismo criterio que Secuencias (§8).
 ## 11. WhatsApp
 
 **Bot (categorización y recontacto):** integración con la Cloud API de
-WhatsApp (Meta), app en modo desarrollo (ver pendientes, §15).
+WhatsApp (Meta), app en modo desarrollo (ver pendientes, §16).
 - Horario de atención configurable (por defecto L–V 9:15–17:15, hora de
   Chile). Fuera de horario: mensaje automático + registro del lead, sin más
   acción del bot.
@@ -687,19 +744,24 @@ solo en acentos puntuales, celeste como color de interacción principal.
 
 ## 13. Modelo de datos — tablas y campos agregados desde el documento base original
 
-- **Usuarios/roles:** `users.rol` admite `jefe_comercial`.
-  `users.pipeline_default_id` (pipeline por defecto, v1.12).
-  `users.es_encargado_postventa` (v1.13), `users.es_encargado_despacho`
+- **Usuarios/roles:** `users.rol` admite `jefe_comercial` y, desde v1.22,
+  `tecnico` (§1/§15). `users.pipeline_default_id` (pipeline por defecto,
+  v1.12). `users.es_encargado_postventa` (v1.13), `users.es_encargado_despacho`
   (v1.14) — atribuciones adicionales, independientes del rol.
 - **Contactos:** `vendedor_id`, `vendedor_asignado_en`.
 - **Productos:** `marca`, `url_imagen`, `atributos` (JSONB),
   `descripcion_completa`.
 - **Pipeline:** tabla `pipelines` (id, nombre, orden, activo — v1.12);
-  `pipeline_etapas.pipeline_id`, `negocios.pipeline_id` (v1.12);
+  `pipeline_etapas.pipeline_id`, `negocios.pipeline_id` (v1.12, ahora
+  elegible al crear el negocio, ver §3);
   `negocios.etapa_id` (FK) + `negocios.probabilidad_cierre`;
   `pipeline_etapas.secuencia_id` (FK a `secuencias`, v1.19 — dispara la
   secuencia asociada al mover un negocio a esa etapa, ver §8);
-  `negocios.n_oc` (v1.21 — N° de orden de compra, ver §3).
+  `negocios.n_oc` (v1.21 — N° de orden de compra, ver §3);
+  `negocios.fecha_compromiso` (v1.22 — fecha pactada con el cliente, con
+  alerta de SLA, ver §3).
+- **Formas de pago (v1.22, ver §4):** tabla `formas_pago` (`nombre`,
+  `incluir_datos_bancarios`, `activo`); `cotizaciones.forma_pago_id` (FK).
 - **Cotizaciones:** `iva_pct`; tabla `config_empresa` (emisor/banco);
   `cotizacion_correlativo_global` (correlativo NNNNNN, reemplaza el
   correlativo por año); `cotizacion_items` agrega `mostrar_imagen`,
@@ -730,6 +792,13 @@ solo en acentos puntuales, celeste como color de interacción principal.
   (v1.21 — `caso_id`, `tipo` foto_cliente/video_cliente/informe_tecnico/
   otro, `descripcion`, `archivo_key`, `archivo_nombre`, `archivo_mime`,
   `subido_por_id`, `created_at`).
+- **Servicio Técnico (v1.22, ver §15):** calcado de Postventa — tabla
+  `servicio_tecnico_etapas` (mismas columnas que `postventa_etapas`); tabla
+  `casos_servicio_tecnico` (mismas columnas que `casos_postventa`, pero con
+  `fecha_compromiso` en vez de `fecha_limite_respuesta` — mismo nombre que
+  usa el Pipeline, ver §3 — y sin distinción de "vendedor dueño" del caso);
+  tabla `servicio_tecnico_adjuntos` (mismas columnas que
+  `postventa_adjuntos`).
 - **Despacho (v1.14):** tabla `despachos` (`negocio_id` y
   `caso_postventa_id` opcionales, `titulo`, `estado` con enum fijo
   programado/en_ruta/completado/cancelado, `creado_por_id`); tabla
@@ -767,7 +836,7 @@ solo en acentos puntuales, celeste como color de interacción principal.
   y sin credenciales cargadas en producción — por eso, desde v1.19, el botón
   "Enviar cotización" (§4) y el menú (Bandeja/Cola, §1) no lo exponen
   todavía; el código sigue existiendo, listo para cuando se publique la app
-  (§15, punto 3).
+  (§16, punto 3).
 - **Google Maps Platform (v1.16):** Directions API + Geocoding API, para
   optimización de ruta de Despacho (§6). Uso exclusivamente server-side —
   la key nunca se expone al navegador, restringida en Google Cloud Console
@@ -775,9 +844,10 @@ solo en acentos puntuales, celeste como color de interacción principal.
 - **Cloudflare R2:** tres buckets — `crm-ht-adjuntos` (privado, WhatsApp),
   `crm-ht-productos` (público, catálogo de imágenes/fichas) y el bucket
   privado de Despacho (`R2_DESPACHO_*`, configurado desde v1.21 en
-  `staging` y producción) para documentos de respaldo de Despacho (§6) y,
-  desde v1.21, también los adjuntos de Postventa (§5) — ambos reutilizan el
-  mismo bucket, no hay uno por módulo.
+  `staging` y producción) para documentos de respaldo de Despacho (§6),
+  desde v1.21 también los adjuntos de Postventa (§5) y desde v1.22 también
+  los de Servicio Técnico (§15) — los tres módulos reutilizan el mismo
+  bucket, no hay uno por módulo.
 - **PostgreSQL (`bi_readonly`):** acceso de solo lectura para herramientas
   de BI externas.
 - **Microsoft 365 / SMTP AUTH (en evaluación, no confirmado):** soporte
@@ -789,7 +859,47 @@ solo en acentos puntuales, celeste como color de interacción principal.
   desde este entorno de desarrollo, que no tiene salida SMTP a hosts
   externos) y revisar si la cuenta requiere App Password por MFA.
 
-## 15. Pendientes abiertos (consolidado de todas las notas)
+## 15. Servicio Técnico de bombas (v1.22)
+
+- **Qué es:** un tablero Kanban para casos de servicio técnico (revisiones,
+  reparaciones, mantenciones de bombas), construido **calcado de Postventa**
+  (§5) — mismo patrón de tablero por etapas y de adjuntos — pero con una
+  diferencia central: **no existe el concepto de "vendedor dueño del
+  caso"**. Postventa nace siempre atado (con o sin negocio) a la lógica de
+  ventas, donde un vendedor solo gestiona lo que él creó salvo que sea
+  encargado; Servicio Técnico no tiene ese eje — cualquier usuario con
+  acceso al módulo ve y gestiona **cualquier** caso por igual.
+- Un caso se vincula, igual que en Postventa, a un **negocio de origen**
+  (opcional) o a un **contacto directo** vía "¿Sin venta asociada?".
+- Etapas: dos terminales protegidas (**Resuelto**, **Rechazado**) y las
+  intermedias que defina administrador/jefe comercial (Configuración →
+  Config Servicio Técnico) — única función de este módulo restringida a
+  esos dos roles; todo lo demás (crear/mover/asignar casos) es parejo para
+  cualquiera con acceso.
+- Campos del caso: título, descripción, equipo/bomba reclamada (opcional,
+  buscable en el catálogo de Productos), detalle del equipo, prioridad
+  (baja/media/alta/urgente), **fecha de compromiso** (opcional — mismo
+  nombre de campo y misma alerta de SLA que usa el Pipeline, §3, vía el
+  helper compartido `utils/sla.js`) y técnico asignado.
+- **Adjuntos:** mismo mecanismo que Postventa — foto cliente/video
+  cliente/informe técnico/otro, con descripción, quién lo subió y cuándo,
+  reutilizando el bucket privado de Cloudflare R2 de Despacho (§6/§14). Se
+  pueden subir **directo al crear el caso** (§5) — no solo después, abriendo
+  el caso ya creado. Puede eliminar un adjunto quien lo subió, o
+  administrador/jefe comercial.
+- **Rol dedicado `tecnico` (§1):** pensado para personal de terreno que solo
+  necesita este módulo — no ve ninguna otra pantalla del CRM, ni siquiera
+  Dashboard. Se creó en vez de reutilizar el mecanismo de atribución
+  adicional (`es_encargado_postventa`/`es_encargado_despacho`, §1) porque
+  ese mecanismo **suma** un módulo a un rol existente; aquí el pedido era
+  al revés — un usuario que **solo** tenga esto, sin el resto del CRM que
+  trae cualquiera de los cinco roles preexistentes.
+- **Los cinco roles preexistentes suman este módulo** a lo que ya veían —
+  administrador, jefe comercial, vendedor, call center y gerencia lo ven
+  igual entre sí (sin distinción de permisos dentro del módulo), además de
+  todo lo que ya tenían.
+
+## 16. Pendientes abiertos (consolidado de todas las notas)
 
 El sistema salió a producción el **01-08-2026** (v1.19) — ninguno de estos
 puntos fue impedimento, lo construido ya mejora lo que existía antes. Quedan
