@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia'];
+const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico'];
 const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false };
 
 export default function Usuarios() {

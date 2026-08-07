@@ -66,9 +66,10 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
-  // Ampliar el CHECK del rol para incluir jefe_comercial (bases existentes).
+  // Ampliar el CHECK del rol para incluir jefe_comercial (bases existentes) y,
+  // más tarde, tecnico (rol restringido solo a Servicio Técnico — HT-AP-03).
   await db.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_rol_check`);
-  await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia'))`);
+  await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia','tecnico'))`);
 
   // Atribución adicional, independiente del rol: quien la tenga puede
   // gestionar el tablero de Postventa (mover etapas, asignar técnico),
@@ -392,6 +393,66 @@ async function initDb() {
     )
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_postventa_adjuntos_caso ON postventa_adjuntos (caso_id, created_at)`);
+
+  // === Servicio Técnico de bombas ===
+  // Calcado de Postventa (mismo patrón de tablero por etapas + adjuntos),
+  // pero abierto a todos los roles (no hay restricción de "solo veo lo que
+  // creé" — no existe aquí el concepto de vendedor dueño del caso) y con
+  // fecha_compromiso en vez de fecha_limite_respuesta, para reusar el mismo
+  // nombre de campo y el mismo helper de alerta SLA que Pipeline.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS servicio_tecnico_etapas (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      orden INTEGER NOT NULL DEFAULT 0,
+      tipo TEXT NOT NULL DEFAULT 'abierta' CHECK (tipo IN ('abierta','resuelto','rechazado')),
+      activo BOOLEAN DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  const etapaServicioTecnicoExiste = await db.get('SELECT id FROM servicio_tecnico_etapas LIMIT 1');
+  if (!etapaServicioTecnicoExiste) {
+    await db.run(`INSERT INTO servicio_tecnico_etapas (nombre, orden, tipo) VALUES ('Resuelto', 1, 'resuelto')`);
+    await db.run(`INSERT INTO servicio_tecnico_etapas (nombre, orden, tipo) VALUES ('Rechazado', 2, 'rechazado')`);
+    console.log('[DB] Etapas terminales de Servicio Técnico creadas (faltan las intermedias, a definir por el administrador).');
+  }
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS casos_servicio_tecnico (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER REFERENCES negocios(id),
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      empresa_id INTEGER REFERENCES empresas(id),
+      producto_id INTEGER REFERENCES productos(id),
+      detalle_equipo TEXT,
+      titulo TEXT NOT NULL,
+      descripcion TEXT,
+      prioridad TEXT NOT NULL DEFAULT 'media' CHECK (prioridad IN ('baja','media','alta','urgente')),
+      fecha_compromiso DATE,
+      tecnico_asignado_id INTEGER REFERENCES users(id),
+      creado_por_id INTEGER NOT NULL REFERENCES users(id),
+      etapa_id INTEGER REFERENCES servicio_tecnico_etapas(id),
+      fecha_cierre TIMESTAMP,
+      ultima_actividad TIMESTAMP DEFAULT now(),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_servicio_tecnico_etapa ON casos_servicio_tecnico (etapa_id)`);
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS servicio_tecnico_adjuntos (
+      id SERIAL PRIMARY KEY,
+      caso_id INTEGER NOT NULL REFERENCES casos_servicio_tecnico(id),
+      tipo TEXT NOT NULL DEFAULT 'otro' CHECK (tipo IN ('foto_cliente','video_cliente','informe_tecnico','otro')),
+      descripcion TEXT,
+      archivo_key TEXT NOT NULL,
+      archivo_nombre TEXT,
+      archivo_mime TEXT,
+      subido_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_servicio_tecnico_adjuntos_caso ON servicio_tecnico_adjuntos (caso_id, created_at)`);
 
   // === Módulo Despacho (v1.11) ===
   // Una ruta con una o más paradas (puntos), cada una con sus propios datos
