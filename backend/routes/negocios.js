@@ -48,7 +48,7 @@ router.get('/', async (req, res) => {
     const { where, params } = filtrosNegocios(req.query, req.user);
     const negocios = await db.all(
       `SELECT n.id, n.titulo, n.etapa_id, n.pipeline_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
-              n.fecha_cierre_estimada, n.ultima_actividad, n.created_at,
+              n.fecha_cierre_estimada, n.fecha_compromiso, n.ultima_actividad, n.created_at,
               pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.orden AS etapa_orden,
               u.nombre AS vendedor_nombre, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
               e.razon_social AS empresa_nombre,
@@ -141,7 +141,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/negocios
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
   try {
-    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada } = req.body;
+    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
 
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
@@ -161,11 +161,11 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     const emp = empresa_id || contacto.empresa_id || null;
 
     const r = await db.run(
-      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id, fecha_compromiso)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [contacto_id, emp, dueno, titulo, monto_estimado || null,
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null,
-       fecha_cierre_estimada || null, pipelineId]
+       fecha_cierre_estimada || null, pipelineId, fecha_compromiso || null]
     );
     const negocio = r.rows[0];
     if (etapaInicial) {
@@ -189,7 +189,7 @@ router.put('/:id', async (req, res) => {
     if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
     if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-    const { titulo, monto_estimado, empresa_id, vendedor_id, probabilidad_cierre, fecha_cierre_estimada, contacto_id } = req.body;
+    const { titulo, monto_estimado, empresa_id, vendedor_id, probabilidad_cierre, fecha_cierre_estimada, contacto_id, fecha_compromiso } = req.body;
     if (probabilidad_cierre !== undefined && probabilidad_cierre !== null &&
         (probabilidad_cierre < 0 || probabilidad_cierre > 100)) {
       return res.status(400).json({ error: 'La probabilidad debe estar entre 0 y 100' });
@@ -201,11 +201,12 @@ router.put('/:id', async (req, res) => {
     const nuevoVendedor = (req.user.rol === 'administrador' && vendedor_id) ? vendedor_id : negocio.vendedor_id;
     await db.run(
       `UPDATE negocios SET titulo=$1, monto_estimado=$2, empresa_id=$3, vendedor_id=$4,
-              probabilidad_cierre=$5, fecha_cierre_estimada=$6, contacto_id=$7, ultima_actividad=now() WHERE id=$8`,
+              probabilidad_cierre=$5, fecha_cierre_estimada=$6, contacto_id=$7, fecha_compromiso=$8, ultima_actividad=now() WHERE id=$9`,
       [titulo || negocio.titulo, monto_estimado ?? negocio.monto_estimado, empresa_id ?? negocio.empresa_id,
        nuevoVendedor, probabilidad_cierre ?? negocio.probabilidad_cierre,
        fecha_cierre_estimada !== undefined ? (fecha_cierre_estimada || null) : negocio.fecha_cierre_estimada,
        contacto_id || negocio.contacto_id,
+       fecha_compromiso !== undefined ? (fecha_compromiso || null) : negocio.fecha_compromiso,
        req.params.id]
     );
     res.json({ message: 'Negocio actualizado' });
