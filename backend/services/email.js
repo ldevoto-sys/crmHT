@@ -189,9 +189,11 @@ module.exports = {
   // vendedor: {nombre,email} (va en copia y como "Responder a"); cot: fila de
   // cotizaciones (numero, titulo, total); pdfBuffer opcional para adjuntar;
   // emisor: fila de config_empresa (mensaje_cotizacion_email,
-  // incluir_whatsapp_email, mensaje_whatsapp_email, whatsapp).
-  cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer, emisor = {}) => {
-    const mensaje = emisor.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada';
+  // incluir_whatsapp_email, mensaje_whatsapp_email, whatsapp); mensajeOverride:
+  // texto editado por el vendedor para este envío puntual, reemplaza al
+  // default de config_empresa si viene.
+  cotizacion: (destinatario, vendedor, cot, linkPublico, pdfBuffer, emisor = {}, mensajeOverride) => {
+    const mensaje = mensajeOverride || emisor.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada';
     const numeroWa = (emisor.whatsapp || '').replace(/\D/g, '');
     const incluirWhatsapp = emisor.incluir_whatsapp_email !== false && numeroWa;
     return enviar(
