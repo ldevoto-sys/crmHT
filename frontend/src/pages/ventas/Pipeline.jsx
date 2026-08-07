@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
+import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
+const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
 const PUEDE_EXPORTAR = ['administrador', 'jefe_comercial'];
 // Solo estos roles ven el selector para cambiar de pipeline y el filtro de
 // vendedor; el resto (vendedor, call center) queda acotado a su propio
@@ -182,9 +184,12 @@ export default function Pipeline() {
                 {money(total)}{et.tipo === 'abierta' && ponderado > 0 && <span className="text-ht-accent"> · pond. {money(Math.round(ponderado))}</span>}
               </div>
               <div className="space-y-2 min-h-[40px] overflow-y-auto flex-1 pr-1 scroll-visible">
-                {items.map(n => (
+                {items.map(n => {
+                  const estadoSla = slaEstado(n.fecha_compromiso);
+                  const estilo = ESTILO_SLA[estadoSla] || ESTILO_SLA.normal;
+                  return (
                   <div key={n.id} draggable onDragStart={() => setDrag(n)}
-                    className="bg-white rounded-md border border-gray-200 p-3 cursor-move hover:border-ht-accent">
+                    className={`bg-white rounded-md border border-gray-200 p-3 cursor-move hover:border-ht-accent ${estilo.borde}`}>
                     <Link to={`/negocios/${n.id}`} className="block text-sm font-medium text-ht-navy hover:underline">{n.titulo}</Link>
                     <div className="text-xs text-gray-500 mt-1">{n.contacto_nombre} {n.contacto_apellido}</div>
                     {n.empresa_nombre && <div className="text-xs text-gray-400">{n.empresa_nombre}</div>}
@@ -198,6 +203,9 @@ export default function Pipeline() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{n.dias_sin_actividad}d</span>
                       )}
                     </div>
+                    {n.fecha_compromiso && (
+                      <div className={`text-[11px] mt-1 ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'Compromiso '}{fecha(n.fecha_compromiso)}</div>
+                    )}
                     {/* Arrastrar con el dedo entre columnas no es viable en mobile:
                         se ofrece este selector como alternativa. Solo en pantallas
                         chicas — en desktop se sigue usando drag-and-drop. */}
@@ -220,7 +228,8 @@ export default function Pipeline() {
                       </select>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
@@ -264,6 +273,7 @@ function NuevoNegocio({ onClose, onCreado }) {
   const [q, setQ] = useState(''); const [resultados, setResultados] = useState([]);
   const [contacto, setContacto] = useState(null);
   const [titulo, setTitulo] = useState(''); const [monto, setMonto] = useState('');
+  const [fechaCompromiso, setFechaCompromiso] = useState('');
   const [error, setError] = useState('');
 
   const buscar = async val => {
@@ -276,7 +286,7 @@ function NuevoNegocio({ onClose, onCreado }) {
     e.preventDefault(); setError('');
     if (!contacto) { setError('Selecciona un contacto.'); return; }
     try {
-      await api.post('/negocios', { contacto_id: contacto.id, titulo, monto_estimado: monto || null });
+      await api.post('/negocios', { contacto_id: contacto.id, titulo, monto_estimado: monto || null, fecha_compromiso: fechaCompromiso || null });
       onCreado();
     } catch (err) { setError(err.response?.data?.error || 'Error al crear.'); }
   };
@@ -318,6 +328,11 @@ function NuevoNegocio({ onClose, onCreado }) {
         <div>
           <label className="block text-sm text-gray-700 mb-1">Monto estimado (opcional)</label>
           <input type="number" value={monto} onChange={e => setMonto(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-700 mb-1">Fecha de compromiso (opcional)</label>
+          <input type="date" value={fechaCompromiso} onChange={e => setFechaCompromiso(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
         <div className="flex gap-2">

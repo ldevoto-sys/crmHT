@@ -256,6 +256,12 @@ async function initDb() {
   // (importador masivo de oportunidades — HT-AP-03).
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS n_oc TEXT`);
 
+  // Fecha de compromiso con el cliente (ej. fecha de entrega pactada) — mismo
+  // concepto que fecha_limite_respuesta en Postventa, mostrado en el Pipeline
+  // con la misma alerta de SLA (vencido/próximo/normal). Distinta de
+  // fecha_cierre_estimada (forecast de venta, no compromiso operativo).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS fecha_compromiso DATE`);
+
   // Línea de tiempo unificada. cotizacion_id sin FK todavía (la tabla llega en 2B).
   await db.run(`
     CREATE TABLE IF NOT EXISTS timeline (

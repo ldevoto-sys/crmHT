@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
+import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 
 // fecha_limite_respuesta llega del backend como timestamp completo (el
 // driver de Postgres convierte DATE a un objeto Date, que se serializa como
@@ -21,23 +22,6 @@ const badgePrioridad = p => ({
   alta: 'bg-amber-100 text-amber-700',
   urgente: 'bg-red-100 text-red-700',
 }[p] || 'bg-gray-100 text-gray-600');
-
-// Estado del SLA respecto de hoy: vencido (fecha ya pasó), próximo (3 días o
-// menos por delante) o normal. Se calcula en días de calendario, sin horas.
-function slaEstado(fechaLimite) {
-  if (!fechaLimite) return null;
-  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-  const limite = new Date(fechaLimite.slice(0, 10) + 'T00:00:00');
-  const dias = Math.round((limite - hoy) / 86400000);
-  if (dias < 0) return 'vencido';
-  if (dias <= 3) return 'proximo';
-  return 'normal';
-}
-const ESTILO_SLA = {
-  vencido: { borde: 'border-l-4 border-l-red-500', texto: 'text-red-700 font-semibold', label: 'Vencido' },
-  proximo: { borde: 'border-l-4 border-l-amber-400', texto: 'text-amber-700 font-semibold', label: 'Por vencer' },
-  normal: { borde: '', texto: 'text-gray-400', label: '' },
-};
 
 export default function Postventa() {
   const { user } = useAuth();

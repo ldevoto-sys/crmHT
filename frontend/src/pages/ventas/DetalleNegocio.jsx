@@ -4,6 +4,7 @@ import api from '../../api';
 import NotasYTareas from '../../components/NotasYTareas';
 import SeguimientoNegocio from '../../components/SeguimientoNegocio';
 import { formatFechaHora } from '../../utils/fecha';
+import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = formatFechaHora;
@@ -17,6 +18,7 @@ export default function DetalleNegocio() {
   const [error, setError] = useState('');
   const [prob, setProb] = useState('');
   const [fechaEstimada, setFechaEstimada] = useState('');
+  const [fechaCompromiso, setFechaCompromiso] = useState('');
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
 
@@ -28,6 +30,7 @@ export default function DetalleNegocio() {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
       setFechaEstimada(data.fecha_cierre_estimada ? data.fecha_cierre_estimada.slice(0, 10) : '');
+      setFechaCompromiso(data.fecha_compromiso ? data.fecha_compromiso.slice(0, 10) : '');
       setContactoNombre(`${data.contacto_nombre} ${data.contacto_apellido || ''}`.trim());
       setEmpresaNombre(data.empresa_nombre || '');
       setCots((await api.get('/cotizaciones', { params: { negocio_id: id } })).data);
@@ -58,6 +61,11 @@ export default function DetalleNegocio() {
   const guardarFechaEstimada = async () => {
     try { await api.put(`/negocios/${id}`, { fecha_cierre_estimada: fechaEstimada || null }); cargar(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la fecha estimada.'); }
+  };
+
+  const guardarFechaCompromiso = async () => {
+    try { await api.put(`/negocios/${id}`, { fecha_compromiso: fechaCompromiso || null }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la fecha de compromiso.'); }
   };
 
   const cambiarContacto = async contacto => {
@@ -208,6 +216,20 @@ export default function DetalleNegocio() {
                 className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
               {n.puede_editar && <button onClick={guardarFechaEstimada} className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Guardar</button>}
             </div>
+          </div>
+
+          <div className={`bg-white border border-gray-200 rounded-lg p-5 ${ESTILO_SLA[slaEstado(n.fecha_compromiso)]?.borde || ''}`}>
+            <h2 className="font-semibold text-ht-navy mb-2">Fecha de compromiso</h2>
+            <p className="text-xs text-gray-500 mb-2">Fecha pactada con el cliente (ej. entrega). Se muestra con alerta si está vencida o próxima.</p>
+            <div className="flex items-center gap-2">
+              <input type="date" value={fechaCompromiso} disabled={!n.puede_editar}
+                onChange={e => setFechaCompromiso(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              {n.puede_editar && <button onClick={guardarFechaCompromiso} className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Guardar</button>}
+            </div>
+            {n.fecha_compromiso && ESTILO_SLA[slaEstado(n.fecha_compromiso)]?.label && (
+              <p className={`text-xs mt-2 ${ESTILO_SLA[slaEstado(n.fecha_compromiso)].texto}`}>{ESTILO_SLA[slaEstado(n.fecha_compromiso)].label}</p>
+            )}
           </div>
         </div>
       </div>
