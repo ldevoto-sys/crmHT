@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import api from '../../api';
 
@@ -64,6 +64,19 @@ export default function NuevaCotizacion() {
   const productosPreseleccionados = searchParams.get('productos');
   const modoEdicion = !!cotizacionId;
   const modoNegocioNuevo = !modoEdicion && !negocioId && !!contactoIdNuevo;
+  // Autoguardado de borrador (HT-AP-03 nota v1.25): una sesión larga
+  // armando una cotización se pierde por completo si algo interrumpe la
+  // página (sesión expirada, refresh, cierre accidental) antes de apretar
+  // "Guardar" — no había ninguna persistencia local. La key identifica la
+  // cotización en curso: editar una existente, o crear una nueva para un
+  // negocio (nuevo o ya existente).
+  const borradorKey = modoEdicion
+    ? `cotizacion_borrador_editar_${cotizacionId}`
+    : modoNegocioNuevo
+    ? `cotizacion_borrador_negocio_nuevo_${contactoIdNuevo}`
+    : `cotizacion_borrador_negocio_${negocioId}`;
+  const restauradoRef = useRef(false);
+  const [listoAutoguardar, setListoAutoguardar] = useState(false);
   const navigate = useNavigate();
   const [negocio, setNegocio] = useState(null);
   const [negocioIdReal, setNegocioIdReal] = useState(negocioId ? Number(negocioId) : null);
@@ -205,6 +218,76 @@ export default function NuevaCotizacion() {
     }
   }, [negocioId, cotizacionId, modoEdicion, modoNegocioNuevo, contactoIdNuevo]);
 
+  // Al terminar de cargar los datos del servidor, si hay un borrador local
+  // más reciente lo ofrece recuperar (sobrescribiendo lo recién cargado,
+  // solo si el usuario confirma). Corre una sola vez por montaje.
+  useEffect(() => {
+    if (cargando || restauradoRef.current) return;
+    restauradoRef.current = true;
+    try {
+      const raw = localStorage.getItem(borradorKey);
+      if (raw) {
+        const { guardadoEn, datos } = JSON.parse(raw);
+        const fecha = new Date(guardadoEn).toLocaleString('es-CL');
+        if (window.confirm(`Se encontró un borrador sin guardar de esta cotización (${fecha}). ¿Quieres recuperarlo?`)) {
+          setTitulo(datos.titulo ?? '');
+          setFechaCierreEstimada(datos.fechaCierreEstimada ?? enUnaSemana());
+          setItems(datos.items ?? []);
+          setDescuento(datos.descuento ?? 0);
+          setIva(datos.iva ?? 19);
+          setValidez(datos.validez ?? 15);
+          setCondiciones(datos.condiciones ?? '');
+          setCategoria(datos.categoria ?? '');
+          setMarca(datos.marca ?? '');
+          setOrigen(datos.origen ?? 'venta_directa');
+          setFracttalNumero(datos.fracttalNumero ?? '');
+          setHallazgo(datos.hallazgo ?? '');
+          setJustificacionTecnica(datos.justificacionTecnica ?? '');
+          setModalidadPrecio(datos.modalidadPrecio ?? 'desglosado');
+          setComunaId(datos.comunaId ?? '');
+          setFormaPagoId(datos.formaPagoId ?? '');
+          setHorasNormales(datos.horasNormales ?? 0);
+          setHorasExtra(datos.horasExtra ?? 0);
+          setTipoPlantilla(datos.tipoPlantilla ?? 'ninguna');
+          setObjetoPropuesta(datos.objetoPropuesta ?? '');
+          setAlcancesTexto(datos.alcancesTexto ?? '');
+          setExclusionesTexto(datos.exclusionesTexto ?? '');
+          setCondicionesEjecucionTexto(datos.condicionesEjecucionTexto ?? '');
+          setOtrasConsideracionesTexto(datos.otrasConsideracionesTexto ?? '');
+        } else {
+          localStorage.removeItem(borradorKey);
+        }
+      }
+    } catch { localStorage.removeItem(borradorKey); }
+    setListoAutoguardar(true);
+  }, [cargando, borradorKey]);
+
+  // Autoguardado: cada cambio relevante se persiste en localStorage (con
+  // un pequeño debounce) hasta que la cotización se guarde de verdad en el
+  // servidor. Recién arranca después de la restauración de arriba, para no
+  // sobrescribir un borrador guardado con los datos apenas cargados del
+  // servidor.
+  useEffect(() => {
+    if (!listoAutoguardar) return;
+    const id = setTimeout(() => {
+      localStorage.setItem(borradorKey, JSON.stringify({
+        guardadoEn: Date.now(),
+        datos: {
+          titulo, fechaCierreEstimada, items, descuento, iva, validez, condiciones, categoria, marca, origen,
+          fracttalNumero, hallazgo, justificacionTecnica, modalidadPrecio, comunaId, formaPagoId,
+          horasNormales, horasExtra, tipoPlantilla, objetoPropuesta, alcancesTexto, exclusionesTexto,
+          condicionesEjecucionTexto, otrasConsideracionesTexto,
+        },
+      }));
+    }, 800);
+    return () => clearTimeout(id);
+  }, [
+    listoAutoguardar, borradorKey, titulo, fechaCierreEstimada, items, descuento, iva, validez, condiciones,
+    categoria, marca, origen, fracttalNumero, hallazgo, justificacionTecnica, modalidadPrecio, comunaId,
+    formaPagoId, horasNormales, horasExtra, tipoPlantilla, objetoPropuesta, alcancesTexto, exclusionesTexto,
+    condicionesEjecucionTexto, otrasConsideracionesTexto,
+  ]);
+
   const agregarProducto = (i, p) => {
     setItems(is => is.map((it, idx) => idx === i ? {
       ...it, producto_id: p.id, descripcion: p.nombre, precio_unitario: Number(p.precio_lista) || 0,
@@ -266,9 +349,11 @@ export default function NuevaCotizacion() {
       };
       if (modoEdicion) {
         await api.put(`/cotizaciones/${cotizacionId}`, payload);
+        localStorage.removeItem(borradorKey);
         navigate(`/cotizaciones/${cotizacionId}`);
       } else {
         const { data } = await api.post('/cotizaciones', payload);
+        localStorage.removeItem(borradorKey);
         navigate(`/cotizaciones/${data.id}`);
       }
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar la cotización.'); }
