@@ -134,9 +134,11 @@ desde este cambio.
 1. `docs/HT-AP-03-documento-consolidado.md` — actualizado junto con esta
    nota (mismo commit): §3 (monto estimado editable + sincronización) y §9
    (aviso manual de novedades, nuevo estándar).
-2. Manual de usuario (HT-IN-05) — pendiente de actualizar con ambas
-   funciones; sigue atrasado respecto a los cambios de v1.22/v1.23 (ver nota
-   v1.23, pendiente 2).
+2. Manual de usuario (HT-IN-05) — actualizado a v05 con ambas funciones
+   (§5.1 monto estimado, §5.12 Avisar novedades) y fila 05 en su control de
+   cambios. La v04 ya cubría Formas de pago, Servicio Técnico y adjuntos
+   históricos (v1.22/v1.23); no queda backlog conocido de funciones sin
+   documentar en este manual.
 
 ---
 
