@@ -196,6 +196,10 @@ module.exports = {
     const mensaje = mensajeOverride || emisor.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada';
     const numeroWa = (emisor.whatsapp || '').replace(/\D/g, '');
     const incluirWhatsapp = emisor.incluir_whatsapp_email !== false && numeroWa;
+    // Datos bancarios en el correo: solo si la forma de pago elegida lo pide
+    // (por defecto no, ya que la mayoría de las formas de pago no los necesita).
+    // El PDF adjunto siempre los muestra, independiente de esto.
+    const incluirDatosBancarios = cot.forma_pago_incluir_datos_bancarios === true && emisor.banco;
     return enviar(
       destinatario,
       `Cotización ${numeroCompleto(cot.numero, cot.version)} — HidroTecnica SpA`,
@@ -204,6 +208,17 @@ module.exports = {
         <p>${mensaje}${cot.titulo ? `: <strong>${cot.titulo}</strong>` : ''}.</p>
         <p>También puedes revisarla en línea:</p>
         ${boton(linkPublico, 'Ver cotización online')}
+        ${incluirDatosBancarios ? `
+        <div style="margin-top:20px; padding:14px 16px; background:#f3f4f6; border-radius:4px;">
+          <p style="margin:0 0 6px; font-size:12px; color:#555555; text-transform:uppercase; letter-spacing:0.03em;">Datos bancarios</p>
+          <p style="margin:0;">
+            ${emisor.banco}<br>
+            ${emisor.cuenta_tipo ? `${emisor.cuenta_tipo} N° ${emisor.cuenta_numero}<br>` : ''}
+            ${emisor.razon_social ? `${emisor.razon_social} · RUT ${emisor.rut || ''}<br>` : ''}
+            ${emisor.email_cobranzas || ''}
+          </p>
+        </div>
+        ` : ''}
         <p style="margin-top:20px;">Quedamos atentos a tus consultas.</p>
         <p>Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
         ${incluirWhatsapp ? `

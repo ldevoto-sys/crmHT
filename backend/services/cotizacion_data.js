@@ -9,12 +9,14 @@ async function fetchCompleta({ id, token }) {
             ct.cargo AS contacto_cargo, ct.telefono_e164 AS contacto_telefono,
             e.razon_social AS empresa_nombre, e.rut AS empresa_rut, e.direccion AS empresa_direccion,
             e.comuna AS empresa_comuna, e.giro AS empresa_giro,
-            u.nombre AS vendedor_nombre, u.email AS vendedor_email
+            u.nombre AS vendedor_nombre, u.email AS vendedor_email,
+            fp.nombre AS forma_pago_nombre, fp.incluir_datos_bancarios AS forma_pago_incluir_datos_bancarios
      FROM cotizaciones c
      JOIN negocios n ON n.id = c.negocio_id
      JOIN contactos ct ON ct.id = n.contacto_id
      LEFT JOIN empresas e ON e.id = n.empresa_id
      LEFT JOIN users u ON u.id = n.vendedor_id
+     LEFT JOIN formas_pago fp ON fp.id = c.forma_pago_id
      WHERE ${where}`,
     [id || token]
   );

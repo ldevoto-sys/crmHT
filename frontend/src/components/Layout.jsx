@@ -82,6 +82,8 @@ configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '
 configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
 configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
 configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
+configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-pago' });
+configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago' });
 
 function GearIcon() {
   return (

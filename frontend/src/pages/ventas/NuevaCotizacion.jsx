@@ -90,6 +90,8 @@ export default function NuevaCotizacion() {
   const [modalidadPrecio, setModalidadPrecio] = useState('desglosado');
   const [comunas, setComunas] = useState([]);
   const [comunaId, setComunaId] = useState('');
+  const [formasPago, setFormasPago] = useState([]);
+  const [formaPagoId, setFormaPagoId] = useState('');
   const [horasNormales, setHorasNormales] = useState(0);
   const [horasExtra, setHorasExtra] = useState(0);
   const [tipoPlantilla, setTipoPlantilla] = useState('ninguna');
@@ -102,6 +104,7 @@ export default function NuevaCotizacion() {
 
   useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
   useEffect(() => { api.get('/config/comunas-operaciones').then(r => setComunas(r.data.filter(c => c.activo))).catch(() => {}); }, []);
+  useEffect(() => { api.get('/config/formas-pago').then(r => setFormasPago(r.data.filter(f => f.activo))).catch(() => {}); }, []);
   useEffect(() => { api.get('/cotizaciones/plantillas-defaults').then(r => setPlantillasDefaults(r.data)).catch(() => {}); }, []);
 
   // Al elegir una plantilla, precarga sus textos por defecto — solo si el
@@ -183,6 +186,7 @@ export default function NuevaCotizacion() {
         setHallazgo(c.hallazgo || ''); setJustificacionTecnica(c.justificacion_tecnica || '');
         setModalidadPrecio(c.modalidad_precio || 'desglosado');
         setComunaId(c.comuna_id || ''); setHorasNormales(c.horas_normales || 0); setHorasExtra(c.horas_extra || 0);
+        setFormaPagoId(c.forma_pago_id || '');
         setTipoPlantilla(c.tipo_plantilla || 'ninguna');
         setObjetoPropuesta(c.objeto_propuesta || ''); setAlcancesTexto(c.alcances_texto || '');
         setExclusionesTexto(c.exclusiones_texto || ''); setCondicionesEjecucionTexto(c.condiciones_ejecucion_texto || '');
@@ -247,7 +251,7 @@ export default function NuevaCotizacion() {
         origen,
         fracttal_numero: fracttalNumero || null,
         hallazgo: hallazgo || null, justificacion_tecnica: justificacionTecnica || null,
-        modalidad_precio: modalidadPrecio, comuna_id: comunaId || null,
+        modalidad_precio: modalidadPrecio, comuna_id: comunaId || null, forma_pago_id: formaPagoId || null,
         horas_normales: Number(horasNormales) || 0, horas_extra: Number(horasExtra) || 0,
         tipo_plantilla: tipoPlantilla,
         objeto_propuesta: objetoPropuesta || null, alcances_texto: alcancesTexto || null,
@@ -547,6 +551,14 @@ export default function NuevaCotizacion() {
             <label className="text-sm text-gray-700 w-32">Validez (días)</label>
             <input type="number" value={validez} onChange={e => setValidez(e.target.value)}
               className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-sm text-gray-700 w-32">Forma de pago</label>
+            <select value={formaPagoId} onChange={e => setFormaPagoId(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Sin especificar</option>
+              {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+            </select>
           </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">Condiciones comerciales</label>

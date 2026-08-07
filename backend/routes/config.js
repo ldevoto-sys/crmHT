@@ -448,6 +448,64 @@ router.delete('/comunas-operaciones/:id', authorize('administrador', 'jefe_comer
   }
 });
 
+// Formas de pago de la cotización — controla si el correo de envío incluye
+// el bloque de datos bancarios (el PDF los muestra siempre).
+router.get('/formas-pago', async (req, res) => {
+  try {
+    const formas = await db.all('SELECT * FROM formas_pago ORDER BY nombre');
+    res.json(formas);
+  } catch (err) {
+    console.error('[config/formas-pago GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.post('/formas-pago', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { nombre, incluir_datos_bancarios } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
+    const existe = await db.get('SELECT id FROM formas_pago WHERE lower(nombre)=lower($1)', [nombre.trim()]);
+    if (existe) return res.status(409).json({ error: 'Ya existe esa forma de pago' });
+    const r = await db.run(
+      'INSERT INTO formas_pago (nombre, incluir_datos_bancarios) VALUES ($1,$2) RETURNING *',
+      [nombre.trim(), incluir_datos_bancarios !== false]
+    );
+    res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[config/formas-pago POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/formas-pago/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const forma = await db.get('SELECT * FROM formas_pago WHERE id=$1', [req.params.id]);
+    if (!forma) return res.status(404).json({ error: 'Forma de pago no encontrada' });
+    const { nombre, incluir_datos_bancarios, activo } = req.body;
+    await db.run(
+      'UPDATE formas_pago SET nombre=$1, incluir_datos_bancarios=$2, activo=$3 WHERE id=$4',
+      [nombre?.trim() || forma.nombre, incluir_datos_bancarios !== undefined ? incluir_datos_bancarios : forma.incluir_datos_bancarios,
+       activo !== undefined ? activo : forma.activo, req.params.id]
+    );
+    res.json({ message: 'Forma de pago actualizada' });
+  } catch (err) {
+    console.error('[config/formas-pago PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.delete('/formas-pago/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const enUso = await db.get('SELECT id FROM cotizaciones WHERE forma_pago_id=$1 LIMIT 1', [req.params.id]);
+    if (enUso) return res.status(409).json({ error: 'Hay cotizaciones usando esta forma de pago. Desactívala en vez de eliminarla.' });
+    await db.run('DELETE FROM formas_pago WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Forma de pago eliminada' });
+  } catch (err) {
+    console.error('[config/formas-pago DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // Sinónimos para el matching de ítems Fracttal contra el maestro de productos.
 router.get('/sinonimos-operaciones', async (req, res) => {
   try {
