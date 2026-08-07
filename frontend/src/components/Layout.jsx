@@ -95,6 +95,8 @@ configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-p
 configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago' });
 configByRole.administrador.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
 configByRole.jefe_comercial.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
+configByRole.administrador.push({ label: 'Avisar novedades', to: '/config/novedades' });
+configByRole.jefe_comercial.push({ label: 'Avisar novedades', to: '/config/novedades' });
 
 function GearIcon() {
   return (
