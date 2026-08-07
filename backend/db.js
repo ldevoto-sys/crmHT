@@ -1310,6 +1310,17 @@ async function initDb() {
     )
   `);
 
+  // === Aviso de casos de Postventa vencidos (v1.25) ===
+  // Una fila por día en que se envió el aviso (solo si había al menos un caso
+  // vencido) — mismo patrón que informe_diario_envios, evita reenviar dos
+  // veces si el chequeo horario cae dos veces dentro de la ventana de 8:30am.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS postventa_vencidos_envios (
+      fecha DATE PRIMARY KEY,
+      enviado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
   // === Rol de solo lectura para BI externo (Power BI, Looker Studio, etc.) ===
   // Se provisiona solo si BI_READONLY_PASSWORD está definida (variable de
   // entorno en Railway). La contraseña se resincroniza en cada arranque: para

@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
+const { enviarPostventaVencidosSiHay } = require('../services/postventaVencidos');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -345,6 +346,19 @@ router.delete('/adjuntos/:adjuntoId', async (req, res) => {
     res.json({ message: 'Adjunto eliminado' });
   } catch (err) {
     console.error('[postventa DELETE /adjuntos/:adjuntoId]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/postventa/vencidos/enviar-ahora — dispara el aviso de casos
+// vencidos fuera de su horario programado (8:30am), para probarlo o
+// reenviarlo tras una falla. Reenvía aunque ya se haya enviado hoy.
+router.post('/vencidos/enviar-ahora', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const resultado = await enviarPostventaVencidosSiHay();
+    res.json(resultado);
+  } catch (err) {
+    console.error('[postventa/vencidos/enviar-ahora]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
