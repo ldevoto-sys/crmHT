@@ -4,7 +4,7 @@
 **Fecha de consolidación:** 2026-08-07
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.22 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.23 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
@@ -28,9 +28,13 @@ posibilidad de abrir un **caso de Postventa sin negocio de origen** (ambos en
 compromiso** en el Pipeline con alerta de SLA (§3), el módulo **Servicio
 Técnico de bombas** y el rol dedicado `tecnico` (§15, nueva), y la
 posibilidad de subir fotos directo al crear un caso de Postventa o de
-Servicio Técnico (§5/§15) — con esta versión, `staging` y `main` (producción)
-quedan con el mismo código. Este documento es el que debe subirse a
-SharePoint reemplazando la versión anterior del documento base.
+Servicio Técnico (§5/§15); y de v1.23 (07-08-2026): en Despacho, cada parada
+pasa de guardar **una sola foto que se reemplazaba** a un **historial de
+archivos** (§6), y en Postventa/Servicio Técnico el panel para agregar un
+adjunto a un caso ya creado admite **selección múltiple** en una sola
+acción (§5/§15) — con esta versión, `staging` y `main` (producción) quedan
+con el mismo código. Este documento es el que debe subirse a SharePoint
+reemplazando la versión anterior del documento base.
 
 ---
 
@@ -401,7 +405,10 @@ junto con el resto de ese módulo.
   Cloudflare R2 de Despacho (§6/§14), no uno nuevo. Puede subir/ver quien
   gestiona Postventa o el vendedor que creó el caso (mismo criterio que ver
   el detalle); puede eliminar quien lo subió o quien gestiona Postventa.
-  Descarga autenticada desde el backend, sin URL pública.
+  Descarga autenticada desde el backend, sin URL pública. **Selección
+  múltiple (v1.23):** el panel para agregar un adjunto a un caso ya creado
+  admite elegir varios archivos de una vez, en vez de repetir la acción uno
+  por uno — mismo cambio en Servicio Técnico (§15).
 - **Fotos al crear el caso (v1.22):** antes había que crear el caso primero
   y recién después abrirlo para adjuntar fotos. El formulario "Nuevo caso"
   ahora acepta seleccionar fotos ahí mismo — a ojos del usuario es un solo
@@ -413,7 +420,7 @@ junto con el resto de ese módulo.
   tablero completo; un vendedor sin el atributo crea casos y ve los que él
   creó, sin gestionar el resto.
 
-## 6. Despacho (v1.14-v1.16)
+## 6. Despacho (v1.14-v1.16, v1.23)
 
 - Un **despacho** es una ruta con una o más **paradas**, cada una con:
   dirección, comuna, fecha, tipo (retiro o entrega), datos de contacto y el
@@ -433,16 +440,23 @@ junto con el resto de ese módulo.
   direcciones habituales (ej. proveedores). Un selector opcional al crear
   una parada autocompleta esos tres campos; tipo y documento se siguen
   eligiendo en cada caso, porque un mismo lugar puede usarse para ambos.
-- **Foto de respaldo desde el celular:** el encargado puede subir, al
-  completar una parada, una foto del documento firmado. El selector de
-  archivo permite tanto tomar una foto nueva como elegir una ya existente
-  en el teléfono. Almacenamiento en un bucket **privado y separado** de
-  Cloudflare R2 (distinto del de imágenes de producto y del de adjuntos de
-  WhatsApp, por tratarse de documentos con firmas y datos de clientes);
-  visualización autenticada desde el CRM, sin URL pública directa.
-  **Configurado en ambos ambientes desde v1.21** (`R2_DESPACHO_*` cargado en
-  `staging` y producción) — mismo bucket que reutilizan los adjuntos de
-  Postventa (§5).
+- **Historial de archivos de respaldo por parada (v1.23):** el encargado
+  puede subir, en cualquier momento, uno o varios archivos del documento
+  firmado de una parada — ninguno reemplaza al anterior, quedan todos
+  disponibles con quién los subió y cuándo (mismo patrón que los adjuntos
+  de Postventa/Servicio Técnico, §5/§15). Antes de v1.23 solo se guardaba
+  **una** foto por parada, que se perdía al subir una nueva
+  ("Reemplazar foto") — la que ya existiera se migró automáticamente al
+  nuevo historial. El selector de archivo permite tanto tomar una foto
+  nueva como elegir una o varias ya existentes en el teléfono. Marcar una
+  parada como completada exige al menos un archivo en su historial (antes
+  exigía la foto única). Almacenamiento en un bucket **privado y separado**
+  de Cloudflare R2 (distinto del de imágenes de producto y del de adjuntos
+  de WhatsApp, por tratarse de documentos con firmas y datos de clientes);
+  visualización y descarga autenticadas desde el CRM, sin URL pública
+  directa. **Configurado en ambos ambientes desde v1.21** (`R2_DESPACHO_*`
+  cargado en `staging` y producción) — mismo bucket que reutilizan los
+  adjuntos de Postventa (§5) y Servicio Técnico (§15).
 - **Optimización de ruta (v1.16):** botón "Optimizar ruta" que sugiere el
   orden más eficiente para visitar las paradas pendientes de un mismo día,
   ida y vuelta desde la dirección de la empresa, usando Google Directions
@@ -799,13 +813,18 @@ solo en acentos puntuales, celeste como color de interacción principal.
   usa el Pipeline, ver §3 — y sin distinción de "vendedor dueño" del caso);
   tabla `servicio_tecnico_adjuntos` (mismas columnas que
   `postventa_adjuntos`).
-- **Despacho (v1.14):** tabla `despachos` (`negocio_id` y
+- **Despacho (v1.14, v1.23):** tabla `despachos` (`negocio_id` y
   `caso_postventa_id` opcionales, `titulo`, `estado` con enum fijo
   programado/en_ruta/completado/cancelado, `creado_por_id`); tabla
   `despacho_puntos` (`despacho_id`, `orden`, `tipo` retiro/entrega,
   `direccion`, `comuna`, `fecha`, `contacto_nombre`, `contacto_telefono`,
   `documento_tipo`, `documento_numero`, `duracion_estimada_min`,
-  `completado`, `completado_en`, `foto_respaldo_key`); tabla
+  `completado`, `completado_en`, `foto_respaldo_key` — esta última columna
+  sigue existiendo pero **sin uso** desde v1.23, reemplazada por la tabla de
+  abajo); tabla `despacho_adjuntos` (v1.23 — `punto_id`, `archivo_key`,
+  `archivo_nombre`, `archivo_mime`, `subido_por_id`, `created_at`, mismo
+  patrón que `postventa_adjuntos`/`servicio_tecnico_adjuntos`; sembrada al
+  arrancar con lo que ya hubiera en `foto_respaldo_key`); tabla
   `despacho_lugares_frecuentes` (`nombre`, `direccion`, `comuna`,
   `contacto_nombre`, `contacto_telefono`, `activo`).
 - **Leads/bot WhatsApp:** `leads.causa_descarte`, `bot_estado`,
@@ -859,7 +878,7 @@ solo en acentos puntuales, celeste como color de interacción principal.
   desde este entorno de desarrollo, que no tiene salida SMTP a hosts
   externos) y revisar si la cuenta requiere App Password por MFA.
 
-## 15. Servicio Técnico de bombas (v1.22)
+## 15. Servicio Técnico de bombas (v1.22, v1.23)
 
 - **Qué es:** un tablero Kanban para casos de servicio técnico (revisiones,
   reparaciones, mantenciones de bombas), construido **calcado de Postventa**
@@ -885,8 +904,9 @@ solo en acentos puntuales, celeste como color de interacción principal.
   cliente/informe técnico/otro, con descripción, quién lo subió y cuándo,
   reutilizando el bucket privado de Cloudflare R2 de Despacho (§6/§14). Se
   pueden subir **directo al crear el caso** (§5) — no solo después, abriendo
-  el caso ya creado. Puede eliminar un adjunto quien lo subió, o
-  administrador/jefe comercial.
+  el caso ya creado. **Selección múltiple (v1.23):** el panel para agregar
+  un adjunto a un caso ya creado admite elegir varios archivos de una vez.
+  Puede eliminar un adjunto quien lo subió, o administrador/jefe comercial.
 - **Rol dedicado `tecnico` (§1):** pensado para personal de terreno que solo
   necesita este módulo — no ve ninguna otra pantalla del CRM, ni siquiera
   Dashboard. Se creó en vez de reutilizar el mecanismo de atribución
