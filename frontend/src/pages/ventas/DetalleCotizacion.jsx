@@ -318,6 +318,7 @@ export default function DetalleCotizacion() {
                 className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5">Nueva versión</button>
             )}
             <p className="text-xs text-gray-400 pt-2">Validez: {cot.validez_dias} días</p>
+            {cot.forma_pago_nombre && <p className="text-xs text-gray-400">Forma de pago: {cot.forma_pago_nombre}</p>}
           </div>
 
           {cot.puede_editar && (

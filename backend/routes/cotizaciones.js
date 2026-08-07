@@ -276,12 +276,14 @@ router.get('/:id', async (req, res) => {
               pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
               ct.id AS contacto_id, ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
               ct.telefono_e164 AS contacto_telefono, ct.email AS contacto_email,
-              e.razon_social AS empresa_nombre
+              e.razon_social AS empresa_nombre,
+              fp.nombre AS forma_pago_nombre
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
        LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
        JOIN contactos ct ON ct.id = n.contacto_id
        LEFT JOIN empresas e ON e.id = n.empresa_id
+       LEFT JOIN formas_pago fp ON fp.id = c.forma_pago_id
        WHERE c.id = $1`, [req.params.id]);
     if (!cot) return res.status(404).json({ error: 'Cotización no encontrada' });
     if (!puedeVer({ vendedor_id: cot.vendedor_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
@@ -292,11 +294,13 @@ router.get('/:id', async (req, res) => {
     const consideraciones = await db.all(
       `SELECT * FROM cotizacion_consideraciones WHERE cotizacion_id = $1 ORDER BY orden, id`, [req.params.id]);
     const emisor = await db.get('SELECT mensaje_cotizacion_email FROM config_empresa LIMIT 1');
+    const formasPago = await db.all('SELECT * FROM formas_pago WHERE activo ORDER BY nombre');
     const requiere_aprobacion = Number(cot.descuento_pct) > DESCUENTO_MAX && !cot.descuento_aprobado_por_id;
     res.json({
       ...cot, items, consideraciones, puede_editar: puedeEditar({ vendedor_id: cot.vendedor_id }, req.user),
       requiere_aprobacion, descuento_max: DESCUENTO_MAX,
       mensaje_email_default: emisor?.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada',
+      formas_pago: formasPago,
     });
   } catch (err) {
     console.error('[cotizaciones/GET /:id]', err);
@@ -464,7 +468,7 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
-  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
+  const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
   const titulo = mayusculas(req.body.titulo);
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
@@ -498,17 +502,17 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
          negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id,
          origen, fracttal_numero, fracttal_fecha_solicitud, fracttal_solicitante, hallazgo, justificacion_tecnica, modalidad_precio,
          comuna_id, horas_normales, horas_extra, uf_valor, uf_fecha,
-         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto
+         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto, forma_pago_id
        )
        VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10,$11,
                $12,$13,$14,$15,$16,$17,$18,
                $19,$20,$21,$22,$23,
-               $24,$25,$26,$27,$28,$29)
+               $24,$25,$26,$27,$28,$29,$30)
        RETURNING id`,
       [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, token, req.user.id,
        campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
        campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
-       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto]
+       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto, forma_pago_id || null]
     );
     const cotId = r.rows[0].id;
     for (const it of items) {
@@ -534,7 +538,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
 
 // PUT /api/cotizaciones/:id — edita una cotización en estado 'borrador' (incl. luego de "nueva versión")
 router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
-  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones } = req.body;
+  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
   const titulo = mayusculas(req.body.titulo);
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
   if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
@@ -568,12 +572,12 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
               descuento_solicitado=false, descuento_aprobado_por_id=NULL,
               origen=$8, fracttal_numero=$9, fracttal_fecha_solicitud=$10, fracttal_solicitante=$11, hallazgo=$12, justificacion_tecnica=$13, modalidad_precio=$14,
               comuna_id=$15, horas_normales=$16, horas_extra=$17, uf_valor=$18, uf_fecha=$19,
-              tipo_plantilla=$20, objeto_propuesta=$21, alcances_texto=$22, exclusiones_texto=$23, condiciones_ejecucion_texto=$24, otras_consideraciones_texto=$25
-       WHERE id=$26`,
+              tipo_plantilla=$20, objeto_propuesta=$21, alcances_texto=$22, exclusiones_texto=$23, condiciones_ejecucion_texto=$24, otras_consideraciones_texto=$25, forma_pago_id=$26
+       WHERE id=$27`,
       [subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null,
        campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
        campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
-       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto,
+       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto, forma_pago_id || null,
        req.params.id]
     );
     await client.query('DELETE FROM cotizacion_items WHERE cotizacion_id = $1', [req.params.id]);

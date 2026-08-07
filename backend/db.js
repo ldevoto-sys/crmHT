@@ -805,6 +805,27 @@ async function initDb() {
     ['Cualquier consulta sobre esta cotización o sobre otro tema, puede responder este correo o escribirnos a nuestro whatsapp.']
   );
 
+  // Formas de pago seleccionables en la cotización. incluir_datos_bancarios
+  // decide si el correo de envío agrega el bloque de datos bancarios
+  // (el PDF los muestra siempre, sin condicionar a esto).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS formas_pago (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE,
+      incluir_datos_bancarios BOOLEAN NOT NULL DEFAULT true,
+      activo BOOLEAN NOT NULL DEFAULT true
+    )
+  `);
+  const formasPagoExisten = await db.get('SELECT 1 FROM formas_pago LIMIT 1');
+  if (!formasPagoExisten) {
+    await db.run(
+      `INSERT INTO formas_pago (nombre, incluir_datos_bancarios) VALUES
+       ('Transferencia bancaria', true), ('Efectivo', false), ('Cheque', false)`
+    );
+    console.log('[DB] Formas de pago creadas (valores por defecto).');
+  }
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS forma_pago_id INTEGER REFERENCES formas_pago(id)`);
+
   // === Etapa 2E — Leads y motor de asignación (§7.1, §9.4) ===
 
   await db.run(`
