@@ -134,15 +134,19 @@ export default function DetalleCotizacion() {
 
   const [enviando, setEnviando] = useState(false);
   const [canalCorreo, setCanalCorreo] = useState(true);
+  const [mensajeCorreo, setMensajeCorreo] = useState('');
   useEffect(() => {
     if (cot) setCanalCorreo(!!cot.contacto_email);
   }, [cot?.id]);
+  // Precarga con el default configurado en Configuración → Datos de empresa;
+  // el vendedor puede ajustarlo para este envío puntual sin cambiar el default.
+  useEffect(() => { if (cot) setMensajeCorreo(cot.mensaje_email_default || ''); }, [cot?.id]);
 
   const enviarCotizacion = async () => {
     setError(''); setMsg(''); setEnviando(true);
     const mensajes = []; const errores = [];
     if (canalCorreo) {
-      try { const { data } = await api.post(`/cotizaciones/${id}/enviar`); mensajes.push(data.message); }
+      try { const { data } = await api.post(`/cotizaciones/${id}/enviar`, { mensaje: mensajeCorreo }); mensajes.push(data.message); }
       catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar el correo.'); }
     }
     if (mensajes.length) setMsg(mensajes.join(' · '));
@@ -171,7 +175,7 @@ export default function DetalleCotizacion() {
     // siempre recargamos para reflejarlo y sacar el aviso, y distinguimos
     // el error de envío del de guardado en el mensaje.
     try {
-      const { data } = await api.post(`/cotizaciones/${id}/enviar`);
+      const { data } = await api.post(`/cotizaciones/${id}/enviar`, { mensaje: mensajeCorreo });
       setMsg(data.message);
     } catch (err) {
       setError('Email guardado. ' + (err.response?.data?.error || 'No se pudo enviar el correo.'));
@@ -291,6 +295,13 @@ export default function DetalleCotizacion() {
                     onChange={e => setCanalCorreo(e.target.checked)} />
                   Correo
                 </label>
+                {canalCorreo && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Mensaje del correo (editable para este envío)</label>
+                    <textarea value={mensajeCorreo} onChange={e => setMensajeCorreo(e.target.value)} rows={3}
+                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                  </div>
+                )}
                 <button onClick={enviarCotizacion} disabled={enviando || !canalCorreo || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
                   className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50 mt-1">
                   {enviando ? 'Enviando…' : 'Enviar cotización'}

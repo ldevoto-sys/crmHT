@@ -291,8 +291,13 @@ router.get('/:id', async (req, res) => {
        WHERE ci.cotizacion_id = $1 ORDER BY ci.id`, [req.params.id]);
     const consideraciones = await db.all(
       `SELECT * FROM cotizacion_consideraciones WHERE cotizacion_id = $1 ORDER BY orden, id`, [req.params.id]);
+    const emisor = await db.get('SELECT mensaje_cotizacion_email FROM config_empresa LIMIT 1');
     const requiere_aprobacion = Number(cot.descuento_pct) > DESCUENTO_MAX && !cot.descuento_aprobado_por_id;
-    res.json({ ...cot, items, consideraciones, puede_editar: puedeEditar({ vendedor_id: cot.vendedor_id }, req.user), requiere_aprobacion, descuento_max: DESCUENTO_MAX });
+    res.json({
+      ...cot, items, consideraciones, puede_editar: puedeEditar({ vendedor_id: cot.vendedor_id }, req.user),
+      requiere_aprobacion, descuento_max: DESCUENTO_MAX,
+      mensaje_email_default: emisor?.mensaje_cotizacion_email || 'Junto con saludar, adjuntamos la cotización solicitada',
+    });
   } catch (err) {
     console.error('[cotizaciones/GET /:id]', err);
     res.status(500).json({ error: 'Error interno' });
@@ -402,7 +407,8 @@ router.post('/:id/enviar', async (req, res) => {
       pdfBuffer = await generarCotizacionPDFBuffer(data);
     }
     const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
-    const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer, data.emisor);
+    const mensaje = (req.body?.mensaje || '').trim() || undefined;
+    const resultado = await email.cotizacion(data.cliente.contacto_email, data.vendedor, data.cot, linkPublico, pdfBuffer, data.emisor, mensaje);
     if (!resultado?.enviado) {
       return res.status(502).json({ error: 'No se pudo enviar el correo. Revisa la configuración de envío de correo.' });
     }
