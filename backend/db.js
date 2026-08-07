@@ -505,6 +505,35 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_despacho ON despacho_puntos (despacho_id, orden)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_puntos_fecha ON despacho_puntos (fecha)`);
 
+  // Historial de adjuntos por parada (v1.22) — antes una parada solo tenía
+  // foto_respaldo_key (una sola foto, que además se perdía al "reemplazarla").
+  // Mismo patrón que postventa_adjuntos/servicio_tecnico_adjuntos: una fila
+  // por archivo, nunca se sobrescribe.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS despacho_adjuntos (
+      id SERIAL PRIMARY KEY,
+      punto_id INTEGER NOT NULL REFERENCES despacho_puntos(id),
+      archivo_key TEXT NOT NULL,
+      archivo_nombre TEXT,
+      archivo_mime TEXT,
+      subido_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_despacho_adjuntos_punto ON despacho_adjuntos (punto_id, created_at)`);
+  // Backfill único: la foto que ya estuviera en foto_respaldo_key pasa a ser
+  // el primer adjunto histórico, para no perderla al migrar. No borra la
+  // columna vieja (queda sin uso) ni vuelve a correr dos veces (el filtro
+  // NOT EXISTS evita duplicar si esta migración ya se aplicó antes).
+  await db.run(`
+    INSERT INTO despacho_adjuntos (punto_id, archivo_key, created_at)
+    SELECT id, foto_respaldo_key, created_at FROM despacho_puntos
+    WHERE foto_respaldo_key IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM despacho_adjuntos WHERE despacho_adjuntos.punto_id = despacho_puntos.id
+      )
+  `);
+
   // Atribución adicional, independiente del rol (mismo patrón que
   // es_encargado_postventa): quien la tenga gestiona el módulo de Despacho
   // completo (agrega/edita paradas, las marca completadas, sube fotos).

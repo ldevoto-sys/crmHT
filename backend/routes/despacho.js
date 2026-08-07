@@ -104,10 +104,10 @@ router.delete('/lugares-frecuentes/:id', async (req, res) => {
 
 async function cargarPuntos(despachoId) {
   return db.all(
-    `SELECT id, despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono,
-            documento_tipo, documento_numero, duracion_estimada_min, completado, completado_en,
-            (foto_respaldo_key IS NOT NULL) AS tiene_foto
-     FROM despacho_puntos WHERE despacho_id = $1 ORDER BY orden`,
+    `SELECT dp.id, dp.despacho_id, dp.orden, dp.tipo, dp.direccion, dp.comuna, dp.fecha, dp.contacto_nombre, dp.contacto_telefono,
+            dp.documento_tipo, dp.documento_numero, dp.duracion_estimada_min, dp.completado, dp.completado_en,
+            EXISTS (SELECT 1 FROM despacho_adjuntos da WHERE da.punto_id = dp.id) AS tiene_adjuntos
+     FROM despacho_puntos dp WHERE dp.despacho_id = $1 ORDER BY dp.orden`,
     [despachoId]
   );
 }
@@ -322,8 +322,11 @@ router.put('/puntos/:id/completar', async (req, res) => {
     const punto = await db.get('SELECT * FROM despacho_puntos WHERE id = $1', [req.params.id]);
     if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
     const completado = req.body.completado !== false;
-    if (completado && !punto.foto_respaldo_key) {
-      return res.status(400).json({ error: 'Sube la foto de respaldo antes de marcar esta parada como completada.' });
+    if (completado) {
+      const tieneAdjuntos = await db.get('SELECT 1 FROM despacho_adjuntos WHERE punto_id = $1 LIMIT 1', [req.params.id]);
+      if (!tieneAdjuntos) {
+        return res.status(400).json({ error: 'Sube al menos un archivo de respaldo antes de marcar esta parada como completada.' });
+      }
     }
     await db.run(
       'UPDATE despacho_puntos SET completado=$1, completado_en=$2 WHERE id=$3',
@@ -384,46 +387,98 @@ router.delete('/puntos/:id', async (req, res) => {
   }
 });
 
-// POST /api/despachos/puntos/:id/foto — foto de respaldo (guía/factura/O.C.
-// firmada) subida desde el celular al bucket privado de R2 (gestor).
-router.post('/puntos/:id/foto', upload.single('archivo'), async (req, res) => {
-  try {
-    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
-    const punto = await db.get('SELECT * FROM despacho_puntos WHERE id = $1', [req.params.id]);
-    if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
-    if (!req.file) return res.status(400).json({ error: 'Archivo requerido' });
-    if (!r2.configuradoDespacho()) {
-      return res.status(503).json({ error: 'El almacenamiento de documentos de despacho no está configurado todavía.' });
-    }
-    const ext = (req.file.originalname.match(/\.[^.]+$/) || ['.jpg'])[0];
-    const key = `despacho/${punto.despacho_id}/${punto.id}_${crypto.randomBytes(6).toString('hex')}${ext}`;
-    const r = await r2.subirDespacho(key, req.file.buffer, req.file.mimetype);
-    if (!r.subido) return res.status(502).json({ error: r.motivo || 'No se pudo subir la foto' });
-    await db.run('UPDATE despacho_puntos SET foto_respaldo_key = $1 WHERE id = $2', [key, req.params.id]);
-    res.json({ message: 'Foto subida' });
-  } catch (err) {
-    console.error('[despachos POST /puntos/:id/foto]', err);
-    res.status(500).json({ error: 'Error interno' });
-  }
-});
+// === Adjuntos de una parada (v1.22) — historial de archivos de respaldo,
+// reemplaza la foto única que antes se perdía al "reemplazarla" ===
 
-// GET /api/despachos/puntos/:id/foto — descarga autenticada (no es un bucket
-// público, así que el frontend la trae como blob, igual que los adjuntos de WhatsApp).
-router.get('/puntos/:id/foto', async (req, res) => {
+// GET /api/despachos/puntos/:id/adjuntos
+router.get('/puntos/:id/adjuntos', async (req, res) => {
   try {
     const punto = await db.get(
-      `SELECT dp.*, d.creado_por_id FROM despacho_puntos dp JOIN despachos d ON d.id = dp.despacho_id WHERE dp.id = $1`,
+      `SELECT dp.id, d.creado_por_id FROM despacho_puntos dp JOIN despachos d ON d.id = dp.despacho_id WHERE dp.id = $1`,
       [req.params.id]
     );
     if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
     if (!puedeGestionar(req.user) && punto.creado_por_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
-    if (!punto.foto_respaldo_key) return res.status(404).json({ error: 'Esta parada no tiene foto de respaldo' });
-    const archivo = await r2.descargarDespacho(punto.foto_respaldo_key);
-    if (!archivo) return res.status(502).json({ error: 'No se pudo obtener la foto' });
-    res.setHeader('Content-Type', archivo.contentType || 'image/jpeg');
+    const adjuntos = await db.all(
+      `SELECT da.id, da.archivo_nombre, da.archivo_mime, da.created_at, da.subido_por_id, u.nombre AS subido_por_nombre
+       FROM despacho_adjuntos da
+       LEFT JOIN users u ON u.id = da.subido_por_id
+       WHERE da.punto_id = $1 ORDER BY da.created_at DESC`,
+      [req.params.id]
+    );
+    res.json(adjuntos);
+  } catch (err) {
+    console.error('[despachos GET /puntos/:id/adjuntos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/despachos/puntos/:id/adjuntos — multipart, campo "archivos"
+// (varios), subidos desde el celular al bucket privado de R2 (gestor).
+router.post('/puntos/:id/adjuntos', upload.array('archivos', 20), async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const punto = await db.get('SELECT * FROM despacho_puntos WHERE id = $1', [req.params.id]);
+    if (!punto) return res.status(404).json({ error: 'Parada no encontrada' });
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'Archivo requerido' });
+    if (!r2.configuradoDespacho()) {
+      return res.status(503).json({ error: 'El almacenamiento de documentos de despacho no está configurado todavía.' });
+    }
+    const subidos = [];
+    for (const file of req.files) {
+      const ext = (file.originalname.match(/\.[^.]+$/) || ['.jpg'])[0];
+      const key = `despacho/${punto.despacho_id}/${punto.id}_${crypto.randomBytes(6).toString('hex')}${ext}`;
+      const r = await r2.subirDespacho(key, file.buffer, file.mimetype);
+      if (!r.subido) return res.status(502).json({ error: r.motivo || 'No se pudo subir el archivo' });
+      const insertado = await db.run(
+        `INSERT INTO despacho_adjuntos (punto_id, archivo_key, archivo_nombre, archivo_mime, subido_por_id)
+         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+        [req.params.id, key, file.originalname, file.mimetype, req.user.id]
+      );
+      subidos.push(insertado.rows[0].id);
+    }
+    res.status(201).json({ message: 'Archivos subidos', ids: subidos });
+  } catch (err) {
+    console.error('[despachos POST /puntos/:id/adjuntos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/despachos/adjuntos/:adjuntoId/archivo — descarga autenticada (no
+// es un bucket público, el frontend la trae como blob).
+router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
+  try {
+    const adjunto = await db.get(
+      `SELECT da.*, d.creado_por_id FROM despacho_adjuntos da
+       JOIN despacho_puntos dp ON dp.id = da.punto_id
+       JOIN despachos d ON d.id = dp.despacho_id
+       WHERE da.id = $1`,
+      [req.params.adjuntoId]
+    );
+    if (!adjunto) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    if (!puedeGestionar(req.user) && adjunto.creado_por_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
+    const archivo = await r2.descargarDespacho(adjunto.archivo_key);
+    if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo' });
+    res.setHeader('Content-Type', archivo.contentType || adjunto.archivo_mime || 'image/jpeg');
     res.send(archivo.buffer);
   } catch (err) {
-    console.error('[despachos GET /puntos/:id/foto]', err);
+    console.error('[despachos GET /adjuntos/:adjuntoId/archivo]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/despachos/adjuntos/:adjuntoId — quien lo subió, o gestor
+router.delete('/adjuntos/:adjuntoId', async (req, res) => {
+  try {
+    const adjunto = await db.get('SELECT * FROM despacho_adjuntos WHERE id = $1', [req.params.adjuntoId]);
+    if (!adjunto) return res.status(404).json({ error: 'Adjunto no encontrado' });
+    if (!puedeGestionar(req.user) && adjunto.subido_por_id !== req.user.id) {
+      return res.status(403).json({ error: 'Solo quien lo subió, o el encargado de despacho, puede eliminarlo' });
+    }
+    await db.run('DELETE FROM despacho_adjuntos WHERE id = $1', [req.params.adjuntoId]);
+    res.json({ message: 'Adjunto eliminado' });
+  } catch (err) {
+    console.error('[despachos DELETE /adjuntos/:adjuntoId]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -437,25 +437,28 @@ function AdjuntosCaso({ casoId }) {
   const [error, setError] = useState('');
   const [tipo, setTipo] = useState('foto_cliente');
   const [descripcion, setDescripcion] = useState('');
-  const [archivo, setArchivo] = useState(null);
+  const [archivos, setArchivos] = useState([]);
   const [subiendo, setSubiendo] = useState(false);
+  const inputArchivoRef = useRef(null);
 
   const cargar = () => api.get(`/servicio-tecnico/${casoId}/adjuntos`).then(r => setAdjuntos(r.data)).catch(() => {});
   useEffect(() => { cargar(); }, [casoId]);
 
   const subir = async e => {
     e.preventDefault();
-    if (!archivo) return;
+    if (archivos.length === 0) return;
     setError(''); setSubiendo(true);
-    const form = new FormData();
-    form.append('archivo', archivo);
-    form.append('tipo', tipo);
-    if (descripcion) form.append('descripcion', descripcion);
     try {
-      await api.post(`/servicio-tecnico/${casoId}/adjuntos`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setArchivo(null); setDescripcion(''); cargar();
+      for (const archivo of archivos) {
+        const form = new FormData();
+        form.append('archivo', archivo);
+        form.append('tipo', tipo);
+        if (descripcion) form.append('descripcion', descripcion);
+        await api.post(`/servicio-tecnico/${casoId}/adjuntos`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+      setArchivos([]); setDescripcion(''); cargar();
     } catch (err) { setError(err.response?.data?.error || 'No se pudo subir el archivo.'); }
-    finally { setSubiendo(false); }
+    finally { setSubiendo(false); if (inputArchivoRef.current) inputArchivoRef.current.value = ''; }
   };
 
   const ver = async adj => {
@@ -500,8 +503,8 @@ function AdjuntosCaso({ casoId }) {
         </select>
         <input value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="Descripción (opcional)"
           className="flex-1 min-w-[140px] border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-        <input type="file" onChange={e => setArchivo(e.target.files?.[0] || null)} className="text-xs" />
-        <button type="submit" disabled={!archivo || subiendo}
+        <input ref={inputArchivoRef} type="file" multiple onChange={e => setArchivos(Array.from(e.target.files || []))} className="text-xs" />
+        <button type="submit" disabled={archivos.length === 0 || subiendo}
           className="text-sm px-3 py-1.5 rounded bg-ht-accent text-ht-navy hover:bg-ht-accent/90 disabled:opacity-50">
           {subiendo ? 'Subiendo…' : 'Subir'}
         </button>
