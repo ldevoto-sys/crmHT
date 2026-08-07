@@ -74,6 +74,14 @@ function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
 }
 
+// El monto_estimado del negocio se sincroniza con el total cada vez que se
+// genera o actualiza una cotización, sobrescribiendo cualquier valor cargado
+// a mano — así Reportería/Pipeline nunca quedan con el monto en $0 mientras
+// haya una cotización real detrás.
+async function sincronizarMontoEstimado(client, negocioId, total) {
+  await client.query('UPDATE negocios SET monto_estimado=$1 WHERE id=$2', [total, negocioId]);
+}
+
 // Al generarse una cotización, el negocio avanza a la etapa "Cotizado" de su
 // propio pipeline — pero solo hacia adelante: si ya está en una etapa
 // posterior (p.ej. Negociación) o está cerrado, no se toca. Si esa etapa no
@@ -524,6 +532,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
         [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
+    await sincronizarMontoEstimado(client, negocio_id, total);
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: cotId, numero, version: 1 });
@@ -590,6 +599,7 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
         [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
+    await sincronizarMontoEstimado(client, negocio.id, total);
     await client.query('COMMIT');
     res.json({ id: Number(req.params.id) });
   } catch (err) {
@@ -626,6 +636,7 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
        SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha FROM cotizacion_items WHERE cotizacion_id=$2`,
       [nuevaId, req.params.id]
     );
+    await sincronizarMontoEstimado(client, negocio.id, base.total);
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: nuevaId, numero: base.numero, version: nuevaV });
