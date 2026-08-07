@@ -17,6 +17,7 @@ export default function DetalleNegocio() {
   const [causas, setCausas] = useState([]);
   const [error, setError] = useState('');
   const [prob, setProb] = useState('');
+  const [monto, setMonto] = useState('');
   const [fechaEstimada, setFechaEstimada] = useState('');
   const [fechaCompromiso, setFechaCompromiso] = useState('');
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
@@ -29,6 +30,7 @@ export default function DetalleNegocio() {
   const cargar = async () => {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
+      setMonto(data.monto_estimado ?? '');
       setFechaEstimada(data.fecha_cierre_estimada ? data.fecha_cierre_estimada.slice(0, 10) : '');
       setFechaCompromiso(data.fecha_compromiso ? data.fecha_compromiso.slice(0, 10) : '');
       setContactoNombre(`${data.contacto_nombre} ${data.contacto_apellido || ''}`.trim());
@@ -51,6 +53,11 @@ export default function DetalleNegocio() {
   const cambiarEtapa = async (etapa, extra = {}) => {
     try { await api.put(`/negocios/${id}/etapa`, { etapa_id: etapa.id, ...extra }); cargar(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la etapa.'); }
+  };
+
+  const guardarMonto = async () => {
+    try { await api.put(`/negocios/${id}`, { monto_estimado: monto === '' ? null : Number(monto) }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo guardar el monto estimado.'); }
   };
 
   const guardarProb = async () => {
@@ -109,7 +116,6 @@ export default function DetalleNegocio() {
               <Dato label="Email" val={n.contacto_email} />
               <Dato label="Teléfono" val={n.contacto_telefono} />
               <Dato label="Vendedor" val={n.vendedor_nombre} />
-              <Dato label="Monto estimado" val={money(n.monto_estimado)} />
               {n.etapa_tipo === 'perdida' && <Dato label="Causa no cierre" val={n.causa_nombre} />}
               {n.fecha_cierre && <Dato label="Cierre" val={fecha(n.fecha_cierre)} />}
             </dl>
@@ -193,6 +199,18 @@ export default function DetalleNegocio() {
                 ))}
               </div>
             )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="font-semibold text-ht-navy mb-2">Monto estimado</h2>
+            <p className="text-xs text-gray-500 mb-2">Se sincroniza solo al generar o actualizar una cotización; puedes ajustarlo a mano en cualquier momento.</p>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500">$</span>
+              <input type="number" min="0" value={monto} disabled={!n.puede_editar}
+                onChange={e => setMonto(e.target.value)}
+                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              {n.puede_editar && <button onClick={guardarMonto} className="bg-ht-accent text-ht-navy px-3 py-2 rounded text-sm hover:bg-ht-accent/90">Guardar</button>}
+            </div>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-5">
