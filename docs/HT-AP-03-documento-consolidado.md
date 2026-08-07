@@ -4,7 +4,7 @@
 **Fecha de consolidación:** 2026-08-07
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
-cambio v1.2 a v1.23 (que quedan archivadas en `docs/` como historial de
+cambio v1.2 a v1.24 (que quedan archivadas en `docs/` como historial de
 decisiones) por una descripción única y al día de todo el sistema. Incorpora,
 sobre la consolidación anterior (v1.11, 18-07-2026), el trabajo de las
 v1.12-v1.14: múltiples pipelines (Ventas Directas/Operaciones), el módulo de
@@ -33,8 +33,12 @@ pasa de guardar **una sola foto que se reemplazaba** a un **historial de
 archivos** (§6), y en Postventa/Servicio Técnico el panel para agregar un
 adjunto a un caso ya creado admite **selección múltiple** en una sola
 acción (§5/§15) — con esta versión, `staging` y `main` (producción) quedan
-con el mismo código. Este documento es el que debe subirse a SharePoint
-reemplazando la versión anterior del documento base.
+con el mismo código; y de v1.24 (07-08-2026): **monto estimado editable** en
+la ficha del negocio y **sincronizado automáticamente** con el total al
+generar o editar una cotización (§3), y el **aviso manual de novedades por
+correo** (§9), que queda establecido como estándar para toda futura
+promoción de cambios a producción. Este documento es el que debe subirse a
+SharePoint reemplazando la versión anterior del documento base.
 
 ---
 
@@ -276,6 +280,14 @@ reemplaza la herramienta HTML independiente que existía antes):
   lejos o no está definida. El cálculo (`slaEstado`) se extrajo a un helper
   compartido (`frontend/src/utils/sla.js`) para no duplicarlo entre Pipeline
   y Postventa — Servicio Técnico (§15) también lo reutiliza.
+- **Monto estimado editable + sincronizado (v1.24):** `negocios.monto_estimado`
+  se edita a mano en la ficha del negocio (mismo patrón que Probabilidad de
+  cierre), y además se actualiza **automáticamente** con el total de la
+  cotización cada vez que se genera una cotización nueva, se edita en
+  borrador, o se genera una nueva versión (sobrescribe cualquier valor
+  cargado a mano). Antes, un negocio sin monto cargado a mano al crearlo
+  quedaba en $0 para siempre en Reportería y Pipeline, aunque después se
+  cotizara y se ganara.
 
 ## 4. Cotizaciones
 
@@ -658,6 +670,17 @@ mismo criterio que Secuencias (§8).
   `informe_diario_envios` evita reenviarlo dos veces el mismo día. Endpoint
   manual `POST /api/reportes/informe-diario/enviar-ahora` para pruebas o
   reenvíos. Ver nota de cambio v1.20 para el detalle completo.
+- **Aviso manual de novedades por correo (v1.24) — estándar de
+  comunicación de cambios:** pantalla "Avisar novedades" (Configuración →
+  administrador/jefe comercial) para redactar un título y una lista de
+  cambios (uno por línea) y enviarlos por correo a todos los usuarios
+  activos — mismo criterio de destinatarios que el informe diario.
+  `POST /api/novedades/enviar {titulo, cambios[]}`. No guarda historial de
+  envíos ni genera el contenido automáticamente desde Git — es un envío
+  puntual, redactado a mano. **Queda como estándar:** cada vez que se
+  promueve a `main` (producción) un conjunto de cambios visibles para el
+  usuario, corresponde enviar este aviso además de (no en reemplazo de) la
+  nota de cambio técnica de esta carpeta.
 
 ## 10. Encuesta post-cierre
 
