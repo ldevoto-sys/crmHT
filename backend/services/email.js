@@ -290,4 +290,22 @@ module.exports = {
       }
     );
   },
+
+  // Aviso de novedades del sistema, disparado a mano por un administrador o
+  // jefe comercial cada vez que se promueve un conjunto de cambios a
+  // producción (ver services/novedades.js). usuario: {nombre,email};
+  // titulo: encabezado del correo (ej. "Novedades del CRM — 7 de agosto");
+  // cambios: array de strings, un bullet por cambio.
+  novedades: (usuario, titulo, cambios) => enviar(
+    usuario.email,
+    titulo,
+    template(titulo, `
+      <p>Hola <strong>${usuario.nombre}</strong>,</p>
+      <p>Estos son los últimos cambios aplicados al CRM:</p>
+      <ul>
+        ${cambios.map(c => `<li style="margin-bottom:6px;">${c}</li>`).join('')}
+      </ul>
+      ${boton(APP_URL, 'Ir al CRM')}
+    `)
+  ),
 };
