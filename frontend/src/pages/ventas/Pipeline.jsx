@@ -341,7 +341,7 @@ function NuevoNegocio({ onClose, onCreado }) {
           </select>
         </div>
         <div>
-          <label className="block text-sm text-gray-700 mb-1">Monto estimado (opcional)</label>
+          <label className="block text-sm text-gray-700 mb-1">Monto estimado, neto sin IVA (opcional)</label>
           <input type="number" value={monto} onChange={e => setMonto(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>

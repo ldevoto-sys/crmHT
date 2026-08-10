@@ -202,8 +202,8 @@ export default function DetalleNegocio() {
           </div>
 
           <div className="bg-white border border-gray-200 rounded-lg p-5">
-            <h2 className="font-semibold text-ht-navy mb-2">Monto estimado</h2>
-            <p className="text-xs text-gray-500 mb-2">Se sincroniza solo al generar o actualizar una cotización; puedes ajustarlo a mano en cualquier momento.</p>
+            <h2 className="font-semibold text-ht-navy mb-2">Monto estimado (neto, sin IVA)</h2>
+            <p className="text-xs text-gray-500 mb-2">Se sincroniza solo con el neto de la cotización al generarla o actualizarla; puedes ajustarlo a mano en cualquier momento.</p>
             <div className="flex items-center gap-2">
               <span className="text-gray-500">$</span>
               <input type="number" min="0" value={monto} disabled={!n.puede_editar}

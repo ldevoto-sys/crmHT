@@ -74,12 +74,15 @@ function puedeEditar(negocio, user) {
   return negocio && (user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id);
 }
 
-// El monto_estimado del negocio se sincroniza con el total cada vez que se
-// genera o actualiza una cotización, sobrescribiendo cualquier valor cargado
-// a mano — así Reportería/Pipeline nunca quedan con el monto en $0 mientras
-// haya una cotización real detrás.
-async function sincronizarMontoEstimado(client, negocioId, total) {
-  await client.query('UPDATE negocios SET monto_estimado=$1 WHERE id=$2', [total, negocioId]);
+// El monto_estimado del negocio se sincroniza con el NETO (sin IVA, ver
+// calcular()/calcularParaGuardar() más abajo) cada vez que se genera o
+// actualiza una cotización, sobrescribiendo cualquier valor cargado a mano
+// — así Reportería/Pipeline nunca quedan con el monto en $0 mientras haya
+// una cotización real detrás. Se guarda neto y no el total con IVA (nota de
+// cambio v1.26) para que Pipeline/Reportería no mezclen criterios distintos
+// según si el monto vino de una cotización o se tipeó a mano.
+async function sincronizarMontoEstimado(client, negocioId, neto) {
+  await client.query('UPDATE negocios SET monto_estimado=$1 WHERE id=$2', [neto, negocioId]);
 }
 
 // Al generarse una cotización, el negocio avanza a la etapa "Cotizado" de su
@@ -126,22 +129,25 @@ function puedeVer(negocio, user) {
   return user.rol === 'vendedor' && negocio && negocio.vendedor_id === user.id;
 }
 
-// Calcula subtotal (neto), y total con descuento e IVA.
+// Calcula subtotal (bruto, antes de descuento), neto (después de descuento,
+// antes de IVA) y total (con descuento e IVA).
 function calcular(items, descuento_pct, iva_pct) {
   const subtotal = Math.round(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0));
-  const neto = subtotal * (1 - (Number(descuento_pct) || 0) / 100);
+  const neto = Math.round(subtotal * (1 - (Number(descuento_pct) || 0) / 100));
   const total = Math.round(neto * (1 + (Number(iva_pct) || 0) / 100));
-  return { subtotal, total };
+  return { subtotal, neto, total };
 }
 
-// Cálculo de subtotal/total según origen (HT-AP-03 nota v1.18): Ventas Directas
-// sigue con calcular() sin cambios; Operaciones usa el motor de MO/materiales
-// y toma un snapshot de la UF del día (no cambia si se reabre la cotización
-// más tarde). Lanza un error con `.status` en caso de UF no disponible.
+// Cálculo de subtotal/neto/total según origen (HT-AP-03 nota v1.18): Ventas
+// Directas sigue con calcular() sin cambios; Operaciones usa el motor de
+// MO/materiales y toma un snapshot de la UF del día (no cambia si se reabre
+// la cotización más tarde). Operaciones no tiene concepto de descuento_pct
+// propio — su "neto" es directamente el total antes de IVA que entrega el
+// motor de cálculo. Lanza un error con `.status` en caso de UF no disponible.
 async function calcularParaGuardar({ origen, items, descuento_pct, iva_pct, comuna_id, horas_normales, horas_extra }) {
   if (origen !== 'operaciones') {
-    const { subtotal, total } = calcular(items, descuento_pct, iva_pct);
-    return { subtotal, total, uf_valor: null, uf_fecha: null };
+    const { subtotal, neto, total } = calcular(items, descuento_pct, iva_pct);
+    return { subtotal, neto, total, uf_valor: null, uf_fecha: null };
   }
   const config = await db.get('SELECT * FROM config_operaciones_mo WHERE id = 1');
   const comuna = comuna_id ? await db.get('SELECT * FROM comunas_operaciones WHERE id = $1', [comuna_id]) : null;
@@ -155,7 +161,17 @@ async function calcularParaGuardar({ origen, items, descuento_pct, iva_pct, comu
     items, horasNormales: horas_normales || 0, horasExtra: horas_extra || 0,
     comuna, config, ufValor: ufInfo.valor, ivaPct: iva_pct,
   });
-  return { subtotal: Math.round(r.totalNetoCLP), total: Math.round(r.totalConIva), uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha };
+  const neto = Math.round(r.totalNetoCLP);
+  return { subtotal: neto, neto, total: Math.round(r.totalConIva), uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha };
+}
+
+// Recalcula el neto a partir de una fila ya guardada de `cotizaciones` (usado
+// en "nueva versión", que clona subtotal/descuento_pct/origen de la base en
+// vez de volver a calcularlos) — mismo criterio que calcularParaGuardar().
+function netoDeFila(fila) {
+  return fila.origen === 'operaciones'
+    ? Math.round(Number(fila.subtotal))
+    : Math.round(Number(fila.subtotal) * (1 - (Number(fila.descuento_pct) || 0) / 100));
 }
 
 // GET /api/cotizaciones/plantillas-defaults — texto por defecto de cada
@@ -499,7 +515,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }
-  const { subtotal, total, uf_valor, uf_fecha } = calc;
+  const { subtotal, neto, total, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -532,7 +548,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
         [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
-    await sincronizarMontoEstimado(client, negocio_id, total);
+    await sincronizarMontoEstimado(client, negocio_id, neto);
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: cotId, numero, version: 1 });
@@ -572,7 +588,7 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }
-  const { subtotal, total, uf_valor, uf_fecha } = calc;
+  const { subtotal, neto, total, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -599,7 +615,7 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
         [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
-    await sincronizarMontoEstimado(client, negocio.id, total);
+    await sincronizarMontoEstimado(client, negocio.id, neto);
     await client.query('COMMIT');
     res.json({ id: Number(req.params.id) });
   } catch (err) {
@@ -636,7 +652,7 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
        SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha FROM cotizacion_items WHERE cotizacion_id=$2`,
       [nuevaId, req.params.id]
     );
-    await sincronizarMontoEstimado(client, negocio.id, base.total);
+    await sincronizarMontoEstimado(client, negocio.id, netoDeFila(base));
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
     await client.query('COMMIT');
     res.status(201).json({ id: nuevaId, numero: base.numero, version: nuevaV });

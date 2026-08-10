@@ -323,7 +323,7 @@ export default function NuevaCotizacion() {
           `Cotización para ${negocio.empresa_nombre || `${negocio.contacto_nombre} ${negocio.contacto_apellido || ''}`.trim()}`;
         const { data: nuevoNegocio } = await api.post('/negocios', {
           contacto_id: Number(contactoIdNuevo), titulo: tituloNegocio,
-          monto_estimado: total, fecha_cierre_estimada: fechaCierreEstimada || null,
+          monto_estimado: neto, fecha_cierre_estimada: fechaCierreEstimada || null,
         });
         negocioDestino = nuevoNegocio.id;
       }
