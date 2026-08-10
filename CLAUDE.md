@@ -32,3 +32,18 @@ ventana fuera de horario. Confirmado explícitamente por Luis Devoto
 
 Ver `docs/HT-AP-03-nota-cambio-v1.24.md` y
 `docs/HT-AP-03-documento-consolidado.md` (§17) para el registro completo.
+
+## Modo actual: todo se acumula en staging (vigente desde 10-08-2026)
+
+Instrucción explícita de Luis Devoto, más restrictiva que la regla de
+horario de arriba: **por ahora, solo se promueve a `main` si hay un error**
+que corregir — nunca por una mejora o feature nueva, aunque sea fuera de
+horario. Las mejoras y features nuevas quedan acumulándose en `staging`
+hasta que se avise lo contrario.
+
+Antes de cualquier `git push origin main` (o cherry-pick a `main`) que no
+sea la excepción de solo documentación de arriba:
+- Confirmar que el cambio es la corrección de un error (algo que dejó de
+  funcionar), no una mejora — si hay duda, preguntar antes de promover.
+- Si es una corrección de error, sigue aplicando la regla de horario de
+  arriba salvo que sea crítico.
