@@ -1351,6 +1351,47 @@ async function initDb() {
     }
   }
 
+  // === Migraciones de un solo uso (más allá de tablas/columnas nuevas) ===
+  // Registro de qué backfills puntuales ya se aplicaron. A diferencia de las
+  // migraciones de esquema (CREATE TABLE/COLUMN IF NOT EXISTS, naturalmente
+  // idempotentes), un backfill de datos que se repitiera en cada arranque
+  // podría pisar una corrección manual hecha después por un usuario — por
+  // eso necesitan aplicarse una vez y quedar registradas.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS migraciones_aplicadas (
+      nombre TEXT PRIMARY KEY,
+      aplicada_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Backfill (nota de cambio v1.26): negocios.monto_estimado pasaba a
+  // sincronizarse con el TOTAL con IVA de la cotización (v1.24) — se corrigió
+  // para guardar el NETO (sin IVA), pero los negocios ya sincronizados antes
+  // de este cambio se quedaron con el total. Se recalcula una sola vez, para
+  // cada negocio con al menos una cotización, a partir del neto de su
+  // cotización más reciente (mismo criterio que sincronizarMontoEstimado()/
+  // netoDeFila() en routes/cotizaciones.js). Los negocios sin ninguna
+  // cotización no se tocan — mantienen lo que se haya cargado a mano.
+  const backfillNetoAplicado = await db.get(
+    `SELECT 1 FROM migraciones_aplicadas WHERE nombre = 'monto_estimado_neto_v1.26'`
+  );
+  if (!backfillNetoAplicado) {
+    const resultado = await db.run(`
+      UPDATE negocios n SET monto_estimado = uc.neto
+      FROM (
+        SELECT DISTINCT ON (c.negocio_id) c.negocio_id,
+          CASE WHEN c.origen = 'operaciones' THEN ROUND(c.subtotal)
+               ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+          END AS neto
+        FROM cotizaciones c
+        ORDER BY c.negocio_id, c.created_at DESC
+      ) uc
+      WHERE n.id = uc.negocio_id
+    `);
+    await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('monto_estimado_neto_v1.26')`);
+    console.log(`[DB] Backfill monto_estimado → neto aplicado (${resultado.rowCount} negocio(s) actualizados).`);
+  }
+
   console.log('[DB] Base de datos lista.');
 }
 
