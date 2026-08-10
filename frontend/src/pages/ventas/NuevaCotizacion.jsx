@@ -209,7 +209,10 @@ export default function NuevaCotizacion() {
     } else if (modoNegocioNuevo) {
       api.get(`/contactos/${contactoIdNuevo}`).then(r => {
         const c = r.data;
-        setNegocio({ contacto_nombre: c.nombre, contacto_apellido: c.apellido, empresa_nombre: c.empresa_nombre });
+        setNegocio({
+          contacto_id: c.id, contacto_nombre: c.nombre, contacto_apellido: c.apellido,
+          contacto_email: c.email, contacto_telefono: c.telefono_e164, empresa_nombre: c.empresa_nombre,
+        });
         setCargando(false);
       }).catch(() => { setError('No se pudo cargar el contacto.'); setCargando(false); });
     } else {
@@ -369,7 +372,17 @@ export default function NuevaCotizacion() {
         ← {modoEdicion ? 'Volver a la cotización' : modoNegocioNuevo ? 'Cotizaciones' : negocio.titulo}
       </Link>
       <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-1">{modoEdicion ? 'Editar cotización' : 'Nueva cotización'}</h1>
-      <p className="text-gray-500 text-sm mb-1">{negocio.contacto_nombre} {negocio.contacto_apellido} {negocio.empresa_nombre ? `· ${negocio.empresa_nombre}` : ''}</p>
+      <p className="text-gray-500 text-sm mb-1">{negocio.contacto_nombre} {negocio.contacto_apellido}</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-400 mb-1">
+        <span>Tel: {negocio.contacto_telefono || '—'}</span>
+        <span>Correo: {negocio.contacto_email || '—'}</span>
+        <span>Empresa: {negocio.empresa_nombre || '—'}</span>
+        {negocio.contacto_id && (
+          <Link to={`/contactos/${negocio.contacto_id}`} target="_blank" rel="noopener" className="text-ht-accent hover:underline">
+            Editar contacto ↗
+          </Link>
+        )}
+      </div>
       {modoNegocioNuevo && <p className="text-xs text-gray-400 mb-6">El negocio se creará automáticamente al guardar, con los datos de esta cotización.</p>}
       {!modoNegocioNuevo && <div className="mb-6" />}
 
