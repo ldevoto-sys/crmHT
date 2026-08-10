@@ -100,6 +100,17 @@ export default function Pipeline() {
     : negocios;
   const porEtapa = id => negociosFiltrados.filter(n => n.etapa_id === id);
 
+  // Proyección del período seleccionado: monto neto ponderado por
+  // probabilidad de todos los negocios ABIERTOS cuya fecha estimada de
+  // cierre cae en el rango elegido arriba — `negocios` ya viene filtrado
+  // por ese rango desde el backend (params desde/hasta), así que solo hace
+  // falta acotar a etapas abiertas y ponderar, sin otra llamada a la API.
+  const proyeccionPeriodo = negociosFiltrados.reduce((s, n) => {
+    const et = etapas.find(e => e.id === n.etapa_id);
+    if (!et || et.tipo !== 'abierta') return s;
+    return s + (Number(n.monto_estimado) || 0) * ((n.probabilidad_cierre ?? et.probabilidad_cierre) / 100);
+  }, 0);
+
   const exportar = async () => {
     try {
       const { data } = await api.get('/negocios/exportar', { responseType: 'blob' });
@@ -164,6 +175,18 @@ export default function Pipeline() {
           )}
         </div>
       </div>
+
+      {(cierreDesde || cierreHasta) && (
+        <div className="mb-4 flex-shrink-0 bg-white border border-ht-accent/40 rounded-lg px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Proyección del período seleccionado</div>
+            <div className="text-xs text-gray-400 mt-0.5">
+              {cierreDesde ? fecha(cierreDesde) : 'sin fecha inicial'} a {cierreHasta ? fecha(cierreHasta) : 'sin fecha final'} · negocios abiertos, monto neto ponderado por probabilidad
+            </div>
+          </div>
+          <div className="text-xl font-bold text-ht-navy">{money(Math.round(proyeccionPeriodo))}</div>
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 overflow-x-auto pb-2 scroll-visible">
         <div className="flex gap-3 h-full">
