@@ -156,7 +156,7 @@ export default function Reportes() {
               <tr>
                 <th className="text-left px-4 py-2 font-medium">Fecha</th>
                 <th className="text-left px-4 py-2 font-medium">Cotizaciones</th>
-                <th className="text-right px-4 py-2 font-medium">Monto total</th>
+                <th className="text-right px-4 py-2 font-medium">Monto neto</th>
               </tr>
             </thead>
             <tbody>
