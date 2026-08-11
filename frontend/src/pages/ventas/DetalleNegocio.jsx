@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 import NotasYTareas from '../../components/NotasYTareas';
 import SeguimientoNegocio from '../../components/SeguimientoNegocio';
 import { formatFechaHora } from '../../utils/fecha';
@@ -9,9 +10,14 @@ import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = formatFechaHora;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
+// Reasignar el vendedor dueño del negocio: administrador o jefe comercial —
+// no el propio vendedor dueño, aunque n.puede_editar sí lo deje editar el
+// resto de los campos.
+const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
 
 export default function DetalleNegocio() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [n, setN] = useState(null);
   const [etapas, setEtapas] = useState([]);
   const [causas, setCausas] = useState([]);
@@ -27,6 +33,8 @@ export default function DetalleNegocio() {
   const [encuesta, setEncuesta] = useState(null);
   const [contactoNombre, setContactoNombre] = useState('');
   const [empresaNombre, setEmpresaNombre] = useState('');
+  const [vendedores, setVendedores] = useState([]);
+  const [guardandoVendedor, setGuardandoVendedor] = useState(false);
   const cargar = async () => {
     try {
       const { data } = await api.get(`/negocios/${id}`); setN(data); setProb(data.probabilidad_cierre ?? '');
@@ -41,6 +49,9 @@ export default function DetalleNegocio() {
     catch { setError('No se pudo cargar el negocio.'); }
   };
   useEffect(() => { cargar(); }, [id]);
+  useEffect(() => {
+    if (PUEDE_REASIGNAR_VENDEDOR.includes(user?.rol)) api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {});
+  }, [user]);
   useEffect(() => {
     // Las etapas deben ser las del pipeline al que pertenece ESTE negocio, no
     // siempre las de "Ventas Directas" — antes de tener n.pipeline_id no se
@@ -85,6 +96,13 @@ export default function DetalleNegocio() {
     catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la empresa.'); }
   };
 
+  const cambiarVendedor = async vendedorId => {
+    setGuardandoVendedor(true);
+    try { await api.put(`/negocios/${id}`, { vendedor_id: Number(vendedorId) }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar el vendedor.'); }
+    finally { setGuardandoVendedor(false); }
+  };
+
   if (error) return <div className="p-6 text-red-600">{error}</div>;
   if (!n) return <div className="p-6 text-gray-400">Cargando…</div>;
 
@@ -115,7 +133,21 @@ export default function DetalleNegocio() {
               ) : <Dato label="Empresa" val={n.empresa_nombre} />}
               <Dato label="Email" val={n.contacto_email} />
               <Dato label="Teléfono" val={n.contacto_telefono} />
-              <Dato label="Vendedor" val={n.vendedor_nombre} />
+              {PUEDE_REASIGNAR_VENDEDOR.includes(user?.rol) ? (
+                <div>
+                  <dt className="text-xs text-gray-500 mb-1">Vendedor</dt>
+                  <dd>
+                    <select value={n.vendedor_id} disabled={guardandoVendedor}
+                      onChange={e => cambiarVendedor(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:opacity-50">
+                      {!vendedores.some(v => v.id === n.vendedor_id) && (
+                        <option value={n.vendedor_id}>{n.vendedor_nombre}</option>
+                      )}
+                      {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                    </select>
+                  </dd>
+                </div>
+              ) : <Dato label="Vendedor" val={n.vendedor_nombre} />}
               {n.etapa_tipo === 'perdida' && <Dato label="Causa no cierre" val={n.causa_nombre} />}
               {n.fecha_cierre && <Dato label="Cierre" val={fecha(n.fecha_cierre)} />}
             </dl>

@@ -10,6 +10,7 @@ const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
+const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
@@ -206,7 +207,10 @@ router.put('/:id', async (req, res) => {
       const contactoExiste = await db.get('SELECT id FROM contactos WHERE id = $1', [contacto_id]);
       if (!contactoExiste) return res.status(400).json({ error: 'Contacto inexistente' });
     }
-    const nuevoVendedor = (req.user.rol === 'administrador' && vendedor_id) ? vendedor_id : negocio.vendedor_id;
+    // Reasignar el vendedor dueño del negocio: administrador o jefe comercial
+    // (no el propio vendedor dueño, aunque puedeEditar() lo deje llegar hasta
+    // aquí para el resto de los campos).
+    const nuevoVendedor = (PUEDE_REASIGNAR_VENDEDOR.includes(req.user.rol) && vendedor_id) ? vendedor_id : negocio.vendedor_id;
     await db.run(
       `UPDATE negocios SET titulo=$1, monto_estimado=$2, empresa_id=$3, vendedor_id=$4,
               probabilidad_cierre=$5, fecha_cierre_estimada=$6, contacto_id=$7, fecha_compromiso=$8, ultima_actividad=now() WHERE id=$9`,
