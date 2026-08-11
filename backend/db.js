@@ -555,6 +555,12 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Qué lugar frecuente se eligió para autocompletar una parada (si alguno),
+  // para poder mostrar su nombre en la ficha — antes solo quedaban copiadas
+  // la dirección/comuna, sin rastro de cuál lugar frecuente era. Se limpia
+  // (a NULL) si se edita la dirección o comuna a mano, igual que lat/lng,
+  // porque deja de representar a ese lugar.
+  await db.run(`ALTER TABLE despacho_puntos ADD COLUMN IF NOT EXISTS lugar_frecuente_id INTEGER REFERENCES despacho_lugares_frecuentes(id)`);
 
   // === Etapa 2B — Cotizaciones ===
 

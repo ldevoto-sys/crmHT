@@ -161,7 +161,13 @@ function Modal({ children, onClose, ancho = 'max-w-lg' }) {
 }
 
 function CamposPunto({ punto, onChange, lugares = [] }) {
-  const set = (campo, val) => onChange({ ...punto, [campo]: val });
+  // Editar dirección o comuna a mano invalida la asociación con el lugar
+  // frecuente elegido (si había uno) — ya no representa a ese lugar.
+  const set = (campo, val) => {
+    const cambios = { [campo]: val };
+    if ((campo === 'direccion' || campo === 'comuna') && punto.lugar_frecuente_id) cambios.lugar_frecuente_id = null;
+    onChange({ ...punto, ...cambios });
+  };
   const elegirLugar = id => {
     const lugar = lugares.find(l => String(l.id) === id);
     if (!lugar) return;
@@ -170,6 +176,7 @@ function CamposPunto({ punto, onChange, lugares = [] }) {
       direccion: lugar.direccion, comuna: lugar.comuna,
       contacto_nombre: lugar.contacto_nombre || punto.contacto_nombre,
       contacto_telefono: lugar.contacto_telefono || punto.contacto_telefono,
+      lugar_frecuente_id: lugar.id,
     });
   };
   return (
@@ -177,7 +184,7 @@ function CamposPunto({ punto, onChange, lugares = [] }) {
       {lugares.length > 0 && (
         <div>
           <label className="block text-xs text-gray-600 mb-1">Lugar frecuente <span className="text-gray-400">(opcional, autocompleta)</span></label>
-          <select value="" onChange={e => elegirLugar(e.target.value)}
+          <select value={punto.lugar_frecuente_id || ''} onChange={e => elegirLugar(e.target.value)}
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
             <option value="">— Elegir un lugar —</option>
             {lugares.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
@@ -440,6 +447,7 @@ const puntoParaEditar = p => ({
   contacto_nombre: p.contacto_nombre, contacto_telefono: p.contacto_telefono || '',
   documento_tipo: p.documento_tipo, documento_numero: p.documento_numero || '',
   duracion_estimada_min: p.duracion_estimada_min ?? '',
+  lugar_frecuente_id: p.lugar_frecuente_id || null,
 });
 
 function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio }) {
@@ -620,6 +628,9 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                   <div>
                     <span className="text-xs px-1.5 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy capitalize mr-2">{p.tipo}</span>
                     <span className="text-sm font-medium text-ht-navy">{p.direccion}, {p.comuna}</span>
+                    {p.lugar_frecuente_nombre && (
+                      <div className="text-xs text-ht-accent font-medium mt-0.5">{p.lugar_frecuente_nombre}</div>
+                    )}
                   </div>
                   {puedeGestionar && (
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
