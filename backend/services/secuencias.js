@@ -30,14 +30,17 @@ async function pasoSiguiente(secuenciaId, orden) {
 // {enviado, motivo} para que el llamador decida si cae a tarea manual.
 async function intentarEnviarCorreo(ns, paso) {
   if (!ns.contacto_id) return { enviado: false, motivo: 'el negocio no tiene contacto asociado' };
-  const contacto = await db.get('SELECT email FROM contactos WHERE id = $1', [ns.contacto_id]);
+  const contacto = await db.get('SELECT nombre, apellido, email FROM contactos WHERE id = $1', [ns.contacto_id]);
   if (!contacto?.email) return { enviado: false, motivo: 'el contacto no tiene correo registrado' };
-  const vendedor = ns.vendedor_id ? await db.get('SELECT nombre, email FROM users WHERE id = $1', [ns.vendedor_id]) : null;
+  const vendedor = ns.vendedor_id ? await db.get('SELECT nombre, email, telefono FROM users WHERE id = $1', [ns.vendedor_id]) : null;
   const ultimaCot = await db.get(
-    'SELECT token_publico FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+    'SELECT token_publico, numero, version FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
   );
   const linkPublico = ultimaCot ? `${process.env.APP_URL || ''}/c/${ultimaCot.token_publico}` : null;
-  const resultado = await email.seguimiento(contacto.email, vendedor, { titulo: ns.negocio_titulo }, paso, linkPublico);
+  const nombreContacto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
+  const resultado = await email.seguimiento(
+    contacto.email, vendedor, { nombre: nombreContacto }, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico
+  );
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el correo' };
   return { enviado: true, destinatario: contacto.email };
 }
