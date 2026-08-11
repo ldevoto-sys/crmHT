@@ -106,8 +106,11 @@ async function cargarPuntos(despachoId) {
   return db.all(
     `SELECT dp.id, dp.despacho_id, dp.orden, dp.tipo, dp.direccion, dp.comuna, dp.fecha, dp.contacto_nombre, dp.contacto_telefono,
             dp.documento_tipo, dp.documento_numero, dp.duracion_estimada_min, dp.completado, dp.completado_en,
+            dp.lugar_frecuente_id, lf.nombre AS lugar_frecuente_nombre,
             EXISTS (SELECT 1 FROM despacho_adjuntos da WHERE da.punto_id = dp.id) AS tiene_adjuntos
-     FROM despacho_puntos dp WHERE dp.despacho_id = $1 ORDER BY dp.orden`,
+     FROM despacho_puntos dp
+     LEFT JOIN despacho_lugares_frecuentes lf ON lf.id = dp.lugar_frecuente_id
+     WHERE dp.despacho_id = $1 ORDER BY dp.orden`,
     [despachoId]
   );
 }
@@ -215,10 +218,11 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     for (const p of puntos) {
       await client.query(
         `INSERT INTO despacho_puntos
-           (despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono, documento_tipo, documento_numero, duracion_estimada_min)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+           (despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono, documento_tipo, documento_numero, duracion_estimada_min, lugar_frecuente_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [despachoId, orden++, p.tipo, p.direccion, p.comuna, p.fecha, p.contacto_nombre,
-         p.contacto_telefono || null, p.documento_tipo, p.documento_numero || null, p.duracion_estimada_min || null]
+         p.contacto_telefono || null, p.documento_tipo, p.documento_numero || null, p.duracion_estimada_min || null,
+         p.lugar_frecuente_id || null]
       );
     }
     await client.query('COMMIT');
@@ -267,10 +271,11 @@ router.post('/:id/puntos', async (req, res) => {
     const maxOrden = await db.get('SELECT COALESCE(MAX(orden),0) AS m FROM despacho_puntos WHERE despacho_id = $1', [req.params.id]);
     const r = await db.run(
       `INSERT INTO despacho_puntos
-         (despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono, documento_tipo, documento_numero, duracion_estimada_min)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+         (despacho_id, orden, tipo, direccion, comuna, fecha, contacto_nombre, contacto_telefono, documento_tipo, documento_numero, duracion_estimada_min, lugar_frecuente_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [req.params.id, (maxOrden.m || 0) + 1, p.tipo, p.direccion, p.comuna, p.fecha, p.contacto_nombre,
-       p.contacto_telefono || null, p.documento_tipo, p.documento_numero || null, p.duracion_estimada_min || null]
+       p.contacto_telefono || null, p.documento_tipo, p.documento_numero || null, p.duracion_estimada_min || null,
+       p.lugar_frecuente_id || null]
     );
     // La parada nueva nace sin completar — si la ruta ya estaba "Completado",
     // deja de estarlo hasta que también se complete esta parada.
@@ -293,19 +298,25 @@ router.put('/puntos/:id', async (req, res) => {
     const err = validarPunto({ ...punto, ...p });
     if (err) return res.status(400).json({ error: err });
     // Si cambia dirección o comuna, se invalidan las coordenadas cacheadas
-    // para que la próxima optimización de ruta las vuelva a geocodificar.
+    // para que la próxima optimización de ruta las vuelva a geocodificar, y
+    // también el lugar frecuente asociado (salvo que la propia edición ya
+    // venga con uno explícito, ej. porque se eligió otro lugar) — una vez
+    // editada la dirección a mano, ya no representa a ese lugar frecuente.
     const direccionCambio = (p.direccion !== undefined && p.direccion !== punto.direccion)
       || (p.comuna !== undefined && p.comuna !== punto.comuna);
+    const lugarFrecuenteId = p.lugar_frecuente_id !== undefined
+      ? (p.lugar_frecuente_id || null)
+      : (direccionCambio ? null : punto.lugar_frecuente_id);
     await db.run(
       `UPDATE despacho_puntos SET tipo=$1, direccion=$2, comuna=$3, fecha=$4, contacto_nombre=$5,
               contacto_telefono=$6, documento_tipo=$7, documento_numero=$8, duracion_estimada_min=$9,
-              lat=$10, lng=$11
-       WHERE id=$12`,
+              lat=$10, lng=$11, lugar_frecuente_id=$12
+       WHERE id=$13`,
       [p.tipo ?? punto.tipo, p.direccion ?? punto.direccion, p.comuna ?? punto.comuna, p.fecha ?? punto.fecha,
        p.contacto_nombre ?? punto.contacto_nombre, p.contacto_telefono ?? punto.contacto_telefono,
        p.documento_tipo ?? punto.documento_tipo, p.documento_numero ?? punto.documento_numero,
        p.duracion_estimada_min ?? punto.duracion_estimada_min,
-       direccionCambio ? null : punto.lat, direccionCambio ? null : punto.lng, req.params.id]
+       direccionCambio ? null : punto.lat, direccionCambio ? null : punto.lng, lugarFrecuenteId, req.params.id]
     );
     await db.run('UPDATE despachos SET ultima_actividad = now() WHERE id = $1', [punto.despacho_id]);
     res.json({ message: 'Parada actualizada' });
