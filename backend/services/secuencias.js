@@ -1,13 +1,20 @@
-// Motor de secuencias de seguimiento (HT-AP-03 §7.4, nota de cambio v1.7).
+// Motor de secuencias de seguimiento (HT-AP-03 §7.4, nota de cambio v1.7;
+// envío automático por correo agregado después — ver nota de cambio
+// pendiente de redactar).
 //
-// Mientras Microsoft Graph (correo) y el canal de WhatsApp (Etapa 4) no estén
-// conectados, cada paso que vence genera una TAREA para que el vendedor lo
-// ejecute a mano (llamar, escribir el correo, enviar el WhatsApp) en vez de
-// enviarlo automáticamente. El "detector de respuesta" tampoco existe todavía
-// por canal: la pausa se hace a mano con /marcar-respondido, endpoint que
-// también podrá invocarse desde un webhook de Graph/WhatsApp el día que existan.
+// Canal 'correo': se envía solo (Brevo, mismo servicio que la cotización
+// inicial), sin que nadie lo redacte a mano — usa el asunto/mensaje tal
+// cual se definieron al configurar la secuencia. Si el contacto no tiene
+// correo o el envío falla, cae a una tarea manual (nunca se pierde el
+// paso en silencio).
+// Canales 'whatsapp'/'llamada'/'tarea': siguen generando una TAREA para que
+// el vendedor lo ejecute a mano — pendiente conectar WhatsApp más adelante.
+// El "detector de respuesta" tampoco existe todavía por canal: la pausa se
+// hace a mano con /marcar-respondido, endpoint que también podrá invocarse
+// desde un webhook de Graph/WhatsApp el día que existan.
 const { db } = require('../db');
 const timeline = require('./timeline');
+const email = require('./email');
 const { esHorarioHabil } = require('./horario');
 
 async function pasoSiguiente(secuenciaId, orden) {
@@ -17,12 +24,43 @@ async function pasoSiguiente(secuenciaId, orden) {
   );
 }
 
+// Intenta enviar el paso 'correo' solo, por Brevo — el mismo servicio que ya
+// usa la cotización inicial. Adjunta el link a la última cotización del
+// negocio (si existe) como "Ver cotización online". Nunca lanza: devuelve
+// {enviado, motivo} para que el llamador decida si cae a tarea manual.
+async function intentarEnviarCorreo(ns, paso) {
+  if (!ns.contacto_id) return { enviado: false, motivo: 'el negocio no tiene contacto asociado' };
+  const contacto = await db.get('SELECT email FROM contactos WHERE id = $1', [ns.contacto_id]);
+  if (!contacto?.email) return { enviado: false, motivo: 'el contacto no tiene correo registrado' };
+  const vendedor = ns.vendedor_id ? await db.get('SELECT nombre, email FROM users WHERE id = $1', [ns.vendedor_id]) : null;
+  const ultimaCot = await db.get(
+    'SELECT token_publico FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+  );
+  const linkPublico = ultimaCot ? `${process.env.APP_URL || ''}/c/${ultimaCot.token_publico}` : null;
+  const resultado = await email.seguimiento(contacto.email, vendedor, { titulo: ns.negocio_titulo }, paso, linkPublico);
+  if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el correo' };
+  return { enviado: true, destinatario: contacto.email };
+}
+
+async function crearTareaSeguimiento(ns, paso, totalPasos, motivoSinCorreo) {
+  const tituloBase = `Seguimiento "${ns.secuencia_nombre}" — paso ${paso.orden}/${totalPasos} (${paso.canal})`;
+  const titulo = motivoSinCorreo ? `${tituloBase} — no se pudo enviar el correo (${motivoSinCorreo})` : tituloBase;
+  const descripcion = paso.asunto ? `Asunto: ${paso.asunto}\n\n${paso.mensaje}` : paso.mensaje;
+  const tarea = await db.run(
+    `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+     VALUES ($1,$2,now(),$3,$3,$4,$5,$6) RETURNING id`,
+    [titulo, descripcion, ns.vendedor_id, ns.contacto_id, ns.empresa_id, ns.negocio_id]
+  );
+  return tarea.rows[0].id;
+}
+
 // Avanza todas las secuencias activas cuya próxima ejecución ya venció.
 // Idempotente: cada ejecución queda registrada en secuencia_ejecuciones y
 // proxima_ejecucion se recalcula antes de que el próximo tick pueda repetirla.
 async function avanzarPasosPendientes() {
   const pendientes = await db.all(
-    `SELECT ns.*, n.vendedor_id, n.contacto_id, n.empresa_id, s.nombre AS secuencia_nombre, s.respetar_horario
+    `SELECT ns.*, n.vendedor_id, n.contacto_id, n.empresa_id, n.titulo AS negocio_titulo,
+            s.nombre AS secuencia_nombre, s.respetar_horario
      FROM negocio_secuencias ns
      JOIN negocios n ON n.id = ns.negocio_id
      JOIN secuencias s ON s.id = ns.secuencia_id
@@ -42,18 +80,25 @@ async function avanzarPasosPendientes() {
     }
 
     const totalPasos = await db.get('SELECT count(*)::int AS n FROM secuencia_pasos WHERE secuencia_id=$1', [ns.secuencia_id]);
-    const titulo = `Seguimiento "${ns.secuencia_nombre}" — paso ${paso.orden}/${totalPasos.n} (${paso.canal})`;
-    const descripcion = paso.asunto ? `Asunto: ${paso.asunto}\n\n${paso.mensaje}` : paso.mensaje;
+    let tareaId = null;
+    let descripcionTimeline;
 
-    const tarea = await db.run(
-      `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
-       VALUES ($1,$2,now(),$3,$3,$4,$5,$6) RETURNING id`,
-      [titulo, descripcion, ns.vendedor_id, ns.contacto_id, ns.empresa_id, ns.negocio_id]
-    );
+    if (paso.canal === 'correo') {
+      const resultado = await intentarEnviarCorreo(ns, paso);
+      if (resultado.enviado) {
+        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" enviado por correo automáticamente a ${resultado.destinatario}`;
+      } else {
+        tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n, resultado.motivo);
+        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (correo — no se pudo enviar: ${resultado.motivo})`;
+      }
+    } else {
+      tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n);
+      descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (${paso.canal})`;
+    }
 
     await db.run(
       `INSERT INTO secuencia_ejecuciones (negocio_secuencia_id, paso_id, tarea_id) VALUES ($1,$2,$3)`,
-      [ns.id, paso.id, tarea.rows[0].id]
+      [ns.id, paso.id, tareaId]
     );
 
     const siguiente = await pasoSiguiente(ns.secuencia_id, paso.orden + 1);
@@ -67,8 +112,8 @@ async function avanzarPasosPendientes() {
     await timeline.registrar({
       negocio_id: ns.negocio_id, contacto_id: ns.contacto_id, empresa_id: ns.empresa_id,
       tipo: 'seguimiento_auto',
-      descripcion: `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (${paso.canal})`,
-      referencia_id: tarea.rows[0].id,
+      descripcion: descripcionTimeline,
+      referencia_id: tareaId,
     });
     ejecutados++;
   }

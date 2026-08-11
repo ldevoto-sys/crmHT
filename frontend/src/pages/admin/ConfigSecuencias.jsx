@@ -53,7 +53,9 @@ export default function ConfigSecuencias() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Secuencias de seguimiento</h1>
       <p className="text-gray-500 text-sm mb-4">
-        Cada paso vencido genera una tarea para el vendedor (llamar, escribir el correo, enviar el WhatsApp).
+        Un paso de canal "correo" se envía solo, sin que nadie lo redacte a mano (si el contacto no tiene correo o el
+        envío falla, cae a una tarea para el vendedor). Los demás canales ("whatsapp", "llamada", "tarea") siguen
+        generando una tarea para que el vendedor lo ejecute — por ahora, hasta conectar WhatsApp.
         Para que una secuencia se inicie sola al entrar un negocio a una etapa del pipeline (ej. Cotizado), asígnala
         en Configuración → Pipeline. Se detiene al salir de esa etapa hacia otra sin secuencia asignada, o manualmente.
       </p>
@@ -147,7 +149,9 @@ export default function ConfigSecuencias() {
                   </div>
                 )}
                 <div className="flex-1 min-w-[280px] basis-full">
-                  <label className="block text-xs text-gray-500 mb-1">Mensaje / guion</label>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    {p.canal === 'correo' ? 'Mensaje (se envía tal cual, sin editar)' : 'Mensaje / guion'}
+                  </label>
                   <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
                     className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
                 </div>

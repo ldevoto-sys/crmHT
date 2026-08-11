@@ -235,6 +235,24 @@ module.exports = {
     );
   },
 
+  // Paso de canal 'correo' de una secuencia de seguimiento (services/secuencias.js):
+  // se envía solo, sin que nadie lo redacte a mano. asunto/mensaje son
+  // exactamente los que se definieron al configurar la secuencia — no hay
+  // variables de reemplazo (nombre de cliente, etc.), es texto libre.
+  seguimiento: (destinatario, vendedor, negocio, paso, linkPublico) => {
+    const asunto = paso.asunto || `Seguimiento${negocio?.titulo ? ` — ${negocio.titulo}` : ''}`;
+    return enviar(
+      destinatario,
+      asunto,
+      template(asunto, `
+        <p style="white-space: pre-wrap;">${(paso.mensaje || '').replace(/\n/g, '<br>')}</p>
+        ${linkPublico ? boton(linkPublico, 'Ver cotización online') : ''}
+        <p style="margin-top:20px;">Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
+      `),
+      { replyTo: vendedor?.email || undefined }
+    );
+  },
+
   // Informe diario a todos los usuarios activos: cotizaciones generadas y
   // negocios ganados el día anterior (ambos pipelines). usuario: {nombre,
   // email}; fecha: 'YYYY-MM-DD'; cotizaciones/ganados: filas de
