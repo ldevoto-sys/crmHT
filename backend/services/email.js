@@ -245,7 +245,7 @@ module.exports = {
       weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Santiago',
     });
     const filasCotizaciones = cotizaciones.map(c => filaInforme([
-      numeroCompleto(c.numero, c.version), c.cliente_nombre, c.vendedor_nombre, c.pipeline_nombre, money(c.total),
+      numeroCompleto(c.numero, c.version), c.cliente_nombre, c.vendedor_nombre, c.pipeline_nombre, money(c.neto),
     ]));
     const filasGanados = ganados.map(g => filaInforme([
       numeroCompleto(g.numero, g.version), g.negocio_titulo, g.cliente_nombre, g.vendedor_nombre, g.pipeline_nombre, money(g.monto),

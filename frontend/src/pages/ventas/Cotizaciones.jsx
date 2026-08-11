@@ -113,7 +113,7 @@ export default function Cotizaciones() {
               <th className="text-left px-4 py-2 font-medium">Número</th>
               <th className="text-left px-4 py-2 font-medium">Negocio</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
-              <th className="text-right px-4 py-2 font-medium">Total</th>
+              <th className="text-right px-4 py-2 font-medium">Monto neto</th>
               <th className="text-left px-4 py-2 font-medium">Fecha</th>
               <th className="text-left px-4 py-2 font-medium">Vendedor</th>
             </tr>
@@ -132,7 +132,7 @@ export default function Cotizaciones() {
                   {c.titulo && <span className="block text-xs text-gray-400">{c.titulo}</span>}
                 </td>
                 <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full capitalize ${estadoColor[c.estado] || ''}`}>{c.estado}</span></td>
-                <td className="px-4 py-2 text-right text-ht-navy">{money(c.total)}</td>
+                <td className="px-4 py-2 text-right text-ht-navy">{money(c.neto)}</td>
                 <td className="px-4 py-2 text-gray-500">{fecha(c.created_at)}</td>
                 <td className="px-4 py-2 text-gray-500">{c.creado_por}</td>
               </tr>

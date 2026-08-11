@@ -277,7 +277,10 @@ router.get('/', async (req, res) => {
     const cots = await db.all(
       `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo,
               c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por,
-              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, e.razon_social AS empresa_nombre
+              ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, e.razon_social AS empresa_nombre,
+              CASE WHEN c.origen = 'operaciones' THEN c.subtotal
+                   ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+              END AS neto
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
        JOIN contactos ct ON ct.id = n.contacto_id

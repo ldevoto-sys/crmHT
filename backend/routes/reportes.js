@@ -122,7 +122,12 @@ async function cotizacionesPorDia(req) {
   if (hasta) { clauses.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
   const where = `WHERE ${clauses.join(' AND ')}`;
   return db.all(
-    `SELECT to_char(date(c.created_at), 'YYYY-MM-DD') AS fecha, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
+    `SELECT to_char(date(c.created_at), 'YYYY-MM-DD') AS fecha, count(*)::int AS cantidad,
+            coalesce(sum(
+              CASE WHEN c.origen = 'operaciones' THEN c.subtotal
+                   ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+              END
+            ), 0) AS monto_total
      FROM cotizaciones c
      JOIN negocios n ON n.id = c.negocio_id
      ${where}
@@ -150,7 +155,12 @@ async function actividadMesPorVendedor(req) {
             coalesce(gan.monto, 0) AS ganados_monto
      FROM (
        SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
-              count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto
+              count(*)::int AS cantidad,
+              coalesce(sum(
+                CASE WHEN c.origen = 'operaciones' THEN c.subtotal
+                     ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+                END
+              ), 0) AS monto
        FROM cotizaciones c
        JOIN negocios n ON n.id = c.negocio_id
        JOIN users u ON u.id = n.vendedor_id
@@ -203,18 +213,26 @@ async function cotizacionesPorDiaDetalle(req) {
        GROUP BY vendedor_id
      ) ca ON ca.vendedor_id = u.id
      LEFT JOIN (
-       SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(c.total), 0) AS monto_total
+       SELECT n.vendedor_id, count(*)::int AS cantidad,
+              coalesce(sum(
+                CASE WHEN c.origen = 'operaciones' THEN c.subtotal
+                     ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+                END
+              ), 0) AS monto_total
        FROM cotizaciones c JOIN negocios n ON n.id = c.negocio_id
        WHERE date(c.created_at) = $1::date AND n.pipeline_id = $2 ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
          AND c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)
        GROUP BY n.vendedor_id
      ) cg ON cg.vendedor_id = u.id
      LEFT JOIN (
-       SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(uc.total), 0) AS monto_total
+       SELECT n.vendedor_id, count(*)::int AS cantidad, coalesce(sum(uc.neto), 0) AS monto_total
        FROM negocios n
        JOIN pipeline_etapas pe ON pe.id = n.etapa_id
        JOIN LATERAL (
-         SELECT total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
+         SELECT CASE WHEN origen = 'operaciones' THEN subtotal
+                     ELSE ROUND(subtotal * (1 - COALESCE(descuento_pct, 0) / 100.0))
+                END AS neto
+         FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
        ) uc ON true
        WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada' AND n.pipeline_id = $2 ${filtroVendedor.replace('vendedor_id', 'n.vendedor_id')}
        GROUP BY n.vendedor_id

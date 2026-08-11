@@ -169,7 +169,7 @@ export default function DetalleNegocio() {
                     <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
                       <td className="py-1.5"><Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{numeroCompleto(c.numero, c.version)}</Link></td>
                       <td className="py-1.5 capitalize text-gray-500">{c.estado}</td>
-                      <td className="py-1.5 text-right text-ht-navy">{money(c.total)}</td>
+                      <td className="py-1.5 text-right text-ht-navy">{money(c.neto)}</td>
                     </tr>
                   ))}
                 </tbody>

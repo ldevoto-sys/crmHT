@@ -23,7 +23,10 @@ function diaAnterior(fechaISO) {
 
 async function cotizacionesGeneradas(fecha) {
   return db.all(
-    `SELECT c.numero, c.version, c.total,
+    `SELECT c.numero, c.version,
+            CASE WHEN c.origen = 'operaciones' THEN c.subtotal
+                 ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
+            END AS neto,
             n.titulo AS negocio_titulo, p.nombre AS pipeline_nombre,
             coalesce(e.razon_social, trim(ct.nombre || ' ' || coalesce(ct.apellido, ''))) AS cliente_nombre,
             u.nombre AS vendedor_nombre
@@ -45,7 +48,7 @@ async function negociosGanados(fecha) {
     `SELECT n.titulo AS negocio_titulo, p.nombre AS pipeline_nombre,
             coalesce(e.razon_social, trim(ct.nombre || ' ' || coalesce(ct.apellido, ''))) AS cliente_nombre,
             u.nombre AS vendedor_nombre,
-            uc.numero, uc.version, uc.total AS monto
+            uc.numero, uc.version, uc.neto AS monto
      FROM negocios n
      JOIN pipeline_etapas pe ON pe.id = n.etapa_id
      JOIN pipelines p ON p.id = n.pipeline_id
@@ -53,7 +56,11 @@ async function negociosGanados(fecha) {
      LEFT JOIN empresas e ON e.id = n.empresa_id
      LEFT JOIN users u ON u.id = n.vendedor_id
      JOIN LATERAL (
-       SELECT numero, version, total FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
+       SELECT numero, version,
+              CASE WHEN origen = 'operaciones' THEN subtotal
+                   ELSE ROUND(subtotal * (1 - COALESCE(descuento_pct, 0) / 100.0))
+              END AS neto
+       FROM cotizaciones WHERE negocio_id = n.id ORDER BY created_at DESC LIMIT 1
      ) uc ON true
      WHERE date(n.fecha_cierre) = $1::date AND pe.tipo = 'ganada'
      ORDER BY p.nombre, n.fecha_cierre`,
@@ -77,12 +84,12 @@ async function enviarInformeDiario(fecha = diaAnterior(fechaChileHoy())) {
   }
 
   const resumen = {
-    totalCotizaciones: cotizaciones.reduce((acc, c) => acc + Number(c.total || 0), 0),
+    totalCotizaciones: cotizaciones.reduce((acc, c) => acc + Number(c.neto || 0), 0),
     totalGanados: ganados.reduce((acc, g) => acc + Number(g.monto || 0), 0),
   };
 
   const csvCotizaciones = '﻿' + toCSV(
-    ['numero', 'version', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'total'],
+    ['numero', 'version', 'cliente_nombre', 'vendedor_nombre', 'pipeline_nombre', 'neto'],
     cotizaciones
   );
   const csvGanados = '﻿' + toCSV(
