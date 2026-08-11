@@ -236,18 +236,24 @@ module.exports = {
   },
 
   // Paso de canal 'correo' de una secuencia de seguimiento (services/secuencias.js):
-  // se envía solo, sin que nadie lo redacte a mano. asunto/mensaje son
-  // exactamente los que se definieron al configurar la secuencia — no hay
-  // variables de reemplazo (nombre de cliente, etc.), es texto libre.
-  seguimiento: (destinatario, vendedor, negocio, paso, linkPublico) => {
+  // se envía solo, sin que nadie lo redacte a mano. El mensaje en sí es
+  // exactamente el que se definió al configurar la secuencia — texto libre,
+  // sin variables de reemplazo — pero se personaliza con el nombre del
+  // contacto y se referencia la cotización (número + título) alrededor.
+  seguimiento: (destinatario, vendedor, contacto, negocio, cot, paso, linkPublico) => {
     const asunto = paso.asunto || `Seguimiento${negocio?.titulo ? ` — ${negocio.titulo}` : ''}`;
+    const referenciaCot = cot ? `Cotización ${numeroCompleto(cot.numero, cot.version)}${negocio?.titulo ? ` — ${negocio.titulo}` : ''}` : negocio?.titulo;
     return enviar(
       destinatario,
       asunto,
       template(asunto, `
+        <p>Estimado(a) ${contacto?.nombre || ''},</p>
         <p style="white-space: pre-wrap;">${(paso.mensaje || '').replace(/\n/g, '<br>')}</p>
+        ${referenciaCot ? `<p style="color:#555555; font-size:13px; margin-top:16px;">${referenciaCot}</p>` : ''}
         ${linkPublico ? boton(linkPublico, 'Ver cotización online') : ''}
-        <p style="margin-top:20px;">Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}</p>
+        <p style="margin-top:20px;">Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}
+        ${vendedor?.email ? `<br>${vendedor.email}` : ''}
+        ${vendedor?.telefono ? `<br>${vendedor.telefono}` : ''}</p>
       `),
       { replyTo: vendedor?.email || undefined }
     );

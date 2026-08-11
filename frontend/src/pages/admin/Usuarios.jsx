@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico'];
-const vacio = { nombre: '', rut: '', email: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false };
+const vacio = { nombre: '', rut: '', email: '', telefono: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false };
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -70,7 +70,7 @@ export default function Usuarios() {
 
   const editar = u => {
     setEditId(u.id);
-    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1, es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false });
+    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, telefono: u.telefono || '', rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1, es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false });
     setError(''); setMsg('');
   };
 
@@ -139,6 +139,12 @@ export default function Usuarios() {
             <label className="block text-sm text-gray-700 mb-1">Email</label>
             <input required type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="usuario@hidrotecnica.cl"
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Teléfono <span className="text-gray-400">(opcional)</span></label>
+            <input value={form.telefono} onChange={e => setForm({ ...form, telefono: e.target.value })} placeholder="+56 9 1234 5678"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            <p className="text-xs text-gray-400 mt-1">Aparece en la firma de los correos de seguimiento automático.</p>
           </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">Rol</label>

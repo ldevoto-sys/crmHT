@@ -77,6 +77,10 @@ async function initDb() {
   // comercial cubra Postventa durante una licencia sin cambiarle el rol.
   await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS es_encargado_postventa BOOLEAN NOT NULL DEFAULT false`);
 
+  // Teléfono directo del usuario — se muestra en la firma de los correos de
+  // seguimiento automático junto al correo del vendedor.
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT`);
+
   // === Etapa 1 — Maestros ===
 
   await db.run(`
