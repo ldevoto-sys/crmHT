@@ -4,6 +4,7 @@ import api from '../../api';
 import { formatFecha } from '../../utils/fecha';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+const moneyUF = v => 'UF ' + Number(v || 0).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fecha = formatFecha;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
@@ -22,10 +23,15 @@ export default function CotizacionPublica() {
   if (!cot) return <div className="min-h-screen flex items-center justify-center bg-slate-100 text-gray-400">Cargando…</div>;
 
   const em = cot.emisor || {};
+  const esUF = cot.moneda === 'UF';
+  const moneyCot = esUF ? moneyUF : money;
   const desc = Number(cot.descuento_pct) || 0, iva = Number(cot.iva_pct) || 0;
-  const descMonto = Math.round(Number(cot.subtotal) * desc / 100);
-  const neto = Number(cot.subtotal) - descMonto;
-  const ivaMonto = Math.round(neto * iva / 100);
+  const subtotalMostrado = esUF ? Number(cot.subtotal_uf) : Number(cot.subtotal);
+  const totalMostrado = esUF ? Number(cot.total_uf) : Number(cot.total);
+  const redondear = v => (esUF ? Math.round(v * 100) / 100 : Math.round(v));
+  const descMonto = redondear(subtotalMostrado * desc / 100);
+  const neto = subtotalMostrado - descMonto;
+  const ivaMonto = redondear(neto * iva / 100);
   const waBadge = <span className="text-[10px] font-bold text-white px-2 py-0.5 rounded-full" style={{ background: '#25D366' }}>WhatsApp</span>;
 
   return (
@@ -100,13 +106,13 @@ export default function CotizacionPublica() {
                   <div className="flex justify-between items-start gap-3">
                     <div className="text-sm font-bold leading-snug" style={{ color: NAVY }}>{it.descripcion}{it.marca && <span className="block text-[11px] font-normal text-gray-400">{it.marca}</span>}</div>
                     <div className="text-right whitespace-nowrap">
-                      <div className="text-base font-bold" style={{ color: NAVY }}>{money(it.total_linea)}</div>
+                      <div className="text-base font-bold" style={{ color: NAVY }}>{moneyCot(it.total_linea)}</div>
                       <div className="text-[10px] text-gray-500">Total neto</div>
                     </div>
                   </div>
                   <div className="flex gap-6 mt-2 text-[11px]">
                     <div><span className="text-gray-500">Cantidad: </span><span className="font-bold" style={{ color: NAVY }}>{Number(it.cantidad)}</span></div>
-                    <div><span className="text-gray-500">P. Unit.: </span><span className="font-bold" style={{ color: NAVY }}>{money(it.precio_unitario)}</span></div>
+                    <div><span className="text-gray-500">P. Unit.: </span><span className="font-bold" style={{ color: NAVY }}>{moneyCot(it.precio_unitario)}</span></div>
                   </div>
                   {it.descripcion_completa && (
                     <p className="mt-2 text-[11px] text-gray-600 leading-snug">{it.descripcion_completa}</p>
@@ -123,11 +129,11 @@ export default function CotizacionPublica() {
         {/* Totales */}
         <div className="px-8 pb-6 flex justify-end border-t border-gray-200 pt-4">
           <div className="w-72 text-sm">
-            <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>Subtotal neto</span><span>{money(cot.subtotal)}</span></div>
-            {desc > 0 && <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>Descuento ({desc}%)</span><span>−{money(descMonto)}</span></div>}
-            {iva > 0 && <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
+            <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>Subtotal neto</span><span>{moneyCot(subtotalMostrado)}</span></div>
+            {desc > 0 && <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>Descuento ({desc}%)</span><span>−{moneyCot(descMonto)}</span></div>}
+            {iva > 0 && <div className="flex justify-between py-1.5 border-b border-gray-100 text-gray-500"><span>IVA ({iva}%)</span><span>{moneyCot(ivaMonto)}</span></div>}
             <div className="flex justify-between pt-2 mt-1 text-lg font-bold" style={{ color: NAVY, borderTop: `2px solid ${NAVY}` }}>
-              <span>Total</span><span style={{ color: CYAN }}>{money(cot.total)}</span>
+              <span>Total</span><span style={{ color: CYAN }}>{moneyCot(totalMostrado)}</span>
             </div>
           </div>
         </div>
@@ -136,7 +142,7 @@ export default function CotizacionPublica() {
         <div className="grid grid-cols-1 md:grid-cols-2 border-t border-gray-200 bg-slate-50">
           <div className="p-6 border-r border-gray-200">
             <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: CYAN }}>Condiciones comerciales</h3>
-            <p className="text-xs text-gray-600 whitespace-pre-wrap">{cot.condiciones || 'Precios en pesos chilenos (CLP). Validez según lo indicado. Garantía según fabricante.'}</p>
+            <p className="text-xs text-gray-600 whitespace-pre-wrap">{cot.condiciones || (esUF ? 'Precios en Unidades de Fomento (UF). Validez según lo indicado. Garantía según fabricante.' : 'Precios en pesos chilenos (CLP). Validez según lo indicado. Garantía según fabricante.')}</p>
           </div>
           <div className="p-6">
             <h3 className="text-[10px] font-bold uppercase tracking-wider mb-3" style={{ color: CYAN }}>Datos bancarios</h3>

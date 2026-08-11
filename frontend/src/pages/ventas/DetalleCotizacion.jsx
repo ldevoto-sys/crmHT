@@ -4,6 +4,7 @@ import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+const moneyUF = v => 'UF ' + Number(v || 0).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 // Mismo criterio que el tablero de Pipeline: mover de pipeline es una acción
 // más sensible que editar la cotización, acotada a admin/jefe comercial.
@@ -193,7 +194,10 @@ export default function DetalleCotizacion() {
     <div>
       <Link to={`/negocios/${cot.negocio_id}`} className="text-sm text-ht-accent hover:underline">← {cot.negocio_titulo}</Link>
       <div className="flex items-center justify-between mt-2 mb-1">
-        <h1 className="text-2xl font-bold text-ht-navy">{numeroCompleto(cot.numero, cot.version)}</h1>
+        <h1 className="text-2xl font-bold text-ht-navy flex items-center gap-2">
+          {numeroCompleto(cot.numero, cot.version)}
+          {cot.moneda === 'UF' && <span className="text-xs font-bold px-2 py-0.5 rounded bg-ht-navy text-white">UF</span>}
+        </h1>
         <span className="text-sm px-3 py-1 rounded-full bg-ht-accent/15 text-ht-navy capitalize">{cot.estado}</span>
       </div>
       <p className="text-gray-600 text-sm mb-5 min-h-[1.25rem]">{cot.titulo}</p>
@@ -228,24 +232,30 @@ export default function DetalleCotizacion() {
                 <tr key={it.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="py-1.5 text-ht-navy">{it.descripcion || it.producto_nombre}</td>
                   <td className="py-1.5 text-right">{Number(it.cantidad)}</td>
-                  <td className="py-1.5 text-right">{money(it.precio_unitario)}</td>
-                  <td className="py-1.5 text-right">{money(it.total_linea)}</td>
+                  <td className="py-1.5 text-right">{cot.moneda === 'UF' ? moneyUF(it.precio_unitario) : money(it.precio_unitario)}</td>
+                  <td className="py-1.5 text-right">{cot.moneda === 'UF' ? moneyUF(it.total_linea) : money(it.total_linea)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <div className="mt-3 border-t border-gray-200 pt-3 text-sm">
             {(() => {
+              const esUF = cot.moneda === 'UF';
+              const fmt = esUF ? moneyUF : money;
+              const subtotalMostrado = esUF ? Number(cot.subtotal_uf) : Number(cot.subtotal);
+              const totalMostrado = esUF ? Number(cot.total_uf) : Number(cot.total);
+              const redondear = v => (esUF ? Math.round(v * 100) / 100 : Math.round(v));
               const desc = Number(cot.descuento_pct) || 0, iva = Number(cot.iva_pct) || 0;
-              const descMonto = Math.round(Number(cot.subtotal) * desc / 100);
-              const neto = Number(cot.subtotal) - descMonto;
-              const ivaMonto = Math.round(neto * iva / 100);
+              const descMonto = redondear(subtotalMostrado * desc / 100);
+              const neto = subtotalMostrado - descMonto;
+              const ivaMonto = redondear(neto * iva / 100);
               return (
                 <>
-                  <div className="flex justify-between text-gray-600"><span>Subtotal neto</span><span>{money(cot.subtotal)}</span></div>
-                  {desc > 0 && <div className="flex justify-between text-gray-600"><span>Descuento ({desc}%)</span><span>−{money(descMonto)}</span></div>}
-                  {iva > 0 && <div className="flex justify-between text-gray-600"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
-                  <div className="flex justify-between font-bold text-ht-navy text-lg mt-1"><span>Total</span><span>{money(cot.total)}</span></div>
+                  <div className="flex justify-between text-gray-600"><span>Subtotal neto</span><span>{fmt(subtotalMostrado)}</span></div>
+                  {desc > 0 && <div className="flex justify-between text-gray-600"><span>Descuento ({desc}%)</span><span>−{fmt(descMonto)}</span></div>}
+                  {iva > 0 && <div className="flex justify-between text-gray-600"><span>IVA ({iva}%)</span><span>{fmt(ivaMonto)}</span></div>}
+                  <div className="flex justify-between font-bold text-ht-navy text-lg mt-1"><span>Total</span><span>{fmt(totalMostrado)}</span></div>
+                  {esUF && <div className="text-right text-xs text-gray-400 mt-1">≈ {money(cot.total)} CLP al día en que se cotizó (uso interno, el cliente no la ve)</div>}
                 </>
               );
             })()}

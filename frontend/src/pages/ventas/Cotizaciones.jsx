@@ -123,6 +123,7 @@ export default function Cotizaciones() {
               <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
                 <td className="px-4 py-2 text-ht-navy font-medium">
                   <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{numeroCompleto(c.numero, c.version)}</Link>
+                  {c.moneda === 'UF' && <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-ht-navy text-white">UF</span>}
                 </td>
                 <td className="px-4 py-2 text-gray-600">
                   {c.negocio_titulo}

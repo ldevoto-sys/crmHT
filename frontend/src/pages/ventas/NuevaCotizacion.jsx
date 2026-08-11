@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import api from '../../api';
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+const moneyUF = v => 'UF ' + Number(v || 0).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const enUnaSemana = () => new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
 
 // Autocompletado de producto propio de cada línea: cada fila puede buscar
@@ -94,6 +95,15 @@ export default function NuevaCotizacion() {
 
   // --- Cotizador Operaciones (HT-AP-03 nota v1.18) ---
   const [origen, setOrigen] = useState('venta_directa');
+  // Moneda (nota v1.27 §1): 'UF' no tiene buscador de catálogo (el maestro
+  // solo tiene precio en CLP) — los ítems se escriben a mano. Al cambiar a
+  // UF se limpia cualquier producto_id ya cargado, para no dejar una línea
+  // "de catálogo" con precio tecleado en otra unidad.
+  const [moneda, setMoneda] = useState('CLP');
+  const cambiarMoneda = m => {
+    setMoneda(m);
+    if (m === 'UF') setItems(is => is.map(it => ({ ...it, producto_id: null, producto_meta: null })));
+  };
   const [fracttalTexto, setFracttalTexto] = useState('');
   const [fracttalPreview, setFracttalPreview] = useState(null);
   const [fracttalError, setFracttalError] = useState('');
@@ -195,6 +205,7 @@ export default function NuevaCotizacion() {
             : null,
         })));
         setOrigen(c.origen || 'venta_directa');
+        setMoneda(c.moneda || 'CLP');
         setFracttalNumero(c.fracttal_numero || '');
         setHallazgo(c.hallazgo || ''); setJustificacionTecnica(c.justificacion_tecnica || '');
         setModalidadPrecio(c.modalidad_precio || 'desglosado');
@@ -243,6 +254,7 @@ export default function NuevaCotizacion() {
           setCategoria(datos.categoria ?? '');
           setMarca(datos.marca ?? '');
           setOrigen(datos.origen ?? 'venta_directa');
+          setMoneda(datos.moneda ?? 'CLP');
           setFracttalNumero(datos.fracttalNumero ?? '');
           setHallazgo(datos.hallazgo ?? '');
           setJustificacionTecnica(datos.justificacionTecnica ?? '');
@@ -276,7 +288,7 @@ export default function NuevaCotizacion() {
       localStorage.setItem(borradorKey, JSON.stringify({
         guardadoEn: Date.now(),
         datos: {
-          titulo, fechaCierreEstimada, items, descuento, iva, validez, condiciones, categoria, marca, origen,
+          titulo, fechaCierreEstimada, items, descuento, iva, validez, condiciones, categoria, marca, origen, moneda,
           fracttalNumero, hallazgo, justificacionTecnica, modalidadPrecio, comunaId, formaPagoId,
           horasNormales, horasExtra, tipoPlantilla, objetoPropuesta, alcancesTexto, exclusionesTexto,
           condicionesEjecucionTexto, otrasConsideracionesTexto,
@@ -286,7 +298,7 @@ export default function NuevaCotizacion() {
     return () => clearTimeout(id);
   }, [
     listoAutoguardar, borradorKey, titulo, fechaCierreEstimada, items, descuento, iva, validez, condiciones,
-    categoria, marca, origen, fracttalNumero, hallazgo, justificacionTecnica, modalidadPrecio, comunaId,
+    categoria, marca, origen, moneda, fracttalNumero, hallazgo, justificacionTecnica, modalidadPrecio, comunaId,
     formaPagoId, horasNormales, horasExtra, tipoPlantilla, objetoPropuesta, alcancesTexto, exclusionesTexto,
     condicionesEjecucionTexto, otrasConsideracionesTexto,
   ]);
@@ -308,12 +320,15 @@ export default function NuevaCotizacion() {
   const quitar = i => setItems(is => is.filter((_, idx) => idx !== i));
 
   const esOperaciones = origen === 'operaciones';
+  const esUF = moneda === 'UF';
+  const moneyCot = esUF ? moneyUF : money;
+  const redondear = v => (esUF ? Math.round(v * 100) / 100 : Math.round(v));
   // El total de Operaciones incluye markup + mano de obra (services/operacionesCalculo.js):
   // este cálculo simple de Ventas Directas no aplica, se muestra el resultado real recién al guardar.
   const subtotal = items.reduce((s, it) => s + Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1), 0);
-  const descMonto = Math.round(subtotal * (Number(descuento) || 0) / 100);
+  const descMonto = redondear(subtotal * (Number(descuento) || 0) / 100);
   const neto = subtotal - descMonto;
-  const ivaMonto = Math.round(neto * (Number(iva) || 0) / 100);
+  const ivaMonto = redondear(neto * (Number(iva) || 0) / 100);
   const total = neto + ivaMonto;
 
   const guardar = async () => {
@@ -324,9 +339,12 @@ export default function NuevaCotizacion() {
       if (modoNegocioNuevo) {
         const tituloNegocio = titulo.trim() ||
           `Cotización para ${negocio.empresa_nombre || `${negocio.contacto_nombre} ${negocio.contacto_apellido || ''}`.trim()}`;
+        // En UF, "neto" está en UF, no en CLP — no sirve como monto_estimado
+        // (que es siempre CLP). Se deja sin estimar; la propia cotización lo
+        // fija segundos después, ya convertido, vía sincronizarMontoEstimado.
         const { data: nuevoNegocio } = await api.post('/negocios', {
           contacto_id: Number(contactoIdNuevo), titulo: tituloNegocio,
-          monto_estimado: neto, fecha_cierre_estimada: fechaCierreEstimada || null,
+          monto_estimado: esUF ? null : neto, fecha_cierre_estimada: fechaCierreEstimada || null,
         });
         negocioDestino = nuevoNegocio.id;
       }
@@ -334,7 +352,7 @@ export default function NuevaCotizacion() {
       const payload = {
         negocio_id: negocioDestino, descuento_pct: Number(descuento) || 0, iva_pct: Number(iva) || 0,
         validez_dias: Number(validez) || 15, condiciones, titulo,
-        origen,
+        origen, moneda,
         fracttal_numero: fracttalNumero || null,
         hallazgo: hallazgo || null, justificacion_tecnica: justificacionTecnica || null,
         modalidad_precio: modalidadPrecio, comuna_id: comunaId || null, forma_pago_id: formaPagoId || null,
@@ -407,6 +425,21 @@ export default function NuevaCotizacion() {
               Operaciones
             </button>
           </div>
+        </div>
+
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm text-gray-700">Moneda</label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => cambiarMoneda('CLP')}
+              className={`px-3 py-1.5 rounded text-sm font-medium border ${!esUF ? 'bg-ht-navy text-white border-ht-navy' : 'border-gray-300 text-gray-600'}`}>
+              CLP
+            </button>
+            <button type="button" onClick={() => cambiarMoneda('UF')}
+              className={`px-3 py-1.5 rounded text-sm font-medium border ${esUF ? 'bg-ht-navy text-white border-ht-navy' : 'border-gray-300 text-gray-600'}`}>
+              UF
+            </button>
+          </div>
+          {esUF && <span className="text-xs text-gray-500">El cliente ve todo en UF, sin equivalencia en pesos. Sin buscador de catálogo: los ítems se escriben a mano.</span>}
         </div>
 
         {esOperaciones && (
@@ -532,25 +565,27 @@ export default function NuevaCotizacion() {
           </div>
         )}
 
-        <div className="flex gap-2 mb-3">
-          <select value={categoria} onChange={e => setCategoria(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            <option value="">Categoría (filtro)</option>
-            {facetas.categorias.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select value={marca} onChange={e => setMarca(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
-            <option value="">Marca (filtro)</option>
-            {facetas.marcas.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
+        {!esUF && (
+          <div className="flex gap-2 mb-3">
+            <select value={categoria} onChange={e => setCategoria(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Categoría (filtro)</option>
+              {facetas.categorias.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <select value={marca} onChange={e => setMarca(e.target.value)}
+              className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">Marca (filtro)</option>
+              {facetas.marcas.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        )}
 
         <table className="w-full text-sm">
           <thead className="text-gray-500">
             <tr>
               <th className="text-left py-1 font-medium">Descripción</th>
               <th className="text-right py-1 font-medium w-20">Cant.</th>
-              <th className="text-right py-1 font-medium w-32">P. unitario</th>
+              <th className="text-right py-1 font-medium w-32">P. unitario {esUF && '(UF)'}</th>
               {esOperaciones && <th className="text-right py-1 font-medium w-20">Factor</th>}
               <th className="text-right py-1 font-medium w-28">Total</th>
               <th className="text-center py-1 font-medium w-16">Imagen</th>
@@ -563,13 +598,21 @@ export default function NuevaCotizacion() {
             {items.map((it, i) => (
               <tr key={i} className="border-t border-gray-100 align-top hover:bg-gray-50">
                 <td className="py-2 pr-2">
-                  <BuscadorProducto value={it.descripcion} onChange={val => setItem(i, 'descripcion', val)}
-                    onElegir={p => agregarProducto(i, p)} categoria={categoria} marca={marca} />
-                  {it.producto_meta && (
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                      {it.producto_meta.url_imagen && <img src={it.producto_meta.url_imagen} alt="" className="h-6 w-6 object-contain" />}
-                      <span>{it.producto_meta.sku}{it.producto_meta.marca ? ` · ${it.producto_meta.marca}` : ''}</span>
-                    </div>
+                  {esUF ? (
+                    <input value={it.descripcion} onChange={e => setItem(i, 'descripcion', e.target.value)}
+                      placeholder="Descripción del ítem…"
+                      className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+                  ) : (
+                    <>
+                      <BuscadorProducto value={it.descripcion} onChange={val => setItem(i, 'descripcion', val)}
+                        onElegir={p => agregarProducto(i, p)} categoria={categoria} marca={marca} />
+                      {it.producto_meta && (
+                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                          {it.producto_meta.url_imagen && <img src={it.producto_meta.url_imagen} alt="" className="h-6 w-6 object-contain" />}
+                          <span>{it.producto_meta.sku}{it.producto_meta.marca ? ` · ${it.producto_meta.marca}` : ''}</span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="py-2">
@@ -577,7 +620,7 @@ export default function NuevaCotizacion() {
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                 </td>
                 <td className="py-2 pl-2">
-                  <input type="number" value={it.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)}
+                  <input type="number" step={esUF ? '0.01' : '1'} value={it.precio_unitario} onChange={e => setItem(i, 'precio_unitario', e.target.value)}
                     className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                 </td>
                 {esOperaciones && (
@@ -587,7 +630,7 @@ export default function NuevaCotizacion() {
                       className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                   </td>
                 )}
-                <td className="py-2 text-right text-ht-navy">{money(Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1))}</td>
+                <td className="py-2 text-right text-ht-navy">{moneyCot(Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1))}</td>
                 <td className="py-2 text-center">
                   {(() => {
                     const tieneImagen = !!(it.producto_id && it.producto_meta?.url_imagen);
@@ -668,15 +711,18 @@ export default function NuevaCotizacion() {
         <div className="bg-white border border-gray-200 rounded-lg p-5">
           {esOperaciones ? (
             <div className="text-sm text-gray-500 mb-2">
-              <p>Subtotal de materiales: {money(subtotal)}</p>
-              <p className="mt-1">El total real (materiales + elementos menores + markup + mano de obra + IVA) se calcula al guardar, con la UF del día.</p>
+              <p>Subtotal de materiales: {moneyCot(subtotal)}</p>
+              <p className="mt-1">
+                El total real (materiales + elementos menores + markup + mano de obra + IVA) se calcula al guardar, con la UF del día.
+                {esUF && ' El cliente lo ve en UF; internamente queda también en CLP para reportes.'}
+              </p>
             </div>
           ) : (
             <>
-              <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal neto</span><span>{money(subtotal)}</span></div>
-              {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{money(descMonto)}</span></div>}
-              {Number(iva) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>IVA ({iva}%)</span><span>{money(ivaMonto)}</span></div>}
-              <div className="flex justify-between text-lg font-bold text-ht-navy border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{money(total)}</span></div>
+              <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal neto</span><span>{moneyCot(subtotal)}</span></div>
+              {Number(descuento) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Descuento ({descuento}%)</span><span>−{moneyCot(descMonto)}</span></div>}
+              {Number(iva) > 0 && <div className="flex justify-between text-sm text-gray-600 mb-1"><span>IVA ({iva}%)</span><span>{moneyCot(ivaMonto)}</span></div>}
+              <div className="flex justify-between text-lg font-bold text-ht-navy border-t border-gray-200 pt-2 mt-2"><span>Total</span><span>{moneyCot(total)}</span></div>
             </>
           )}
           <button onClick={guardar} className="w-full mt-4 bg-ht-accent text-ht-navy py-2 rounded text-sm font-medium hover:bg-ht-accent/90">

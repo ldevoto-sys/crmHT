@@ -10,6 +10,11 @@ const GRAY = '#555555';
 
 const LOGO = path.join(__dirname, '../../frontend/public/Hidrotecnica.jpg');
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
+// Cotizaciones en UF (nota v1.27 §1): el cliente solo ve UF, sin
+// equivalencia en pesos — moneyEn() elige el formato según cot.moneda.
+const moneyUF = v => 'UF ' + Number(v || 0).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const moneyEn = (v, moneda) => (moneda === 'UF' ? moneyUF(v) : money(v));
+const redondear = (v, moneda) => (moneda === 'UF' ? Math.round(v * 100) / 100 : Math.round(v));
 const fechaCorta = d => new Date(d).toLocaleDateString('es-CL');
 
 // Descarga una imagen para incrustarla en el PDF. Solo se intenta con URLs
@@ -140,37 +145,43 @@ async function generarCotizacionPDF(data, stream) {
     doc.fontSize(9);
     doc.fillColor('#000').font('Helvetica')
       .text(String(Number(it.cantidad)), 330, y + 6, { width: 45, align: 'right' })
-      .text(money(it.precio_unitario), 385, y + 6, { width: 80, align: 'right' })
-      .fillColor(NAVY).font('Helvetica-Bold').text(money(it.total_linea), 475, y + 6, { width: 72, align: 'right' });
+      .text(moneyEn(it.precio_unitario, cot.moneda), 385, y + 6, { width: 80, align: 'right' })
+      .fillColor(NAVY).font('Helvetica-Bold').text(moneyEn(it.total_linea, cot.moneda), 475, y + 6, { width: 72, align: 'right' });
     y += h;
     if (y > 700) { doc.addPage(); y = 40; }
   });
 
-  // Totales con IVA.
+  // Totales con IVA. En una cotización UF, todo (subtotal/descuento/IVA/
+  // total) se calcula sobre subtotal_uf/total_uf — nunca sobre las columnas
+  // en CLP, que son solo para Pipeline/Reportes y no se muestran al cliente.
   y += 10;
   const desc = Number(cot.descuento_pct) || 0;
   const iva = Number(cot.iva_pct) || 0;
-  const descMonto = Math.round(Number(cot.subtotal) * desc / 100);
-  const netoConDesc = Number(cot.subtotal) - descMonto;
-  const ivaMonto = Math.round(netoConDesc * iva / 100);
+  const subtotalMostrado = cot.moneda === 'UF' ? Number(cot.subtotal_uf) : Number(cot.subtotal);
+  const totalMostrado = cot.moneda === 'UF' ? Number(cot.total_uf) : Number(cot.total);
+  const descMonto = redondear(subtotalMostrado * desc / 100, cot.moneda);
+  const netoConDesc = subtotalMostrado - descMonto;
+  const ivaMonto = redondear(netoConDesc * iva / 100, cot.moneda);
   const linea = (label, val, bold) => {
     doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(bold ? 12 : 9).fillColor(bold ? NAVY : GRAY)
       .text(label, 330, y, { width: 130, align: 'right' })
-      .fillColor(bold ? CYAN : '#000').text(money(val), 470, y, { width: 77, align: 'right' });
+      .fillColor(bold ? CYAN : '#000').text(moneyEn(val, cot.moneda), 470, y, { width: 77, align: 'right' });
     y += bold ? 20 : 15;
   };
-  linea('Subtotal neto', cot.subtotal);
+  linea('Subtotal neto', subtotalMostrado);
   if (desc > 0) linea(`Descuento (${desc}%)`, -descMonto);
   if (iva > 0) linea(`IVA (${iva}%)`, ivaMonto);
   doc.moveTo(330, y).lineTo(547, y).lineWidth(1.5).strokeColor(NAVY).stroke(); y += 6;
-  linea('TOTAL', cot.total, true);
+  linea('TOTAL', totalMostrado, true);
 
   // Condiciones + banco.
   y += 14;
   const yBloque = y;
   doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('CONDICIONES COMERCIALES', M, y);
   doc.font('Helvetica').fontSize(9).fillColor(GRAY)
-    .text(cot.condiciones || 'Precios en pesos chilenos (CLP). Validez según lo indicado. Garantía según fabricante.', M, y + 14, { width: 250 });
+    .text(cot.condiciones || (cot.moneda === 'UF'
+      ? 'Precios en Unidades de Fomento (UF). Validez según lo indicado. Garantía según fabricante.'
+      : 'Precios en pesos chilenos (CLP). Validez según lo indicado. Garantía según fabricante.'), M, y + 14, { width: 250 });
   doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('DATOS BANCARIOS', 320, yBloque);
   doc.font('Helvetica').fontSize(9).fillColor(GRAY)
     .text([emisor.banco, emisor.cuenta_tipo && `${emisor.cuenta_tipo} N° ${emisor.cuenta_numero}`,
