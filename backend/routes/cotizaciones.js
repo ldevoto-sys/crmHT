@@ -130,11 +130,13 @@ function puedeVer(negocio, user) {
 }
 
 // Calcula subtotal (bruto, antes de descuento), neto (después de descuento,
-// antes de IVA) y total (con descuento e IVA).
-function calcular(items, descuento_pct, iva_pct) {
-  const subtotal = Math.round(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0));
-  const neto = Math.round(subtotal * (1 - (Number(descuento_pct) || 0) / 100));
-  const total = Math.round(neto * (1 + (Number(iva_pct) || 0) / 100));
+// antes de IVA) y total (con descuento e IVA). moneda='UF' redondea a 2
+// decimales en vez de a pesos enteros (redondearMonto) — si no, un ítem en
+// UF pierde su precisión (ej. 11,9 UF quedaría en 12).
+function calcular(items, descuento_pct, iva_pct, moneda = 'CLP') {
+  const subtotal = redondearMonto(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0), moneda);
+  const neto = redondearMonto(subtotal * (1 - (Number(descuento_pct) || 0) / 100), moneda);
+  const total = redondearMonto(neto * (1 + (Number(iva_pct) || 0) / 100), moneda);
   return { subtotal, neto, total };
 }
 
@@ -144,25 +146,56 @@ function calcular(items, descuento_pct, iva_pct) {
 // la cotización más tarde). Operaciones no tiene concepto de descuento_pct
 // propio — su "neto" es directamente el total antes de IVA que entrega el
 // motor de cálculo. Lanza un error con `.status` en caso de UF no disponible.
-async function calcularParaGuardar({ origen, items, descuento_pct, iva_pct, comuna_id, horas_normales, horas_extra }) {
-  if (origen !== 'operaciones') {
-    const { subtotal, neto, total } = calcular(items, descuento_pct, iva_pct);
-    return { subtotal, neto, total, uf_valor: null, uf_fecha: null };
+//
+// moneda='UF' (nota v1.27 §1): el cliente solo ve montos en UF, sin
+// buscador de productos — los ítems se teclean directo en UF. subtotal/
+// neto/total (columnas de siempre, en CLP) se siguen calculando igual que
+// hoy para que Pipeline/Reportes/monto_estimado no cambien: en Ventas
+// Directas se obtienen convirtiendo los ítems en UF a CLP con la UF del
+// día; en Operaciones, al revés — los ítems (materiales) se convierten a
+// CLP ANTES de correr el motor de MO/markup (que sigue operando 100% en
+// CLP, sin cambios), y subtotal_uf/total_uf se derivan del resultado
+// final dividiendo por esa misma UF.
+async function calcularParaGuardar({ origen, moneda, items, descuento_pct, iva_pct, comuna_id, horas_normales, horas_extra }) {
+  const necesitaUF = origen === 'operaciones' || moneda === 'UF';
+  let ufInfo = null;
+  if (necesitaUF) {
+    ufInfo = await obtenerUFDelDia();
+    if (!ufInfo.ok) {
+      const err = new Error('No se pudo obtener el valor de la UF del día. Reintenta o ingrésalo manualmente.');
+      err.status = 502;
+      throw err;
+    }
   }
+
+  if (origen !== 'operaciones') {
+    if (moneda === 'UF') {
+      const { subtotal: subtotal_uf, neto: neto_uf, total: total_uf } = calcular(items, descuento_pct, iva_pct, 'UF');
+      return {
+        subtotal: Math.round(subtotal_uf * ufInfo.valor), neto: Math.round(neto_uf * ufInfo.valor), total: Math.round(total_uf * ufInfo.valor),
+        subtotal_uf, total_uf, uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha,
+      };
+    }
+    const { subtotal, neto, total } = calcular(items, descuento_pct, iva_pct);
+    return { subtotal, neto, total, subtotal_uf: null, total_uf: null, uf_valor: null, uf_fecha: null };
+  }
+
   const config = await db.get('SELECT * FROM config_operaciones_mo WHERE id = 1');
   const comuna = comuna_id ? await db.get('SELECT * FROM comunas_operaciones WHERE id = $1', [comuna_id]) : null;
-  const ufInfo = await obtenerUFDelDia();
-  if (!ufInfo.ok) {
-    const err = new Error('No se pudo obtener el valor de la UF del día. Reintenta o ingrésalo manualmente.');
-    err.status = 502;
-    throw err;
-  }
+  // Ítems (materiales) tecleados en UF: se convierten a CLP antes del motor,
+  // que no distingue moneda — solo sabe cotizar en CLP.
+  const itemsCLP = moneda === 'UF'
+    ? items.map(it => ({ ...it, precio_unitario: Number(it.precio_unitario) * ufInfo.valor }))
+    : items;
   const r = calcularTotales({
-    items, horasNormales: horas_normales || 0, horasExtra: horas_extra || 0,
+    items: itemsCLP, horasNormales: horas_normales || 0, horasExtra: horas_extra || 0,
     comuna, config, ufValor: ufInfo.valor, ivaPct: iva_pct,
   });
   const neto = Math.round(r.totalNetoCLP);
-  return { subtotal: neto, neto, total: Math.round(r.totalConIva), uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha };
+  const total = Math.round(r.totalConIva);
+  const subtotal_uf = moneda === 'UF' ? Math.round((neto / ufInfo.valor) * 100) / 100 : null;
+  const total_uf = moneda === 'UF' ? Math.round((total / ufInfo.valor) * 100) / 100 : null;
+  return { subtotal: neto, neto, total, subtotal_uf, total_uf, uf_valor: ufInfo.valor, uf_fecha: ufInfo.fecha };
 }
 
 // Recalcula el neto a partir de una fila ya guardada de `cotizaciones` (usado
@@ -181,17 +214,19 @@ router.get('/plantillas-defaults', (req, res) => res.json(PLANTILLAS_DEFAULTS));
 // Campos comunes a POST / y PUT /:id introducidos por el Cotizador
 // Operaciones y las plantillas de propuesta (nota v1.18). Devuelve
 // {error} si algo es inválido, o el objeto ya validado/normalizado.
-function validarCamposOperaciones(body, origenActual) {
-  // origenActual: el valor ya guardado, para no resetearlo a 'venta_directa'
-  // en un PUT que no lo reenvía explícitamente (solo aplica en creación).
+function validarCamposOperaciones(body, origenActual, monedaActual) {
+  // origenActual/monedaActual: el valor ya guardado, para no resetearlos en
+  // un PUT que no los reenvía explícitamente (solo aplica en creación).
   const origen = body.origen !== undefined ? body.origen : (origenActual || 'venta_directa');
   if (!['venta_directa', 'operaciones'].includes(origen)) return { error: 'Origen inválido' };
+  const moneda = body.moneda !== undefined ? body.moneda : (monedaActual || 'CLP');
+  if (!['CLP', 'UF'].includes(moneda)) return { error: 'Moneda inválida' };
   const tipo_plantilla = body.tipo_plantilla || 'ninguna';
   if (!TIPOS_PLANTILLA.includes(tipo_plantilla)) return { error: 'Tipo de plantilla inválido' };
   const modalidad_precio = body.modalidad_precio || 'desglosado';
   if (!['desglosado', 'alzada'].includes(modalidad_precio)) return { error: 'Modalidad de precio inválida' };
   return {
-    origen, tipo_plantilla, modalidad_precio,
+    origen, moneda, tipo_plantilla, modalidad_precio,
     fracttal_numero: body.fracttal_numero || null,
     fracttal_fecha_solicitud: body.fracttal_fecha_solicitud || null,
     fracttal_solicitante: body.fracttal_solicitante || null,
@@ -225,6 +260,17 @@ async function proximoNumero(client) {
 function itemsValidos(items) {
   if (!Array.isArray(items) || items.length === 0) return false;
   return items.every(it => it.cantidad > 0 && it.precio_unitario >= 0);
+}
+
+// En UF no hay buscador de productos (el maestro solo tiene precio en CLP):
+// los ítems deben ser líneas manuales, sin producto_id.
+function itemsSinCatalogo(items) {
+  return items.every(it => !it.producto_id);
+}
+
+// CLP se guarda en pesos enteros; UF necesita 2 decimales.
+function redondearMonto(valor, moneda) {
+  return moneda === 'UF' ? Math.round(valor * 100) / 100 : Math.round(valor);
 }
 
 // GET /api/cotizaciones?negocio_id=&q=
@@ -275,7 +321,7 @@ router.get('/', async (req, res) => {
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const cots = await db.all(
-      `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo,
+      `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo, c.moneda,
               c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por,
               ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, e.razon_social AS empresa_nombre,
               CASE WHEN c.origen = 'operaciones' THEN c.subtotal
@@ -508,17 +554,20 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
 
   const campos = validarCamposOperaciones(req.body);
   if (campos.error) return res.status(400).json({ error: campos.error });
+  if (campos.moneda === 'UF' && !itemsSinCatalogo(items)) {
+    return res.status(400).json({ error: 'Una cotización en UF no admite ítems del catálogo de productos (solo tiene precios en CLP); usa descripción libre.' });
+  }
 
   let calc;
   try {
     calc = await calcularParaGuardar({
-      origen: campos.origen, items, descuento_pct, iva_pct,
+      origen: campos.origen, moneda: campos.moneda, items, descuento_pct, iva_pct,
       comuna_id: campos.comuna_id, horas_normales: campos.horas_normales, horas_extra: campos.horas_extra,
     });
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }
-  const { subtotal, neto, total, uf_valor, uf_fecha } = calc;
+  const { subtotal, neto, total, subtotal_uf, total_uf, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -529,22 +578,25 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
          negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id,
          origen, fracttal_numero, fracttal_fecha_solicitud, fracttal_solicitante, hallazgo, justificacion_tecnica, modalidad_precio,
          comuna_id, horas_normales, horas_extra, uf_valor, uf_fecha,
-         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto, forma_pago_id
+         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto, forma_pago_id,
+         moneda, subtotal_uf, total_uf
        )
        VALUES ($1,$2,1,'borrador',$3,$4,$5,$6,$7,$8,$9,$10,$11,
                $12,$13,$14,$15,$16,$17,$18,
                $19,$20,$21,$22,$23,
-               $24,$25,$26,$27,$28,$29,$30)
+               $24,$25,$26,$27,$28,$29,$30,
+               $31,$32,$33)
        RETURNING id`,
       [negocio_id, numero, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null, token, req.user.id,
        campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
        campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
-       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto, forma_pago_id || null]
+       campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto, forma_pago_id || null,
+       campos.moneda, subtotal_uf, total_uf]
     );
     const cotId = r.rows[0].id;
     for (const it of items) {
       const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
-      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario) * factor);
+      const totalLinea = redondearMonto(Number(it.cantidad) * Number(it.precio_unitario) * factor, campos.moneda);
       await client.query(
         `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -576,22 +628,25 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
   if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-  const cot = await db.get('SELECT estado, origen FROM cotizaciones WHERE id = $1', [req.params.id]);
+  const cot = await db.get('SELECT estado, origen, moneda FROM cotizaciones WHERE id = $1', [req.params.id]);
   if (cot.estado !== 'borrador') return res.status(409).json({ error: 'Solo se puede editar una cotización en borrador' });
 
-  const campos = validarCamposOperaciones(req.body, cot.origen);
+  const campos = validarCamposOperaciones(req.body, cot.origen, cot.moneda);
   if (campos.error) return res.status(400).json({ error: campos.error });
+  if (campos.moneda === 'UF' && !itemsSinCatalogo(items)) {
+    return res.status(400).json({ error: 'Una cotización en UF no admite ítems del catálogo de productos (solo tiene precios en CLP); usa descripción libre.' });
+  }
 
   let calc;
   try {
     calc = await calcularParaGuardar({
-      origen: campos.origen, items, descuento_pct, iva_pct,
+      origen: campos.origen, moneda: campos.moneda, items, descuento_pct, iva_pct,
       comuna_id: campos.comuna_id, horas_normales: campos.horas_normales, horas_extra: campos.horas_extra,
     });
   } catch (err) {
     return res.status(err.status || 500).json({ error: err.message });
   }
-  const { subtotal, neto, total, uf_valor, uf_fecha } = calc;
+  const { subtotal, neto, total, subtotal_uf, total_uf, uf_valor, uf_fecha } = calc;
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -600,18 +655,20 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
               descuento_solicitado=false, descuento_aprobado_por_id=NULL,
               origen=$8, fracttal_numero=$9, fracttal_fecha_solicitud=$10, fracttal_solicitante=$11, hallazgo=$12, justificacion_tecnica=$13, modalidad_precio=$14,
               comuna_id=$15, horas_normales=$16, horas_extra=$17, uf_valor=$18, uf_fecha=$19,
-              tipo_plantilla=$20, objeto_propuesta=$21, alcances_texto=$22, exclusiones_texto=$23, condiciones_ejecucion_texto=$24, otras_consideraciones_texto=$25, forma_pago_id=$26
-       WHERE id=$27`,
+              tipo_plantilla=$20, objeto_propuesta=$21, alcances_texto=$22, exclusiones_texto=$23, condiciones_ejecucion_texto=$24, otras_consideraciones_texto=$25, forma_pago_id=$26,
+              moneda=$27, subtotal_uf=$28, total_uf=$29
+       WHERE id=$30`,
       [subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones || null, titulo || null,
        campos.origen, campos.fracttal_numero, campos.fracttal_fecha_solicitud, campos.fracttal_solicitante, campos.hallazgo, campos.justificacion_tecnica, campos.modalidad_precio,
        campos.comuna_id, campos.horas_normales, campos.horas_extra, uf_valor, uf_fecha,
        campos.tipo_plantilla, campos.objeto_propuesta, campos.alcances_texto, campos.exclusiones_texto, campos.condiciones_ejecucion_texto, campos.otras_consideraciones_texto, forma_pago_id || null,
+       campos.moneda, subtotal_uf, total_uf,
        req.params.id]
     );
     await client.query('DELETE FROM cotizacion_items WHERE cotizacion_id = $1', [req.params.id]);
     for (const it of items) {
       const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
-      const totalLinea = Math.round(Number(it.cantidad) * Number(it.precio_unitario) * factor);
+      const totalLinea = redondearMonto(Number(it.cantidad) * Number(it.precio_unitario) * factor, campos.moneda);
       await client.query(
         `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
@@ -644,10 +701,29 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
     const nuevaV = (maxV || base.version) + 1;
     await client.query(`UPDATE cotizaciones SET estado='reemplazada' WHERE negocio_id=$1 AND numero=$2 AND estado NOT IN ('aceptada','rechazada')`, [base.negocio_id, base.numero]);
     const token = crypto.randomBytes(16).toString('hex');
+    // Se clonan también origen/comuna/horas/UF y moneda — antes de v1.27 esta
+    // consulta solo copiaba subtotal/descuento/total/etc., así que una
+    // "nueva versión" de una cotización de Operaciones perdía silenciosamente
+    // su origen (volvía a 'venta_directa') y sus datos de mano de obra.
     const r = await client.query(
-      `INSERT INTO cotizaciones (negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id)
-       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.iva_pct, base.total, base.validez_dias, base.condiciones, base.titulo, token, req.user.id]
+      `INSERT INTO cotizaciones (
+         negocio_id, numero, version, estado, subtotal, descuento_pct, iva_pct, total, validez_dias, condiciones, titulo, token_publico, creado_por_id,
+         origen, fracttal_numero, fracttal_fecha_solicitud, fracttal_solicitante, hallazgo, justificacion_tecnica, modalidad_precio,
+         comuna_id, horas_normales, horas_extra, uf_valor, uf_fecha,
+         tipo_plantilla, objeto_propuesta, alcances_texto, exclusiones_texto, condiciones_ejecucion_texto, otras_consideraciones_texto, forma_pago_id,
+         moneda, subtotal_uf, total_uf
+       )
+       VALUES ($1,$2,$3,'borrador',$4,$5,$6,$7,$8,$9,$10,$11,$12,
+               $13,$14,$15,$16,$17,$18,$19,
+               $20,$21,$22,$23,$24,
+               $25,$26,$27,$28,$29,$30,$31,
+               $32,$33,$34)
+       RETURNING id`,
+      [base.negocio_id, base.numero, nuevaV, base.subtotal, base.descuento_pct, base.iva_pct, base.total, base.validez_dias, base.condiciones, base.titulo, token, req.user.id,
+       base.origen, base.fracttal_numero, base.fracttal_fecha_solicitud, base.fracttal_solicitante, base.hallazgo, base.justificacion_tecnica, base.modalidad_precio,
+       base.comuna_id, base.horas_normales, base.horas_extra, base.uf_valor, base.uf_fecha,
+       base.tipo_plantilla, base.objeto_propuesta, base.alcances_texto, base.exclusiones_texto, base.condiciones_ejecucion_texto, base.otras_consideraciones_texto, base.forma_pago_id,
+       base.moneda, base.subtotal_uf, base.total_uf]
     );
     const nuevaId = r.rows[0].id;
     await client.query(

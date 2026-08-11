@@ -167,7 +167,10 @@ export default function DetalleNegocio() {
                 <tbody>
                   {cots.map(c => (
                     <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="py-1.5"><Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{numeroCompleto(c.numero, c.version)}</Link></td>
+                      <td className="py-1.5">
+                        <Link to={`/cotizaciones/${c.id}`} className="text-ht-navy hover:underline">{numeroCompleto(c.numero, c.version)}</Link>
+                        {c.moneda === 'UF' && <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-ht-navy text-white">UF</span>}
+                      </td>
                       <td className="py-1.5 capitalize text-gray-500">{c.estado}</td>
                       <td className="py-1.5 text-right text-ht-navy">{money(c.neto)}</td>
                     </tr>

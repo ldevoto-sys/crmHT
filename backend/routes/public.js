@@ -26,6 +26,7 @@ router.get('/cotizacion/:token', async (req, res) => {
       numero: cot.numero, version: cot.version, created_at: cot.created_at, titulo: cot.titulo,
       validez_dias: cot.validez_dias, condiciones: cot.condiciones,
       subtotal: cot.subtotal, descuento_pct: cot.descuento_pct, iva_pct: cot.iva_pct, total: cot.total,
+      moneda: cot.moneda, subtotal_uf: cot.subtotal_uf, total_uf: cot.total_uf,
       estado: cot.estado, cliente, vendedor, emisor,
       items: items.map(it => ({
         descripcion: it.descripcion || it.producto_nombre, marca: it.marca,

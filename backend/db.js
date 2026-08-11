@@ -703,6 +703,17 @@ async function initDb() {
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS uf_valor NUMERIC(10,2)`);
   await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS uf_fecha DATE`);
 
+  // Moneda en la que se cotizó (nota v1.27 §1): 'CLP' es el comportamiento
+  // de siempre. 'UF': los ítems se ingresan a mano en UF (sin buscador de
+  // productos, que solo tiene precios en CLP) y subtotal_uf/total_uf guardan
+  // esos montos tal cual — es lo único que ve el cliente, sin equivalencia
+  // en CLP. subtotal/total (arriba) siguen SIEMPRE en CLP, convertidos con
+  // el mismo snapshot uf_valor/uf_fecha, para que Pipeline/Reportes/
+  // monto_estimado no tengan que distinguir moneda.
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS moneda TEXT NOT NULL DEFAULT 'CLP' CHECK (moneda IN ('CLP','UF'))`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS subtotal_uf NUMERIC(12,2)`);
+  await db.run(`ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS total_uf NUMERIC(12,2)`);
+
   // Caché diaria de la UF (findic.cl). Evita golpear la API externa en cada
   // cotización y deja registro de qué valor estuvo disponible cada día, para
   // poder auditar contra qué UF se calculó una cotización antigua.
