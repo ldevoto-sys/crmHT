@@ -1,5 +1,6 @@
 const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 // Railway inyecta DATABASE_URL. En desarrollo local puede apuntarse a un
 // Postgres propio. No usamos SQLite: es un sistema multi-usuario con
@@ -69,7 +70,7 @@ async function initDb() {
   // Ampliar el CHECK del rol para incluir jefe_comercial (bases existentes) y,
   // más tarde, tecnico (rol restringido solo a Servicio Técnico — HT-AP-03).
   await db.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_rol_check`);
-  await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia','tecnico'))`);
+  await db.run(`ALTER TABLE users ADD CONSTRAINT users_rol_check CHECK (rol IN ('administrador','jefe_comercial','vendedor','callcenter','gerencia','tecnico','integrador'))`);
 
   // Atribución adicional, independiente del rol: quien la tenga puede
   // gestionar el tablero de Postventa (mover etapas, asignar técnico),
@@ -116,6 +117,9 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Contacto dado de alta por la API de integración (Cowork) — HT-DO-XX.
+  await db.run(`ALTER TABLE contactos DROP CONSTRAINT IF EXISTS contactos_origen_check`);
+  await db.run(`ALTER TABLE contactos ADD CONSTRAINT contactos_origen_check CHECK (origen IN ('manual','whatsapp','web','migracion_hubspot','importacion_csv','api'))`);
   // Vendedor asignado directamente al contacto (independiente del vendedor de
   // cuenta de la empresa, para contactos sin empresa o con dueño propio).
   await db.run(`ALTER TABLE contactos ADD COLUMN IF NOT EXISTS vendedor_id INTEGER REFERENCES users(id)`);
@@ -246,6 +250,18 @@ async function initDb() {
   // Fecha estimada de cierre (forecast), editable por el vendedor mientras el
   // negocio está abierto. Distinta de fecha_cierre (real, se fija sola al cerrar).
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS fecha_cierre_estimada DATE`);
+
+  // Origen del requerimiento y clave de idempotencia para negocios creados por
+  // integración (HT-DO-XX, API Cowork) — evita duplicar el mismo negocio si
+  // el integrador reintenta el mismo POST. Los negocios creados a mano en el
+  // CRM quedan con origen 'crm' y sin referencia_externa.
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS origen TEXT NOT NULL DEFAULT 'crm' CHECK (origen IN ('crm','fracttal','correo','whatsapp','otro'))`);
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS referencia_externa TEXT`);
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS urgencia BOOLEAN NOT NULL DEFAULT false`);
+  await db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_negocios_referencia_externa
+    ON negocios (origen, referencia_externa) WHERE referencia_externa IS NOT NULL
+  `);
 
   // Pipeline al que pertenece el negocio. Todo lo existente queda en "Ventas
   // Directas" (id=1); se puede mover a otro pipeline a mano (endpoint aparte,
@@ -1318,6 +1334,20 @@ async function initDb() {
       ['Administrador', '11.111.111-1', 'admin@hidrotecnica.cl', hash, 'administrador']
     );
     console.log('[DB] Usuario administrador creado (admin@hidrotecnica.cl).');
+  }
+
+  // Seed: actor "Cowork" — a él se le atribuyen en auditoría/timeline las
+  // escrituras hechas por la API de integración (HT-DO-XX). No inicia sesión
+  // (sin password conocida); solo existe como referencia de autoría.
+  const coworkExiste = await db.get(`SELECT id FROM users WHERE email = 'cowork@integracion.hidrotecnica.cl'`);
+  if (!coworkExiste) {
+    const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+    await db.run(
+      `INSERT INTO users (nombre, email, password_hash, rol, activo, must_change_password, recibe_round_robin)
+       VALUES ('Cowork', 'cowork@integracion.hidrotecnica.cl', $1, 'integrador', true, true, false)`,
+      [hash]
+    );
+    console.log('[DB] Usuario "Cowork" (integrador API) creado.');
   }
 
   // === Informe diario por correo (cotizaciones generadas + negocios ganados) ===
