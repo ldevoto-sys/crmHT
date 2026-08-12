@@ -315,3 +315,6 @@ router.post('/informe-diario/enviar-ahora', async (req, res) => {
 });
 
 module.exports = router;
+// Reutilizado por la API de integración (routes/api_v1.js) para exponer los
+// mismos reportes ya calculados aquí, sin duplicar las consultas SQL.
+module.exports.REPORTES = REPORTES;

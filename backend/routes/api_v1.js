@@ -21,6 +21,8 @@ const { db } = require('../db');
 const { sugerirVendedor } = require('../services/asignacion');
 const timeline = require('../services/timeline');
 const cot = require('./cotizaciones'); // expone proximoNumero, avanzarAEtapaCotizado, sincronizarMontoEstimado, redondearMonto
+const { REPORTES } = require('./reportes'); // mismos reportes ya calculados para la página Reportes
+const { toCSV } = require('../utils/csv');
 
 const APP_URL = process.env.APP_URL || '';
 
@@ -283,6 +285,31 @@ router.post('/negocios/:id/cotizaciones', async (req, res) => {
     }
   } catch (err) {
     console.error('[api/v1/negocios/:id/cotizaciones POST]', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
+// GET /api/v1/reportes/:tipo?desde=&hasta=&vendedor_id=&pipeline_id=&formato=csv
+// Mismos reportes que la página Reportes (embudo, causas, tiempos, ranking,
+// cotizaciones_dia) — sin filtro de vendedor por defecto (Cowork ve todos los
+// vendedores, igual que un rol gerencia/administrador; puede acotar con
+// ?vendedor_id= si lo necesita).
+router.get('/reportes/:tipo', async (req, res) => {
+  try {
+    const reporte = REPORTES[req.params.tipo];
+    if (!reporte) {
+      return error(res, 400, 'tipo_invalido', `Tipo de reporte inválido. Disponibles: ${Object.keys(REPORTES).join(', ')}`);
+    }
+    const reqShim = { query: req.query, user: { rol: 'gerencia', id: null } };
+    const filas = await reporte.fn(reqShim);
+    if (req.query.formato === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="reporte_${req.params.tipo}.csv"`);
+      return res.send('﻿' + toCSV(reporte.headers, filas));
+    }
+    res.json(filas);
+  } catch (err) {
+    console.error('[api/v1/reportes GET]', err);
     error(res, 500, 'error_interno', 'Error interno');
   }
 });
