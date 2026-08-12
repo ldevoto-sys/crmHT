@@ -17,14 +17,22 @@ function vendedorFiltro(req) {
   return req.user.id;
 }
 
+// Cliente (empresa) — sin restricción de rol, cualquiera que vea el reporte
+// puede acotarlo a un cliente puntual.
+function clienteFiltro(req) {
+  return req.query.cliente_id || null;
+}
+
 async function embudo(req) {
   const vendedorId = vendedorFiltro(req);
+  const clienteId = clienteFiltro(req);
   const { desde, hasta, pipeline_id } = req.query;
   const pipelineId = pipeline_id || 1;
   const params = [];
   const condiciones = [];
   let i = 1;
   if (vendedorId) { condiciones.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  if (clienteId) { condiciones.push(`n.empresa_id = $${i++}`); params.push(clienteId); }
   if (desde) { condiciones.push(`n.fecha_cierre_estimada >= $${i++}`); params.push(desde); }
   if (hasta) { condiciones.push(`n.fecha_cierre_estimada <= $${i++}`); params.push(hasta); }
   const filtroJoin = condiciones.length ? `AND ${condiciones.join(' AND ')}` : '';
@@ -43,11 +51,13 @@ async function embudo(req) {
 
 async function causasNoCierre(req) {
   const vendedorId = vendedorFiltro(req);
+  const clienteId = clienteFiltro(req);
   const { desde, hasta, pipeline_id } = req.query;
   const clauses = [`n.causa_no_cierre_id IS NOT NULL`, `n.pipeline_id = $1`];
   const params = [pipeline_id || 1];
   let i = 2;
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  if (clienteId) { clauses.push(`n.empresa_id = $${i++}`); params.push(clienteId); }
   if (desde) { clauses.push(`n.fecha_cierre >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`n.fecha_cierre <= $${i++}`); params.push(hasta); }
   return db.all(
@@ -61,10 +71,12 @@ async function causasNoCierre(req) {
 
 async function tiemposEtapa(req) {
   const vendedorId = vendedorFiltro(req);
+  const clienteId = clienteFiltro(req);
   const { pipeline_id } = req.query;
   const params = [pipeline_id || 1];
   let where = 'WHERE h.salio_en IS NOT NULL AND n.pipeline_id = $1';
   if (vendedorId) { params.push(vendedorId); where += ` AND n.vendedor_id = $${params.length}`; }
+  if (clienteId) { params.push(clienteId); where += ` AND n.empresa_id = $${params.length}`; }
   return db.all(
     `SELECT pe.id AS etapa_id, pe.nombre AS etapa_nombre, pe.orden,
             round(avg(EXTRACT(EPOCH FROM (h.salio_en - h.entro_en)) / 86400)::numeric, 1) AS dias_promedio,
@@ -87,6 +99,8 @@ async function rankingVendedores(req) {
   if (hasta) { clauses.push(`n.fecha_cierre <= $${i++}`); params.push(hasta); }
   const vendedorId = vendedorFiltro(req);
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  const clienteId = clienteFiltro(req);
+  if (clienteId) { clauses.push(`n.empresa_id = $${i++}`); params.push(clienteId); }
   return db.all(
     `SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
             count(*) FILTER (WHERE pe.tipo = 'ganada')::int AS ganados,
@@ -110,6 +124,7 @@ async function rankingVendedores(req) {
 // una oportunidad aparte, evita duplicar/triplicar lo que se ve generado.
 async function cotizacionesPorDia(req) {
   const vendedorId = vendedorFiltro(req);
+  const clienteId = clienteFiltro(req);
   const { desde, hasta, pipeline_id } = req.query;
   const clauses = [
     `c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)`,
@@ -118,6 +133,7 @@ async function cotizacionesPorDia(req) {
   const params = [pipeline_id || 1];
   let i = 2;
   if (vendedorId) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedorId); }
+  if (clienteId) { clauses.push(`n.empresa_id = $${i++}`); params.push(clienteId); }
   if (desde) { clauses.push(`c.created_at >= $${i++}`); params.push(desde); }
   if (hasta) { clauses.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
   const where = `WHERE ${clauses.join(' AND ')}`;
