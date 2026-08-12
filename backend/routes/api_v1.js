@@ -289,11 +289,11 @@ router.post('/negocios/:id/cotizaciones', async (req, res) => {
   }
 });
 
-// GET /api/v1/reportes/:tipo?desde=&hasta=&vendedor_id=&pipeline_id=&formato=csv
+// GET /api/v1/reportes/:tipo?desde=&hasta=&vendedor_id=&cliente_id=&pipeline_id=&formato=csv
 // Mismos reportes que la página Reportes (embudo, causas, tiempos, ranking,
-// cotizaciones_dia) — sin filtro de vendedor por defecto (Cowork ve todos los
-// vendedores, igual que un rol gerencia/administrador; puede acotar con
-// ?vendedor_id= si lo necesita).
+// cotizaciones_dia) — sin filtro de vendedor ni cliente por defecto (Cowork ve
+// todo, igual que un rol gerencia/administrador; puede acotar con
+// ?vendedor_id= y/o ?cliente_id= si lo necesita).
 router.get('/reportes/:tipo', async (req, res) => {
   try {
     const reporte = REPORTES[req.params.tipo];
