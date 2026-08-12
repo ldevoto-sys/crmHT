@@ -125,12 +125,12 @@ export default function Cotizaciones() {
                   <Link to={`/cotizaciones/${c.id}`} className="hover:underline">{numeroCompleto(c.numero, c.version)}</Link>
                   {c.moneda === 'UF' && <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-ht-navy text-white">UF</span>}
                 </td>
-                <td className="px-4 py-2 text-gray-600">
-                  {c.negocio_titulo}
-                  <span className="block text-xs text-gray-400">
+                <td className="px-4 py-2 text-gray-600 max-w-[240px]">
+                  <div className="truncate" title={c.negocio_titulo}>{c.negocio_titulo}</div>
+                  <div className="truncate text-xs text-gray-400" title={c.empresa_nombre || `${c.contacto_nombre || ''} ${c.contacto_apellido || ''}`.trim()}>
                     {c.empresa_nombre || `${c.contacto_nombre || ''} ${c.contacto_apellido || ''}`.trim()}
-                  </span>
-                  {c.titulo && <span className="block text-xs text-gray-400">{c.titulo}</span>}
+                  </div>
+                  {c.titulo && <div className="truncate text-xs text-gray-400" title={c.titulo}>{c.titulo}</div>}
                 </td>
                 <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full capitalize ${estadoColor[c.estado] || ''}`}>{c.estado}</span></td>
                 <td className="px-4 py-2 text-right text-ht-navy">{money(c.neto)}</td>
