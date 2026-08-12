@@ -57,8 +57,13 @@ async function generarCotizacionPDF(data, stream) {
 
   let y = 104;
   if (cot.titulo) {
-    doc.fillColor(NAVY).fontSize(11).font('Helvetica-Bold').text(cot.titulo, M, y, { width: 515 });
-    y += 18;
+    doc.fillColor(NAVY).fontSize(11).font('Helvetica-Bold');
+    // Mismo problema que el nombre del cliente más abajo: un título largo
+    // envuelve a 2+ líneas, y un avance fijo (18pt, una sola línea) deja
+    // "CLIENTE"/"INFORMACIÓN" pisando la segunda línea.
+    const tituloAltura = doc.heightOfString(cot.titulo, { width: 515 });
+    doc.text(cot.titulo, M, y, { width: 515 });
+    y += Math.max(18, tituloAltura + 6);
   }
   y = Math.max(y, 120);
   // Cliente + info (dos columnas).
