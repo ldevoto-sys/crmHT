@@ -838,3 +838,10 @@ router.delete('/:id/consideraciones/:considId', async (req, res) => {
 });
 
 module.exports = router;
+// Reutilizadas por la API de integración (routes/api_v1.js) para que una
+// cotización registrada por Cowork numere y avance de etapa exactamente
+// igual que una creada a mano en el CRM.
+module.exports.proximoNumero = proximoNumero;
+module.exports.avanzarAEtapaCotizado = avanzarAEtapaCotizado;
+module.exports.sincronizarMontoEstimado = sincronizarMontoEstimado;
+module.exports.redondearMonto = redondearMonto;
