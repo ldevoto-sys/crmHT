@@ -1160,6 +1160,7 @@ solicitudes/minuto. Toda escritura queda atribuida al actor real "Cowork"
 (`users.rol = 'integrador'`), consultable en el timeline unificado.
 
 **Diferencias deliberadas frente al diseño original (documento v0.1):**
+
 - **Numeración:** usa el correlativo real del CRM (§4), no un formato
   paralelo `[año]-NNN` — evita dos numeraciones simultáneas.
 - **Estados:** no existe la máquina fija de 8 estados del borrador
