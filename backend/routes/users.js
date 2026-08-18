@@ -16,7 +16,7 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const users = await db.all(
-      `SELECT id, nombre, rut, email, telefono, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, created_at
+      `SELECT id, nombre, rut, email, telefono, codigo_softland, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, created_at
        FROM users ORDER BY nombre`
     );
     res.json(users);
@@ -68,7 +68,7 @@ router.get('/con-cotizaciones', async (req, res) => {
 // pueda copiar y entregar a mano.
 router.post('/', authorize('administrador'), async (req, res) => {
   try {
-    const { nombre, rut, email, telefono, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
+    const { nombre, rut, email, telefono, codigo_softland, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
 
@@ -92,10 +92,10 @@ router.post('/', authorize('administrador'), async (req, res) => {
     const hash = await bcrypt.hash(passwordTemporal, 10);
 
     const result = await db.run(
-      `INSERT INTO users (nombre, rut, email, telefono, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho)
-       VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10)
-       RETURNING id, nombre, rut, email, telefono, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho`,
-      [nombre, rut || null, email, telefono || null, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true, es_encargado_despacho === true]
+      `INSERT INTO users (nombre, rut, email, telefono, codigo_softland, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11)
+       RETURNING id, nombre, rut, email, telefono, codigo_softland, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho`,
+      [nombre, rut || null, email, telefono || null, codigo_softland || null, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true, es_encargado_despacho === true]
     );
 
     await emailSvc.bienvenida({ nombre, email, rol }, passwordTemporal);
@@ -111,7 +111,7 @@ router.post('/', authorize('administrador'), async (req, res) => {
 router.put('/:id', authorize('administrador'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, rut, email, telefono, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
+    const { nombre, rut, email, telefono, codigo_softland, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
 
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
@@ -132,9 +132,9 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     }
 
     await db.run(
-      `UPDATE users SET nombre = $1, rut = $2, email = $3, telefono = $4, rol = $5, activo = $6, recibe_round_robin = $7, pipeline_default_id = $8, es_encargado_postventa = $9, es_encargado_despacho = $10
-       WHERE id = $11`,
-      [nombre, rut || null, email, telefono || null, rol, activo !== undefined ? activo : true, recibe_round_robin !== false,
+      `UPDATE users SET nombre = $1, rut = $2, email = $3, telefono = $4, codigo_softland = $5, rol = $6, activo = $7, recibe_round_robin = $8, pipeline_default_id = $9, es_encargado_postventa = $10, es_encargado_despacho = $11
+       WHERE id = $12`,
+      [nombre, rut || null, email, telefono || null, codigo_softland || null, rol, activo !== undefined ? activo : true, recibe_round_robin !== false,
        pipeline_default_id || user.pipeline_default_id || 1,
        es_encargado_postventa !== undefined ? es_encargado_postventa === true : user.es_encargado_postventa,
        es_encargado_despacho !== undefined ? es_encargado_despacho === true : user.es_encargado_despacho, id]

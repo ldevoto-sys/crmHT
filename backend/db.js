@@ -82,6 +82,12 @@ async function initDb() {
   // seguimiento automático junto al correo del vendedor.
   await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS telefono TEXT`);
 
+  // Código de vendedor en Softland (VenCod) — carga manual, uno por usuario.
+  // Cruce simple 1:1; si en el futuro un vendedor necesita más de un código
+  // o la relación deja de ser directa, esto pasa a una tabla de mapeo aparte
+  // (decisión tomada así el 18-08-2026, ver HT-DO-XX).
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS codigo_softland TEXT`);
+
   // === Etapa 1 — Maestros ===
 
   await db.run(`
