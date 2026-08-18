@@ -138,8 +138,10 @@ router.post('/clientes', async (req, res) => {
 
 async function negocioConEtapa(id) {
   return db.get(
-    `SELECT n.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, e.razon_social AS cliente_razon_social, e.rut AS cliente_rut
+    `SELECT n.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, e.razon_social AS cliente_razon_social, e.rut AS cliente_rut,
+            u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland
      FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id LEFT JOIN empresas e ON e.id = n.empresa_id
+     LEFT JOIN users u ON u.id = n.vendedor_id
      WHERE n.id = $1`, [id]
   );
 }
@@ -155,6 +157,10 @@ function negocioOut(n) {
     urgencia: n.urgencia,
     etapa: n.etapa_id ? { id: n.etapa_id, nombre: n.etapa_nombre, tipo: n.etapa_tipo } : null,
     vendedor_id: n.vendedor_id ? String(n.vendedor_id) : null,
+    vendedor_nombre: n.vendedor_nombre || null,
+    // Código de vendedor en Softland (VenCod), cargado a mano en Usuarios —
+    // null si ese vendedor todavía no lo tiene cargado.
+    vendedor_codigo_softland: n.vendedor_codigo_softland || null,
   };
 }
 
