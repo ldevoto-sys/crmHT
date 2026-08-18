@@ -7,7 +7,7 @@ const email = require('./email');
 
 async function enviarNovedades(titulo, cambios) {
   const usuarios = await db.all(
-    `SELECT nombre, email FROM users WHERE activo = true AND email IS NOT NULL AND email <> ''`
+    `SELECT nombre, email FROM users WHERE activo = true AND email IS NOT NULL AND email <> '' AND rol <> 'integrador' AND lower(email) <> 'admin@hidrotecnica.cl'`
   );
 
   if (!usuarios.length) {

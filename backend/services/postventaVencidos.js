@@ -40,7 +40,8 @@ async function casosVencidos(hoy = fechaChileHoy()) {
 async function destinatarios() {
   return db.all(
     `SELECT nombre, email FROM users
-     WHERE activo = true AND email IS NOT NULL AND email <> ''
+     WHERE activo = true AND email IS NOT NULL AND email <> '' AND rol <> 'integrador'
+       AND lower(email) <> 'admin@hidrotecnica.cl'
        AND (es_encargado_postventa = true OR rol IN ('administrador', 'jefe_comercial', 'gerencia'))`
   );
 }

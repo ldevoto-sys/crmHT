@@ -75,7 +75,7 @@ async function enviarInformeDiario(fecha = diaAnterior(fechaChileHoy())) {
   const [cotizaciones, ganados, usuarios] = await Promise.all([
     cotizacionesGeneradas(fecha),
     negociosGanados(fecha),
-    db.all(`SELECT nombre, email FROM users WHERE activo = true AND email IS NOT NULL AND email <> ''`),
+    db.all(`SELECT nombre, email FROM users WHERE activo = true AND email IS NOT NULL AND email <> '' AND rol <> 'integrador' AND lower(email) <> 'admin@hidrotecnica.cl'`),
   ]);
 
   if (!usuarios.length) {
