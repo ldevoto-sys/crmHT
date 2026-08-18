@@ -255,7 +255,10 @@ module.exports = {
         ${vendedor?.email ? `<br>${vendedor.email}` : ''}
         ${vendedor?.telefono ? `<br>${vendedor.telefono}` : ''}</p>
       `),
-      { replyTo: vendedor?.email || undefined }
+      {
+        replyTo: vendedor?.email || undefined,
+        cc: (vendedor?.email && vendedor.email.toLowerCase() !== String(destinatario).toLowerCase()) ? [vendedor.email] : [],
+      }
     );
   },
 
