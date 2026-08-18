@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico'];
+const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico', 'integrador'];
 const vacio = { nombre: '', rut: '', email: '', telefono: '', codigo_softland: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false };
 
 export default function Usuarios() {
@@ -88,6 +88,22 @@ export default function Usuarios() {
       }
     } catch (err) {
       setError(err.response?.data?.error || 'Error al desactivar.');
+    }
+  };
+
+  const activar = async u => {
+    setError(''); setMsg('');
+    try {
+      await api.put(`/users/${u.id}`, {
+        nombre: u.nombre, rut: u.rut || '', email: u.email, telefono: u.telefono || '',
+        codigo_softland: u.codigo_softland || '', rol: u.rol, activo: true,
+        recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1,
+        es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false,
+      });
+      setMsg(`${u.nombre} reactivado.`);
+      cargar();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Error al activar.');
     }
   };
 
@@ -234,7 +250,9 @@ export default function Usuarios() {
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     <button onClick={() => editar(u)} className="text-ht-accent hover:underline mr-3">Editar</button>
                     <button onClick={() => abrirReset(u)} className="text-ht-accent hover:underline mr-3">Restablecer contraseña</button>
-                    {u.activo && <button onClick={() => desactivar(u)} className="text-red-500 hover:underline">Desactivar</button>}
+                    {u.activo
+                      ? <button onClick={() => desactivar(u)} className="text-red-500 hover:underline">Desactivar</button>
+                      : <button onClick={() => activar(u)} className="text-ht-accent hover:underline">Activar</button>}
                   </td>
                 </tr>
               ))}

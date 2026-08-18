@@ -7,7 +7,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const { validarRut, validarEmail, validarPassword } = require('../utils/validaciones');
 const emailSvc = require('../services/email');
 
-const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico'];
+const ROLES = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter', 'gerencia', 'tecnico', 'integrador'];
 
 // Todos los endpoints requieren autenticación.
 router.use(authenticate);
