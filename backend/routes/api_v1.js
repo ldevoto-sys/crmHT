@@ -222,10 +222,22 @@ router.get('/negocios/:id', async (req, res) => {
       `SELECT pe.nombre AS etapa, h.entro_en, h.salio_en FROM negocio_etapa_historial h
        JOIN pipeline_etapas pe ON pe.id = h.etapa_id WHERE h.negocio_id = $1 ORDER BY h.entro_en`, [n.id]
     );
-    const cotizaciones = await db.all(
+    const cotizacionesRaw = await db.all(
       `SELECT id, numero, version, estado, subtotal, total, moneda, subtotal_uf, total_uf, documento_final_url, fecha_envio, created_at
        FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC`, [n.id]
     );
+    // id como string (consistente con el resto de la API) y montos como
+    // número (Postgres devuelve NUMERIC como string por defecto — no lo
+    // dejamos así para no obligar al consumidor a parsear).
+    const numOrNull = v => (v === null || v === undefined ? null : Number(v));
+    const cotizaciones = cotizacionesRaw.map(c => ({
+      ...c,
+      id: String(c.id),
+      subtotal: numOrNull(c.subtotal),
+      total: numOrNull(c.total),
+      subtotal_uf: numOrNull(c.subtotal_uf),
+      total_uf: numOrNull(c.total_uf),
+    }));
     res.json({ ...negocioOut(n), historial, cotizaciones });
   } catch (err) {
     console.error('[api/v1/negocios/:id GET]', err);
