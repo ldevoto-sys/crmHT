@@ -34,14 +34,24 @@ archivos** (§6), y en Postventa/Servicio Técnico el panel para agregar un
 adjunto a un caso ya creado admite **selección múltiple** en una sola
 acción (§5/§15) — con esta versión, `staging` y `main` (producción) quedan
 con el mismo código; y de v1.24 (07-08-2026): **monto estimado editable** en
-la ficha del negocio y **sincronizado automáticamente** con el total al
+la ficha del negocio y **sincronizado automáticamente** al
 generar o editar una cotización (§3), y el **aviso manual de novedades por
 correo** (§9), que queda establecido como estándar para toda futura
 promoción de cambios a producción; y de v1.25 (07-08-2026): **autoguardado
 de borrador de cotización** y aviso honesto al expirar la sesión (§4), y el
 **aviso diario de casos de Postventa vencidos** por correo a las 8:30am
-(§5). Este documento es el que debe subirse a SharePoint reemplazando la
-versión anterior del documento base.
+(§5); y de v1.26 (11-08-2026): el monto sincronizado en §3 pasa a ser el
+**neto (sin IVA)**, no el total, con backfill de los negocios existentes;
+de v1.27 (11-08-2026): **cotización en UF** además de CLP (§4); y de v1.28
+(11 y 12-08-2026, promovidas a producción el 18-08-2026 por instrucción
+explícita de Gerencia): reasignar vendedor por jefe comercial (§3), nombre
+del lugar frecuente en la parada de Despacho (§6), **envío automático por
+correo** en el motor de seguimiento con personalización, teléfono del
+vendedor y copia (CC) (§8), fixes de PDF y de la lista de Cotizaciones
+(§4), filtro por cliente en Reportería (§9), y la primera versión de la
+**API de integración para Cowork** (§18, nueva). Este documento es el que
+debe subirse a SharePoint reemplazando la versión anterior del documento
+base.
 
 ---
 
@@ -285,12 +295,21 @@ reemplaza la herramienta HTML independiente que existía antes):
   y Postventa — Servicio Técnico (§15) también lo reutiliza.
 - **Monto estimado editable + sincronizado (v1.24):** `negocios.monto_estimado`
   se edita a mano en la ficha del negocio (mismo patrón que Probabilidad de
-  cierre), y además se actualiza **automáticamente** con el total de la
-  cotización cada vez que se genera una cotización nueva, se edita en
-  borrador, o se genera una nueva versión (sobrescribe cualquier valor
-  cargado a mano). Antes, un negocio sin monto cargado a mano al crearlo
-  quedaba en $0 para siempre en Reportería y Pipeline, aunque después se
-  cotizara y se ganara.
+  cierre), y además se actualiza **automáticamente** cada vez que se genera
+  una cotización nueva, se edita en borrador, o se genera una nueva versión
+  (sobrescribe cualquier valor cargado a mano). Antes, un negocio sin monto
+  cargado a mano al crearlo quedaba en $0 para siempre en Reportería y
+  Pipeline, aunque después se cotizara y se ganara. **Desde v1.26, sincroniza
+  el monto neto (sin IVA), no el total** — antes sobreestimaba ~19%; se hizo
+  además un backfill único sobre los negocios ya existentes.
+- **Reasignar vendedor dueño (v1.28):** antes solo administrador podía
+  cambiarlo desde la ficha del negocio; ahora jefe comercial también puede.
+- **Campos de origen externo (v1.28):** `origen` (`'crm' | 'fracttal' |
+  'correo' | 'whatsapp' | 'otro'`, default `'crm'`), `referencia_externa`
+  (clave de idempotencia) y `urgencia` (boolean) — agregados para que la API
+  de integración (§18) pueda crear negocios sin duplicarlos ante un
+  reintento. Los negocios creados desde la app quedan con origen `'crm'` y
+  sin referencia externa.
 
 ## 4. Cotizaciones
 
@@ -397,6 +416,26 @@ un corte de sesión — junto con esto, el aviso de sesión expirada
 avisa explícitamente y aclara que el borrador se recuperará al volver a
 entrar.
 
+**Cotización en UF (v1.27):** además de CLP, se puede cotizar en **UF**
+(Ventas Directas y Operaciones). En modo UF los ítems son de descripción
+libre (sin buscador de catálogo, que solo tiene precios en CLP); el cliente
+ve todo en UF de punta a punta (PDF, link público, WhatsApp, correo), sin
+equivalencia en pesos. Pipeline/Reportes/Dashboard/`monto_estimado` siguen
+viendo siempre el equivalente en CLP, convertido con la UF del día en que se
+guardó (`uf_valor`/`uf_fecha` — mismo snapshot que ya usaba el Cotizador de
+Operaciones para mano de obra). De paso se corrigió que "nueva versión" no
+copiaba `origen`/`comuna`/`horas`/UF de la cotización base.
+
+**Fix — título largo pisado en el PDF (v1.28):** un título de 2+ líneas
+quedaba tapado por el bloque "CLIENTE/INFORMACIÓN" de abajo, que arrancaba a
+una distancia fija pensada para una sola línea (mismo bug ya corregido antes
+para el nombre del cliente, no replicado en su momento para el título).
+
+**Fix — columna "Negocio" muy ancha en la lista (v1.28):** sin límite de
+ancho, un título largo empujaba la columna "Vendedor" fuera de pantalla.
+Ahora tiene ancho máximo y texto truncado (con el texto completo al pasar el
+mouse), mismo patrón que Contactos.
+
 ## 5. Postventa (v1.13)
 
 - Un caso de postventa (garantía o reclamo técnico) se vincula normalmente a
@@ -477,6 +516,10 @@ entrar.
   direcciones habituales (ej. proveedores). Un selector opcional al crear
   una parada autocompleta esos tres campos; tipo y documento se siguen
   eligiendo en cada caso, porque un mismo lugar puede usarse para ambos.
+  **Desde v1.28**, si la dirección de una parada coincide con un lugar
+  frecuente registrado, la ficha de la parada muestra su nombre junto a la
+  dirección (antes solo mostraba la dirección, sin forma de saber a qué
+  lugar correspondía sin buscarlo a mano).
 - **Historial de archivos de respaldo por parada (v1.23):** el encargado
   puede subir, en cualquier momento, uno o varios archivos del documento
   firmado de una parada — ninguno reemplaza al anterior, quedan todos
@@ -635,9 +678,14 @@ mismo criterio que Secuencias (§8).
 - **Secuencias configurables:** nombre + pasos ordenados (días de espera,
   canal, mensaje/guion). Un negocio abierto inicia una secuencia a la vez;
   un revisor interno del servidor avanza los pasos vencidos cada 15 minutos.
-  Como es un motor de asistencia (no envía solo salvo el caso de WhatsApp ya
-  conectado, ver §11), cada paso vencido genera una **tarea** para el
-  vendedor.
+  **Desde v1.28, un paso de canal "correo" se envía solo** (Brevo, mismo
+  servicio del envío inicial de cotización) — personalizado con el nombre
+  del contacto y la referencia a la cotización, firmado con el correo y
+  teléfono del vendedor (campo nuevo `users.telefono`), y con el vendedor en
+  copia (CC). Si el contacto no tiene correo o el envío falla, cae a una
+  **tarea** manual con el motivo, igual que antes. Los canales **whatsapp /
+  llamada / tarea** no cambian: siguen generando una tarea para el vendedor,
+  hasta que WhatsApp esté conectado (§11).
 - **Disparo por etapa de pipeline (v1.19):** cualquier etapa de un pipeline
   (§3) puede tener asociada una secuencia (`pipeline_etapas.secuencia_id`).
   Al mover un negocio a una etapa: si esa etapa tiene secuencia asociada, se
@@ -671,7 +719,9 @@ mismo criterio que Secuencias (§8).
 - Reportes: embudo por etapa, causas de no cierre, tiempo promedio por
   etapa, ranking de vendedores (ganados/perdidos, tasa de cierre, monto
   ganado), cotizaciones por día — todos exportables a CSV y filtrables por
-  **pipeline** (§3; Ventas Directas por defecto).
+  **pipeline** (§3; Ventas Directas por defecto). **Desde v1.28**, también
+  filtrables por **cliente** (empresa), solo o combinado con vendedor —
+  mismo filtro disponible desde la API de integración (§18).
 - **Cotizaciones por día**, con detalle expandible por vendedor: contactos
   asignados ese día, cotizaciones generadas (cantidad/monto) y cotizaciones
   ganadas (cantidad/monto). Ya corregido para contar **solo la última
@@ -806,11 +856,19 @@ solo en acentos puntuales, celeste como color de interacción principal.
 
 ## 13. Modelo de datos — tablas y campos agregados desde el documento base original
 
-- **Usuarios/roles:** `users.rol` admite `jefe_comercial` y, desde v1.22,
-  `tecnico` (§1/§15). `users.pipeline_default_id` (pipeline por defecto,
-  v1.12). `users.es_encargado_postventa` (v1.13), `users.es_encargado_despacho`
+- **Usuarios/roles:** `users.rol` admite `jefe_comercial`, desde v1.22
+  `tecnico` (§1/§15) y desde v1.28 `integrador` (actor "Cowork" de la API,
+  §18). `users.pipeline_default_id` (pipeline por defecto, v1.12).
+  `users.es_encargado_postventa` (v1.13), `users.es_encargado_despacho`
   (v1.14) — atribuciones adicionales, independientes del rol.
-- **Contactos:** `vendedor_id`, `vendedor_asignado_en`.
+  `users.telefono` (v1.28 — teléfono directo, mostrado en la firma del
+  correo de seguimiento automático, ver §8).
+- **Contactos:** `vendedor_id`, `vendedor_asignado_en`. `origen` admite
+  `api` desde v1.28 (contactos creados por la integración, §18).
+- **Negocios — origen externo (v1.28, ver §3/§18):** `origen` (enum
+  crm/fracttal/correo/whatsapp/otro, default crm), `referencia_externa`
+  (clave de idempotencia, índice único parcial junto a `origen`),
+  `urgencia` (boolean).
 - **Productos:** `marca`, `url_imagen`, `atributos` (JSONB),
   `descripcion_completa`.
 - **Pipeline:** tabla `pipelines` (id, nombre, orden, activo — v1.12);
@@ -917,6 +975,7 @@ solo en acentos puntuales, celeste como color de interacción principal.
   bucket, no hay uno por módulo.
 - **PostgreSQL (`bi_readonly`):** acceso de solo lectura para herramientas
   de BI externas.
+- **API `/api/v1` para Cowork (v1.28):** ver detalle completo en §18.
 - **Microsoft 365 / SMTP AUTH (en evaluación, no confirmado):** soporte
   activó SMTP AUTH sobre la cuenta `ventas@hidrotecnica.cl`
   (`smtp.office365.com:587`, STARTTLS) como posible alternativa a Brevo para
@@ -1006,6 +1065,11 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
 8. **Envío de correos masivos** a clientes: requiere separar el envío de
    marketing masivo de la cuenta Brevo transaccional actual (cotizaciones),
    para no arriesgar su entregabilidad, y definir manejo de listas/opt-out.
+9. **API de integración Cowork (§18) — bloqueante para usarla en
+   producción:** falta cargar `COWORK_API_KEY` en Railway (producción). Sin
+   esa variable, la API responde 503 a cualquier solicitud. Confirmar
+   también que `APP_URL` de `staging` quedó apuntando a su propio dominio
+   (durante las pruebas apuntaba al de producción, se corrigió a mano).
 
 **Cotizador Operaciones (§7) — decisión pendiente de Gerencia:** ¿el
 pipeline Operaciones reemplaza por completo la herramienta HTML standalone
@@ -1051,6 +1115,65 @@ proyecto (`CLAUDE.md`, raíz del repositorio).
 El reporte de sesión cortada / cotización en borrador no guardada queda
 como un problema técnico aparte, sin diagnosticar — no se investigó su
 causa real en esta nota.
+
+**Modo más restrictivo, vigente desde el 10-08-2026:** instrucción
+explícita de Luis Devoto, más estricta que la regla de horario de arriba —
+solo se promueve a `main` si hay un **error** que corregir, nunca por una
+mejora o feature nueva (aunque sea fuera de horario). Las mejoras quedan
+acumulándose en `staging` hasta que se avise lo contrario (`CLAUDE.md`).
+
+**Excepción ejecutada el 18-08-2026:** Gerencia (Luis Devoto) pidió
+explícitamente promover **todo** lo acumulado en `staging` a producción —
+11 commits, del 11 y 12-08-2026 (documentados en las notas v1.26, v1.27 y
+v1.28). Se confirmó que la instrucción se aparta deliberadamente de la
+regla del 10-08 (no todos son errores; la mayoría son mejoras/funcionalidad
+nueva) y que el horario (≈08:23 hora Chile, antes de la apertura 09:15) es
+fuera de horario de atención. `main` y `staging` quedaron con el mismo
+árbol de archivos tras la promoción (cherry-pick commit por commit,
+preservando el historial de cada uno). La regla del 10-08 sigue vigente
+para promociones futuras — esta fue una excepción puntual, no un cambio de
+la regla.
+
+## 18. API de integración externa — Cowork (v1.28)
+
+Primera versión (v1.0) de la API REST que el agente Cowork (operado por
+Gerencia General) usa para registrar clientes y negocios, y generar
+cotizaciones desde afuera del CRM. Especificada en
+`HT-DO-XX_Especificacion_API_CRM_Cowork` (v0.1 borrador → v1.0 con lo
+realmente construido; pendiente de correlativo definitivo y publicación en
+SharePoint, ver §16 punto 9).
+
+**Endpoints:**
+
+| Método | Ruta | Función |
+|---|---|---|
+| GET | `/api/v1/clientes?rut=&nombre=` | Buscar cliente |
+| POST | `/api/v1/clientes` | Alta de cliente, idempotente por RUT |
+| POST | `/api/v1/negocios` | Crear negocio, idempotente por `referencia_externa` |
+| GET | `/api/v1/negocios/{id}` | Detalle: etapa, historial de etapas, cotizaciones |
+| POST | `/api/v1/negocios/{id}/cotizaciones` | Registrar cotización (numeración real del CRM, avanza etapa a "Cotizado") |
+| GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros |
+
+**Autenticación:** Bearer token fijo por variable de entorno
+(`COWORK_API_KEY`), mismo patrón que `/api/leads/web`. Límite de 60
+solicitudes/minuto. Toda escritura queda atribuida al actor real "Cowork"
+(`users.rol = 'integrador'`), consultable en el timeline unificado.
+
+**Diferencias deliberadas frente al diseño original (documento v0.1):**
+- **Numeración:** usa el correlativo real del CRM (§4), no un formato
+  paralelo `[año]-NNN` — evita dos numeraciones simultáneas.
+- **Estados:** no existe la máquina fija de 8 estados del borrador
+  original — se expone la etapa real del pipeline configurable (§3) y su
+  historial, reutilizando el mecanismo que ya existía (avance automático a
+  "Cotizado" al registrar una cotización).
+- **No persistidos todavía:** `cuadrante`/`tipo` del cliente,
+  `tipo_documento` del negocio — se aceptan si vienen en el body, se
+  ignoran (ver §16 punto 9 y la nota v1.28).
+- **No implementados todavía:** `GET /negocios` con filtros (listado
+  general), `PATCH /negocios/{id}` (actualizar estado).
+
+Ver nota de cambio v1.28 para el detalle completo, incluida la
+verificación extremo a extremo contra Postgres real.
 
 ---
 
