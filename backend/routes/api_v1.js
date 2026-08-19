@@ -164,6 +164,44 @@ function negocioOut(n) {
   };
 }
 
+// GET /api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=
+// Listado con filtros — sin esto Cowork no puede pedir "todos los negocios de
+// hoy", solo consultar uno por uno si ya conoce el id (bloqueaba automatizar
+// su informe diario, reportado 19-08-2026). Reutiliza el mismo armado de
+// negocioOut/negocioConEtapa, sin historial ni cotizaciones anidadas — para
+// el detalle completo de un negocio puntual sigue estando GET /negocios/:id.
+router.get('/negocios', async (req, res) => {
+  try {
+    const { desde, hasta, estado, vendedor_id, cliente_id, origen } = req.query;
+    if (estado && !['abierta', 'ganada', 'perdida'].includes(estado)) {
+      return error(res, 400, 'estado_invalido', 'estado debe ser abierta, ganada o perdida');
+    }
+    const limit = Math.min(Number(req.query.limit) || 100, 200);
+    const clauses = []; const params = []; let i = 1;
+    if (desde) { clauses.push(`n.created_at::date >= $${i++}`); params.push(desde); }
+    if (hasta) { clauses.push(`n.created_at::date <= $${i++}`); params.push(hasta); }
+    if (estado) { clauses.push(`pe.tipo = $${i++}`); params.push(estado); }
+    if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
+    if (cliente_id) { clauses.push(`n.empresa_id = $${i++}`); params.push(cliente_id); }
+    if (origen) { clauses.push(`n.origen = $${i++}`); params.push(origen); }
+    params.push(limit);
+    const negocios = await db.all(
+      `SELECT n.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo,
+              u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland
+       FROM negocios n
+       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       LEFT JOIN users u ON u.id = n.vendedor_id
+       ${clauses.length ? 'WHERE ' + clauses.join(' AND ') : ''}
+       ORDER BY n.created_at DESC LIMIT $${i}`,
+      params
+    );
+    res.json(negocios.map(negocioOut));
+  } catch (err) {
+    console.error('[api/v1/negocios GET]', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
 // POST /api/v1/negocios — idempotente por (origen, referencia_externa)
 router.post('/negocios', async (req, res) => {
   try {

@@ -1149,6 +1149,7 @@ SharePoint, ver §16 punto 9).
 |---|---|---|
 | GET | `/api/v1/clientes?rut=&nombre=` | Buscar cliente |
 | POST | `/api/v1/clientes` | Alta de cliente, idempotente por RUT |
+| GET | `/api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=` | Listado con filtros (agregado en v1.29) |
 | POST | `/api/v1/negocios` | Crear negocio, idempotente por `referencia_externa` |
 | GET | `/api/v1/negocios/{id}` | Detalle: etapa, historial de etapas, cotizaciones |
 | POST | `/api/v1/negocios/{id}/cotizaciones` | Registrar cotización (numeración real del CRM, avanza etapa a "Cotizado") |
@@ -1170,10 +1171,17 @@ solicitudes/minuto. Toda escritura queda atribuida al actor real "Cowork"
 - **No persistidos todavía:** `cuadrante`/`tipo` del cliente,
   `tipo_documento` del negocio — se aceptan si vienen en el body, se
   ignoran (ver §16 punto 9 y la nota v1.28).
-- **No implementados todavía:** `GET /negocios` con filtros (listado
-  general), `PATCH /negocios/{id}` (actualizar estado).
+- **No implementado todavía:** `PATCH /negocios/{id}` (actualizar estado).
 
-Ver nota de cambio v1.28 para el detalle completo, incluida la
+**Actualización 19-08-2026 (v1.29):** se agregó `GET /negocios` con
+filtros (`desde`/`hasta`/`estado`/`vendedor_id`/`cliente_id`/`origen`/
+`limit`) — Cowork reportó que sin listado no podía automatizar su informe
+diario, solo consultar un negocio si ya conocía el id. Devuelve un
+arreglo plano (mismo formato que el resto de la API), sin `historial` ni
+`cotizaciones` anidados — para el detalle completo de un negocio puntual
+sigue estando `GET /negocios/{id}`.
+
+Ver notas de cambio v1.28 y v1.29 para el detalle completo, incluida la
 verificación extremo a extremo contra Postgres real.
 
 ---
