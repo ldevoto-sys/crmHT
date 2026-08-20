@@ -1,76 +1,544 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../api';
 
-const fmtFecha = iso => iso ? new Date(iso).toLocaleString('es-CL') : '—';
+const AREA_LABEL = { meson: 'Ventas Mesón', operaciones: 'Operaciones', vregion: 'V Región', otros: 'Otros' };
+const AREA_BADGE = {
+  meson: 'bg-indigo-50 text-indigo-600',
+  operaciones: 'bg-emerald-50 text-emerald-600',
+  vregion: 'bg-amber-50 text-amber-700',
+  otros: 'bg-gray-100 text-gray-500',
+};
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const MESES_ABR = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const AÑO_COLOR = { 2023: '#94A3B8', 2024: '#4C5FD5', 2025: '#34B3DE', 2026: '#2F8F5B', 2027: '#C98A2C' };
+const COLOR_COTIZADO = '#34B3DE', COLOR_CERRADO = '#C98A2C', COLOR_FACTURADO = '#2F8F5B';
+
+const fmtMoney = v => `$${Math.round(v || 0).toLocaleString('es-CL')}`;
+const fmtCant = v => `${Math.round(v || 0).toLocaleString('es-CL')} doc${Math.round(v) === 1 ? '.' : 's.'}`;
+const fmtPct = v => (isFinite(v) && v !== null ? `${(v * 100).toFixed(0)}%` : '—');
+const fmtFecha = iso => (iso ? new Date(iso).toLocaleString('es-CL') : '—');
 
 export default function ReporteriaSoftland() {
-  const [estado, setEstado] = useState(null);
-  const [cargando, setCargando] = useState(false);
-  const [actualizando, setActualizando] = useState(false);
+  const [datos, setDatos] = useState(null);
+  const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
 
-  const cargarEstado = () => {
-    setCargando(true);
-    api.get('/softland/sync/estado')
-      .then(r => setEstado(r.data))
-      .catch(() => setError('No se pudo consultar el estado de la sincronización.'))
+  const [syncEstado, setSyncEstado] = useState(null);
+  const [actualizando, setActualizando] = useState(false);
+
+  const [anio, setAnio] = useState('');
+  const [mes, setMes] = useState('');
+  const [vencod, setVencod] = useState('');
+  const [area, setArea] = useState('');
+  const [unidad, setUnidad] = useState('monto');
+  const [tab, setTab] = useState('mensual');
+  const [metricaAnual, setMetricaAnual] = useState('cotizado');
+
+  const cargarDatos = () => {
+    setCargando(true); setError('');
+    api.get('/softland/reporte')
+      .then(r => setDatos(r.data))
+      .catch(() => setError('No se pudo cargar el reporte.'))
       .finally(() => setCargando(false));
   };
+  const cargarSyncEstado = () => api.get('/softland/sync/estado').then(r => setSyncEstado(r.data)).catch(() => {});
 
-  useEffect(cargarEstado, []);
+  useEffect(() => { cargarDatos(); cargarSyncEstado(); }, []);
 
   const actualizar = async () => {
     setActualizando(true); setError('');
     try {
-      const { data } = await api.post('/softland/sync');
-      setEstado({ ok: true, ejecutado_en: new Date().toISOString(), filas_mensual: data.filas_mensual, filas_pendientes: data.filas_pendientes });
+      await api.post('/softland/sync');
+      await Promise.all([cargarDatos(), cargarSyncEstado()]);
     } catch (err) {
       setError(err.response?.data?.error || 'No se pudo actualizar — revisa la conexión a Softland.');
-      cargarEstado();
+      cargarSyncEstado();
     } finally {
       setActualizando(false);
     }
   };
 
+  // Normaliza el shape de la API (campos _monto/_cant) a uno más liviano
+  // para todo el resto del componente.
+  const mensual = useMemo(() => {
+    if (!datos) return [];
+    return datos.mensual.map(r => ({
+      anio: r.anio, mes: r.mes, vencod: r.vencod, nombre: r.nombre_vendedor || 'Sin nombre', area: r.area || null,
+      cotizado: r.cotizado_monto, cant_cotizado: r.cotizado_cant,
+      cerrado: r.cerrado_monto, cant_cerrado: r.cerrado_cant,
+      facturado: r.facturado_monto, cant_facturado: r.facturado_cant,
+    }));
+  }, [datos]);
+
+  const vendedores = useMemo(() => {
+    const m = new Map();
+    mensual.forEach(r => { if (!m.has(r.vencod)) m.set(r.vencod, { vencod: r.vencod, nombre: r.nombre, area: r.area }); });
+    return Array.from(m.values()).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [mensual]);
+
+  const años = useMemo(() => Array.from(new Set(mensual.map(r => r.anio))).sort(), [mensual]);
+
+  const campo = base => (unidad === 'monto' ? base : `cant_${base}`);
+  const fmtUnidad = v => (unidad === 'monto' ? fmtMoney(v) : fmtCant(v));
+
+  const coincide = (r, ignorarPeriodo) => {
+    if (vencod && r.vencod !== vencod) return false;
+    if (area && r.area !== area) return false;
+    if (!ignorarPeriodo) {
+      if (anio && String(r.anio) !== anio) return false;
+      if (mes && String(r.mes) !== mes) return false;
+    }
+    return true;
+  };
+  const sum = (rows, c) => rows.reduce((a, r) => a + (r[c] || 0), 0);
+
+  const rowsPeriodo = useMemo(() => mensual.filter(r => coincide(r, false)), [mensual, anio, mes, vencod, area]);
+  const rowsSerie = useMemo(() => mensual.filter(r => coincide(r, true)), [mensual, vencod, area]);
+
+  const kpis = useMemo(() => {
+    const cot = sum(rowsPeriodo, campo('cotizado')), cer = sum(rowsPeriodo, campo('cerrado')), fac = sum(rowsPeriodo, campo('facturado'));
+    const cotM = sum(rowsPeriodo, 'cotizado'), cerM = sum(rowsPeriodo, 'cerrado'), facM = sum(rowsPeriodo, 'facturado');
+    const cotC = sum(rowsPeriodo, 'cant_cotizado'), cerC = sum(rowsPeriodo, 'cant_cerrado'), facC = sum(rowsPeriodo, 'cant_facturado');
+    return { cot, cer, fac, cotM, cerM, facM, cotC, cerC, facC, convCotCer: cer / cot, convCerFac: fac / cer };
+  }, [rowsPeriodo, unidad]);
+
+  const porVendedor = useMemo(() => {
+    const m = new Map();
+    rowsPeriodo.forEach(r => {
+      if (!m.has(r.vencod)) m.set(r.vencod, { nombre: r.nombre, area: r.area, cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 });
+      const acc = m.get(r.vencod);
+      acc.cotizado += r.cotizado; acc.cerrado += r.cerrado; acc.facturado += r.facturado;
+      acc.cant_cotizado += r.cant_cotizado; acc.cant_cerrado += r.cant_cerrado; acc.cant_facturado += r.cant_facturado;
+    });
+    return Array.from(m.values()).sort((a, b) => b[campo('facturado')] - a[campo('facturado')]);
+  }, [rowsPeriodo, unidad]);
+
+  const porArea = useMemo(() => {
+    const m = {};
+    Object.keys(AREA_LABEL).forEach(k => { m[k] = { cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 }; });
+    rowsPeriodo.forEach(r => {
+      if (!r.area || !m[r.area]) return;
+      const d = m[r.area];
+      d.cotizado += r.cotizado; d.cerrado += r.cerrado; d.facturado += r.facturado;
+      d.cant_cotizado += r.cant_cotizado; d.cant_cerrado += r.cant_cerrado; d.cant_facturado += r.cant_facturado;
+    });
+    return m;
+  }, [rowsPeriodo, unidad]);
+
+  const sinArea = useMemo(() => rowsPeriodo.filter(r => !r.area).length > 0, [rowsPeriodo]);
+
+  const nvPendientes = useMemo(() => {
+    if (!datos) return [];
+    return datos.nv_pendientes.filter(r => {
+      if (vencod && r.vencod !== vencod) return false;
+      if (area) { const v = vendedores.find(v => v.vencod === r.vencod); if (!v || v.area !== area) return false; }
+      return true;
+    }).map(r => ({ ...r, dias: Math.floor((Date.now() - new Date(r.fecha_nv).getTime()) / 86400000) }))
+      .sort((a, b) => b.dias - a.dias);
+  }, [datos, vencod, area, vendedores]);
+
+  // --- Gráfico "Mensual (2023-hoy)" ---
+  const canvasMensualRef = useRef(null);
+  useEffect(() => { dibujarMensual(canvasMensualRef.current, rowsSerie, años, unidad); }, [rowsSerie, años, unidad, tab]);
+
+  // --- Gráfico "Comparación anual" ---
+  const canvasAnualRef = useRef(null);
+  useEffect(() => { dibujarAnual(canvasAnualRef.current, rowsSerie, años, metricaAnual, unidad); }, [rowsSerie, años, metricaAnual, unidad, tab]);
+
+  const limpiarFiltros = () => { setAnio(''); setMes(''); setVencod(''); setArea(''); };
+
+  if (cargando) return <div className="text-gray-400 text-sm">Cargando reporte…</div>;
+
   return (
     <div>
-      <div className="flex items-start justify-between gap-4 flex-wrap mb-2">
+      <div className="flex items-start justify-between gap-4 flex-wrap mb-1">
         <h1 className="text-2xl font-bold text-ht-navy">Reportería Comercial + Softland</h1>
         <button onClick={actualizar} disabled={actualizando}
           className="bg-ht-accent text-white text-sm font-medium px-4 py-2 rounded hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
           {actualizando ? 'Actualizando…' : 'Actualizar'}
         </button>
       </div>
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm text-gray-500 mb-1">
         Cotizado: Softland hasta jul-2026 (estático) · CRM en vivo desde ago-2026.
         Cerrado y Facturado: siempre Softland, sin cruce con el pipeline del CRM.
       </p>
+      <p className="text-xs text-gray-400 mb-4">
+        {syncEstado?.ok
+          ? `Última actualización de Softland: ${fmtFecha(syncEstado.ejecutado_en)}`
+          : syncEstado === null
+            ? 'Todavía no se ha sincronizado con Softland.'
+            : <span className="text-red-500">La última sincronización falló ({fmtFecha(syncEstado?.ejecutado_en)}): {syncEstado?.error}</span>}
+      </p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+      {sinArea && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded text-sm">
+          Hay vendedores sin Área asignada — no aparecen en "Por área". Cárgala en Usuarios.
+        </div>
+      )}
 
-      <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 text-sm">
-        {cargando ? (
-          <span className="text-gray-400">Consultando estado…</span>
-        ) : !estado ? (
-          <span className="text-gray-500">Todavía no se ha ejecutado ninguna sincronización. Presiona "Actualizar" para cargar los datos de Softland por primera vez.</span>
-        ) : estado.ok ? (
-          <span className="text-gray-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2" />
-            Última actualización: <b className="text-ht-navy">{fmtFecha(estado.ejecutado_en)}</b>
-            {' — '}{estado.filas_mensual ?? '—'} filas mensuales, {estado.filas_pendientes ?? '—'} NV pendientes.
-          </span>
-        ) : (
-          <span className="text-red-600">
-            <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2" />
-            La última actualización ({fmtFecha(estado.ejecutado_en)}) falló: {estado.error || 'error desconocido'}.
-          </span>
-        )}
+      {/* Filtros */}
+      <div className="flex flex-wrap items-end gap-3 bg-white border border-gray-200 rounded-lg p-4 mb-5">
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Año</label>
+          <select value={anio} onChange={e => setAnio(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todos</option>
+            {años.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Mes</label>
+          <select value={mes} onChange={e => setMes(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todos los meses</option>
+            {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Vendedor</label>
+          <select value={vencod} onChange={e => setVencod(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todos los vendedores</option>
+            {vendedores.map(v => <option key={v.vencod} value={v.vencod}>{v.nombre}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Área</label>
+          <select value={area} onChange={e => setArea(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">Todas</option>
+            {Object.entries(AREA_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-400 uppercase mb-1">Ver</label>
+          <div className="inline-flex border border-gray-300 rounded overflow-hidden">
+            <button onClick={() => setUnidad('monto')}
+              className={`text-sm font-medium px-3 py-1.5 ${unidad === 'monto' ? 'bg-ht-accent text-white' : 'bg-white text-gray-600'}`}>Montos</button>
+            <button onClick={() => setUnidad('cantidad')}
+              className={`text-sm font-medium px-3 py-1.5 border-l border-gray-300 ${unidad === 'cantidad' ? 'bg-ht-accent text-white' : 'bg-white text-gray-600'}`}>Cantidad</button>
+          </div>
+        </div>
+        <div className="flex-1" />
+        <button onClick={limpiarFiltros} className="text-xs text-ht-accent hover:underline px-1 py-2">Limpiar filtros</button>
       </div>
 
-      <div className="bg-white border border-gray-200 rounded-lg p-8 text-center text-gray-400 text-sm">
-        El reporte (mensual, comparación anual, por vendedor, por área, NV sin facturar) se agrega en el siguiente paso —
-        esta pantalla por ahora solo prueba la conexión y la carga de datos desde Softland.
+      {/* KPIs */}
+      <div className="grid gap-4 sm:grid-cols-3 mb-4">
+        <TarjetaKpi color={COLOR_COTIZADO} label="Cotizado" valor={fmtUnidad(kpis.cot)}
+          sub={unidad === 'monto' ? `${fmtCant(kpis.cotC)} cotizadas` : `${fmtMoney(kpis.cotM)} cotizado`} />
+        <TarjetaKpi color={COLOR_CERRADO} label="Cerrado (NV emitidas)" valor={fmtUnidad(kpis.cer)}
+          sub={unidad === 'monto' ? `${fmtCant(kpis.cerC)} NV emitidas` : `${fmtMoney(kpis.cerM)} en NV`} />
+        <TarjetaKpi color={COLOR_FACTURADO} label="Facturado" valor={fmtUnidad(kpis.fac)}
+          sub={unidad === 'monto' ? `${fmtCant(kpis.facC)} facturas` : `${fmtMoney(kpis.facM)} facturado`} />
       </div>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-1 items-center bg-white border border-gray-200 rounded-lg px-4 py-3 mb-5 text-sm">
+        <span className="text-gray-600">Cotizado → Cerrado <b className="text-ht-navy ml-1">{fmtPct(kpis.convCotCer)}</b></span>
+        <span className="text-gray-600">Cerrado → Facturado <b className="text-ht-navy ml-1">{fmtPct(kpis.convCerFac)}</b></span>
+        <span className="ml-auto text-xs text-gray-400">{mes ? MESES[mes - 1] : 'todo el año'} · {anio || (años[0] && `${años[0]}–${años[años.length - 1]}`)}</span>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-gray-200 mb-4">
+        {[['mensual', 'Mensual (2023–hoy)'], ['anual', 'Comparación anual'], ['vendedor', 'Por vendedor'], ['area', 'Por área'], ['nvpend', 'NV sin facturar']].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px ${tab === k ? 'text-ht-navy border-ht-accent' : 'text-gray-500 border-transparent hover:text-ht-navy'}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'mensual' && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-ht-navy text-sm">Evolución mensual</h2>
+            <Leyenda />
+          </div>
+          <div className="overflow-x-auto">
+            <canvas ref={canvasMensualRef} height={280} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'anual' && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="font-semibold text-ht-navy text-sm">Ene–Dic por año, una métrica a la vez</h2>
+            <div className="inline-flex border border-gray-300 rounded overflow-hidden text-xs">
+              {[['cotizado', 'Cotizado'], ['cerrado', 'Cerrado (NV)'], ['facturado', 'Facturado']].map(([k, l]) => (
+                <button key={k} onClick={() => setMetricaAnual(k)}
+                  className={`px-3 py-1.5 font-semibold ${metricaAnual === k ? '' : 'bg-white text-gray-500'}`}
+                  style={metricaAnual === k ? { background: k === 'cotizado' ? '#E8F7FC' : k === 'cerrado' ? '#FBF1E1' : '#E7F5EC', color: k === 'cotizado' ? COLOR_COTIZADO : k === 'cerrado' ? COLOR_CERRADO : COLOR_FACTURADO } : {}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-4 text-xs text-gray-500 mb-2">
+            {años.map(a => <span key={a}><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: AÑO_COLOR[a] || '#999' }} />{a}</span>)}
+          </div>
+          <div className="overflow-x-auto">
+            <canvas ref={canvasAnualRef} height={300} />
+          </div>
+        </div>
+      )}
+
+      {tab === 'vendedor' && (
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <h2 className="font-semibold text-ht-navy text-sm">Vendedores</h2>
+            <span className="text-xs text-gray-400">{porVendedor.length} vendedor{porVendedor.length === 1 ? '' : 'es'} · viendo {unidad === 'monto' ? 'montos' : 'cantidad de documentos'}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-gray-600">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium">Vendedor</th>
+                  <th className="text-left px-4 py-2 font-medium">Área</th>
+                  <th className="text-right px-4 py-2 font-medium">Cotizado</th>
+                  <th className="text-right px-4 py-2 font-medium">Cerrado</th>
+                  <th className="text-right px-4 py-2 font-medium">Facturado</th>
+                  <th className="text-right px-4 py-2 font-medium">Cot→Cer</th>
+                  <th className="text-right px-4 py-2 font-medium">Cer→Fact</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porVendedor.map((v, i) => (
+                  <tr key={i} className="border-t border-gray-100 hover:bg-slate-50">
+                    <td className="px-4 py-2 text-ht-navy">{v.nombre}</td>
+                    <td className="px-4 py-2">{v.area ? <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${AREA_BADGE[v.area]}`}>{AREA_LABEL[v.area]}</span> : <span className="text-xs text-gray-300">Sin área</span>}</td>
+                    <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('cotizado')])}</td>
+                    <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('cerrado')])}</td>
+                    <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('facturado')])}</td>
+                    <td className="px-4 py-2 text-right">{fmtPct(v[campo('cerrado')] / v[campo('cotizado')])}</td>
+                    <td className="px-4 py-2 text-right">{fmtPct(v[campo('facturado')] / v[campo('cerrado')])}</td>
+                  </tr>
+                ))}
+                {!porVendedor.length && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Sin datos para este filtro.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === 'area' && (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Object.keys(AREA_LABEL).map(k => {
+            const d = porArea[k];
+            const max = Math.max(1, ...Object.values(porArea).map(x => x[campo('cotizado')]));
+            const barra = (c, label, color) => {
+              const v = d[campo(c)];
+              return (
+                <div key={c} className="grid grid-cols-[60px_1fr_auto] items-center gap-2 text-xs text-gray-500 mb-1.5">
+                  <span>{label}</span>
+                  <span className="h-1.5 rounded bg-gray-100 overflow-hidden"><span className="block h-full rounded" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: color }} /></span>
+                  <span className="text-right">{fmtUnidad(v)}</span>
+                </div>
+              );
+            };
+            return (
+              <div key={k} className="bg-white border border-gray-200 rounded-lg p-4">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${AREA_BADGE[k]}`}>{AREA_LABEL[k]}</span>
+                <div className="text-lg font-bold text-ht-navy mt-2 mb-3">{fmtUnidad(d[campo('cotizado')])} <span className="text-xs font-normal text-gray-400">cotizado</span></div>
+                {barra('cotizado', 'Cotizado', COLOR_COTIZADO)}
+                {barra('cerrado', 'Cerrado', COLOR_CERRADO)}
+                {barra('facturado', 'Facturado', COLOR_FACTURADO)}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {tab === 'nvpend' && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3 mb-4">
+            <TarjetaKpi color={COLOR_CERRADO} label="NV sin facturar" valor={nvPendientes.length} />
+            <TarjetaKpi color="#C6473F" label="Monto pendiente" valor={fmtMoney(sum(nvPendientes, 'monto_pendiente'))} />
+            <TarjetaKpi color="#94A3B8" label="Días máx. sin facturar" valor={nvPendientes.length ? `${Math.max(...nvPendientes.map(r => r.dias))} días` : '—'} />
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <h2 className="font-semibold text-ht-navy text-sm">Notas de venta pendientes de facturación</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-gray-600">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium">NV</th>
+                    <th className="text-left px-4 py-2 font-medium">Fecha</th>
+                    <th className="text-left px-4 py-2 font-medium">Días</th>
+                    <th className="text-left px-4 py-2 font-medium">Vendedor</th>
+                    <th className="text-left px-4 py-2 font-medium">Cliente</th>
+                    <th className="text-right px-4 py-2 font-medium">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {nvPendientes.map(r => (
+                    <tr key={r.nv_numero} className="border-t border-gray-100 hover:bg-slate-50">
+                      <td className="px-4 py-2 text-ht-navy">{r.nv_numero}</td>
+                      <td className="px-4 py-2 text-gray-600">{new Date(r.fecha_nv).toLocaleDateString('es-CL')}</td>
+                      <td className="px-4 py-2">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.dias > 30 ? 'bg-red-50 text-red-600' : r.dias > 14 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{r.dias} d</span>
+                      </td>
+                      <td className="px-4 py-2 text-gray-600">{r.nombre_vendedor}</td>
+                      <td className="px-4 py-2 text-gray-600">{r.nombre_cliente}</td>
+                      <td className="px-4 py-2 text-right text-ht-navy">{fmtMoney(r.monto_pendiente)}</td>
+                    </tr>
+                  ))}
+                  {!nvPendientes.length && <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin NV pendientes para este filtro.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
+}
+
+function TarjetaKpi({ color, label, valor, sub }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 relative overflow-hidden pl-5">
+      <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: color }} />
+      <div className="text-xs font-semibold text-gray-400 uppercase mb-1">{label}</div>
+      <div className="text-2xl font-bold text-ht-navy">{valor}</div>
+      {sub && <div className="text-xs text-gray-500 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+function Leyenda() {
+  return (
+    <div className="flex gap-4 text-xs text-gray-500">
+      <span><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: COLOR_COTIZADO }} />Cotizado</span>
+      <span><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: COLOR_CERRADO }} />Cerrado</span>
+      <span><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: COLOR_FACTURADO }} />Facturado</span>
+    </div>
+  );
+}
+
+// --- Dibujo de canvas (imperativo, fuera del árbol de React) ---
+
+function mesesDesde2023() {
+  const hoy = new Date();
+  const lista = [];
+  for (let a = 2023; a <= hoy.getFullYear(); a++) {
+    for (let m = 1; m <= 12; m++) {
+      if (a === hoy.getFullYear() && m > hoy.getMonth() + 1) break;
+      lista.push({ anio: a, mes: m });
+    }
+  }
+  return lista;
+}
+
+function prepararCanvas(canvas, wCss, hCss) {
+  if (!canvas) return null;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.style.width = `${wCss}px`; canvas.style.height = `${hCss}px`;
+  canvas.width = wCss * dpr; canvas.height = hCss * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, wCss, hCss);
+  return ctx;
+}
+
+function dibujarMensual(canvas, rows, años, unidad) {
+  if (!canvas) return;
+  const meses = mesesDesde2023();
+  const campo = base => (unidad === 'monto' ? base : `cant_${base}`);
+  const porMes = {};
+  meses.forEach(p => { porMes[`${p.anio}-${p.mes}`] = { cotizado: 0, cerrado: 0, facturado: 0 }; });
+  rows.forEach(r => {
+    const k = `${r.anio}-${r.mes}`;
+    if (!porMes[k]) return;
+    porMes[k].cotizado += r[campo('cotizado')]; porMes[k].cerrado += r[campo('cerrado')]; porMes[k].facturado += r[campo('facturado')];
+  });
+  const serie = meses.map(p => ({ p, d: porMes[`${p.anio}-${p.mes}`] }));
+
+  const wCss = Math.max(720, serie.length * 20), hCss = 280;
+  const ctx = prepararCanvas(canvas, wCss, hCss);
+  if (!ctx) return;
+
+  const padL = 60, padB = 26, padT = 10, padR = 10;
+  const plotW = wCss - padL - padR, plotH = hCss - padT - padB;
+  const maxV = Math.max(1, ...serie.map(s => s.d.cotizado)) * 1.12;
+
+  ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1; ctx.font = '10px -apple-system, sans-serif'; ctx.fillStyle = '#94A3B8';
+  for (let g = 0; g <= 4; g++) {
+    const y = padT + plotH - (g / 4) * plotH;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(wCss - padR, y); ctx.stroke();
+    const val = (maxV * g) / 4;
+    ctx.textAlign = 'right';
+    ctx.fillText(unidad === 'monto' ? `${(val / 1e6).toFixed(0)}M` : Math.round(val).toLocaleString('es-CL'), padL - 8, y + 3);
+  }
+
+  const stepX = plotW / serie.length, barW = Math.max(3, stepX * 0.55);
+  ctx.fillStyle = COLOR_COTIZADO;
+  serie.forEach((s, i) => {
+    const x = padL + i * stepX + (stepX - barW) / 2;
+    const h = (s.d.cotizado / maxV) * plotH;
+    ctx.fillRect(x, padT + plotH - h, barW, h);
+  });
+  const linea = (campoNombre, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    serie.forEach((s, i) => {
+      const x = padL + i * stepX + stepX / 2, y = padT + plotH - (s.d[campoNombre] / maxV) * plotH;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  linea('cerrado', COLOR_CERRADO);
+  linea('facturado', COLOR_FACTURADO);
+
+  ctx.fillStyle = '#94A3B8'; ctx.textAlign = 'center';
+  serie.forEach((s, i) => {
+    if (s.p.mes === 1 || i === 0) {
+      const x = padL + i * stepX + stepX / 2;
+      ctx.fillText(String(s.p.anio), x, hCss - 8);
+      ctx.strokeStyle = '#E2E8F0';
+      ctx.beginPath(); ctx.moveTo(padL + i * stepX, padT); ctx.lineTo(padL + i * stepX, padT + plotH); ctx.stroke();
+    }
+  });
+}
+
+function dibujarAnual(canvas, rows, años, metrica, unidad) {
+  if (!canvas) return;
+  const campo = unidad === 'monto' ? metrica : `cant_${metrica}`;
+  const porAnioMes = {};
+  años.forEach(a => { porAnioMes[a] = Array(12).fill(0); });
+  rows.forEach(r => { if (porAnioMes[r.anio]) porAnioMes[r.anio][r.mes - 1] += r[campo] || 0; });
+
+  const wCss = Math.max(760, 12 * Math.max(años.length, 1) * 22), hCss = 300;
+  const ctx = prepararCanvas(canvas, wCss, hCss);
+  if (!ctx) return;
+
+  const padL = 60, padB = 30, padT = 12, padR = 10;
+  const plotW = wCss - padL - padR, plotH = hCss - padT - padB;
+  let maxV = 1;
+  años.forEach(a => { maxV = Math.max(maxV, ...porAnioMes[a]); });
+  maxV *= 1.12;
+
+  ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1; ctx.font = '10px -apple-system, sans-serif'; ctx.fillStyle = '#94A3B8';
+  for (let g = 0; g <= 4; g++) {
+    const y = padT + plotH - (g / 4) * plotH;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(wCss - padR, y); ctx.stroke();
+    const val = (maxV * g) / 4;
+    ctx.textAlign = 'right';
+    ctx.fillText(unidad === 'monto' ? `${(val / 1e6).toFixed(0)}M` : Math.round(val).toLocaleString('es-CL'), padL - 8, y + 3);
+  }
+
+  const stepMes = plotW / 12, grupoW = stepMes * 0.72, barW = grupoW / Math.max(1, años.length);
+  ctx.textAlign = 'center';
+  for (let m = 0; m < 12; m++) {
+    const gx = padL + m * stepMes + (stepMes - grupoW) / 2;
+    años.forEach((a, ai) => {
+      const v = porAnioMes[a][m], h = (v / maxV) * plotH;
+      ctx.fillStyle = AÑO_COLOR[a] || '#999';
+      ctx.fillRect(gx + ai * barW + 1, padT + plotH - h, barW - 2, h);
+    });
+    ctx.fillStyle = '#94A3B8';
+    ctx.fillText(MESES_ABR[m], padL + m * stepMes + stepMes / 2, hCss - 10);
+  }
 }
