@@ -33,6 +33,7 @@ export default function ReporteriaSoftland() {
   const [unidad, setUnidad] = useState('monto');
   const [tab, setTab] = useState('mensual');
   const [metricaAnual, setMetricaAnual] = useState('cotizado');
+  const [buscarNv, setBuscarNv] = useState('');
 
   const cargarDatos = () => {
     setCargando(true); setError('');
@@ -129,13 +130,18 @@ export default function ReporteriaSoftland() {
 
   const nvPendientes = useMemo(() => {
     if (!datos) return [];
+    const q = buscarNv.trim().toLowerCase();
     return datos.nv_pendientes.filter(r => {
       if (vencod && r.vencod !== vencod) return false;
       if (area) { const v = vendedores.find(v => v.vencod === r.vencod); if (!v || v.area !== area) return false; }
+      if (q) {
+        const campos = [r.nv_numero, r.nombre_vendedor, r.nombre_cliente, r.cod_cliente, r.num_oc];
+        if (!campos.some(c => String(c || '').toLowerCase().includes(q))) return false;
+      }
       return true;
     }).map(r => ({ ...r, dias: Math.floor((Date.now() - new Date(r.fecha_nv).getTime()) / 86400000) }))
       .sort((a, b) => b.dias - a.dias);
-  }, [datos, vencod, area, vendedores]);
+  }, [datos, vencod, area, vendedores, buscarNv]);
 
   // --- Gráfico "Mensual (2023-hoy)" ---
   const canvasMensualRef = useRef(null);
@@ -359,8 +365,11 @@ export default function ReporteriaSoftland() {
             <TarjetaKpi color="#94A3B8" label="Días máx. sin facturar" valor={nvPendientes.length ? `${Math.max(...nvPendientes.map(r => r.dias))} días` : '—'} />
           </div>
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
               <h2 className="font-semibold text-ht-navy text-sm">Notas de venta pendientes de facturación</h2>
+              <input value={buscarNv} onChange={e => setBuscarNv(e.target.value)}
+                placeholder="Buscar por NV, cliente, vendedor u O/C…"
+                className="border border-gray-300 rounded px-3 py-1.5 text-sm w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

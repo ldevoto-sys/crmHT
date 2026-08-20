@@ -13,6 +13,18 @@
 //   marcado "Ganado" — cuentan las NV que Softland generó, punto (decisión
 //   explícita: hay vendedores que no marcan todo como ganado en el CRM, y
 //   hay NV sin cotización asociada en ningún sistema).
+//
+// Corrección 20-08-2026: "Facturado" se agrupa por la FECHA REAL DE LA
+// FACTURA (WG_vsnpCuboVentas.Fecha — la misma tabla y criterio que usa la
+// "Consulta de Ventas por Vendedor" nativa de Softland), no por la fecha de
+// la nota de venta que la origina. La primera versión agrupaba "facturado"
+// por nv.nvFem (fecha de la NV), así que un mes mostraba "cuánto de lo
+// vendido ESE mes ya se facturó (cuando sea)", no "cuánto se facturó ESE
+// mes" — con NV que tardan semanas o meses en facturarse (ver "NV sin
+// facturar"), ambos números se alejan bastante. Confirmado contra la
+// consulta real de Softland de agosto-2026: coincidían $52,4M (nuestro,
+// versión vieja) vs $74,2M (Softland). "Cerrado" sí sigue siendo por fecha
+// de NV — no se cuestionó, mide negocios cerrados ese mes, no facturación.
 const { db } = require('../db');
 const softland = require('./softland');
 
@@ -35,30 +47,37 @@ const SQL_COTIZADO = `
   GROUP BY YEAR(c.CtFem), MONTH(c.CtFem), c.VenCod, v.VenDes
 `;
 
-// Cerrado = NV emitidas; Facturado = las de esas NV que ya tienen factura/
-// boleta/nota de crédito asociada (iw_gsaen). Sin corte de fecha: todos los
+// Cerrado = NV emitidas, por fecha de la NV. Sin corte de fecha: todos los
 // años disponibles, siempre recalculado completo.
-const SQL_CERRADO_FACTURADO = `
+const SQL_CERRADO = `
   SELECT
       YEAR(nv.nvFem)                      AS Anio,
       MONTH(nv.nvFem)                     AS Mes,
       nv.VenCod                           AS VenCod,
       ISNULL(v.VenDes,'')                 AS NombreVendedor,
       COUNT(DISTINCT nv.NVNumero)         AS NVEmitidas,
-      COUNT(DISTINCT f.nvnumero)          AS NVFacturadas,
-      SUM(nv.nvNetoAfecto + nv.nvNetoExento) AS MontoNV,
-      SUM(CASE WHEN f.nvnumero IS NOT NULL
-               THEN nv.nvNetoAfecto + nv.nvNetoExento
-               ELSE 0 END)                AS MontoFacturado
+      SUM(nv.nvNetoAfecto + nv.nvNetoExento) AS MontoNV
   FROM softland.nw_nventa nv
   LEFT JOIN softland.cwtvend v ON nv.VenCod = v.VenCod
-  LEFT JOIN (
-      SELECT DISTINCT nvnumero FROM softland.iw_gsaen
-      WHERE Tipo IN ('F','E','B') AND nvnumero > 0
-  ) f ON nv.NVNumero = f.nvnumero
   WHERE YEAR(nv.nvFem) BETWEEN 2023 AND YEAR(GETDATE())
     AND nv.nvEstado <> 'N'
   GROUP BY YEAR(nv.nvFem), MONTH(nv.nvFem), nv.VenCod, v.VenDes
+`;
+
+// Facturado = ventas facturadas por fecha REAL del documento (mismo criterio
+// que la "Consulta de Ventas por Vendedor" nativa de Softland).
+const SQL_FACTURADO = `
+  SELECT
+      YEAR(v.Fecha)                       AS Anio,
+      MONTH(v.Fecha)                      AS Mes,
+      ISNULL(v.CodVendedor,'')            AS VenCod,
+      ISNULL(vend.VenDes,'Sin Vendedor')  AS NombreVendedor,
+      COUNT(DISTINCT v.Folio)             AS NumDoctos,
+      SUM(v.TOTALNETO)                    AS TotalNeto
+  FROM softland.WG_vsnpCuboVentas v
+  LEFT JOIN softland.cwtvend vend ON v.CodVendedor = vend.VenCod
+  WHERE YEAR(v.Fecha) BETWEEN 2023 AND YEAR(GETDATE())
+  GROUP BY YEAR(v.Fecha), MONTH(v.Fecha), v.CodVendedor, vend.VenDes
 `;
 
 // NV pendientes de facturar del año en curso, agregadas por NV (no por línea
@@ -89,38 +108,41 @@ const SQL_NV_PENDIENTES = `
   GROUP BY nv.NVNumero, nv.nvFem, nv.VenCod, v.VenDes, nv.CodAux, a.NomAux, nv.NomCon, nv.NumOC
 `;
 
-// Combina las dos consultas mensuales por (año, mes, vencod) — no siempre
+// Combina las tres consultas mensuales por (año, mes, vencod) — no siempre
 // tienen las mismas filas (un vendedor puede tener NV sin cotizaciones ese
-// mes, o viceversa), así que se completa con 0 lo que falte.
-function combinarMensual(cotizado, cerradoFacturado) {
+// mes, facturación de NV de un mes anterior, etc.), así que se completa con
+// 0 lo que falte. Cotizado/Cerrado/Facturado son intencionalmente
+// independientes entre sí: cada uno tiene su propia fecha base (fecha de
+// cotización, fecha de NV, fecha de factura respectivamente).
+function combinarMensual(cotizado, cerrado, facturado) {
   const filas = new Map();
   const clave = (anio, mes, vencod) => `${anio}-${mes}-${vencod}`;
+  const base = (r) => ({
+    anio: r.Anio, mes: r.Mes, vencod: r.VenCod, nombre_vendedor: r.NombreVendedor || null,
+    cotizado_monto: 0, cotizado_cant: 0, cerrado_monto: 0, cerrado_cant: 0, facturado_monto: 0, facturado_cant: 0,
+  });
+  const fila = (r) => {
+    const k = clave(r.Anio, r.Mes, r.VenCod);
+    if (!filas.has(k)) filas.set(k, base(r));
+    const f = filas.get(k);
+    if (!f.nombre_vendedor) f.nombre_vendedor = r.NombreVendedor || null;
+    return f;
+  };
 
   for (const r of cotizado) {
-    const k = clave(r.Anio, r.Mes, r.VenCod);
-    filas.set(k, {
-      anio: r.Anio, mes: r.Mes, vencod: r.VenCod, nombre_vendedor: r.NombreVendedor || null,
-      cotizado_monto: Number(r.MontoCotizaciones) || 0, cotizado_cant: Number(r.Cotizaciones) || 0,
-      cerrado_monto: 0, cerrado_cant: 0, facturado_monto: 0, facturado_cant: 0,
-    });
+    const f = fila(r);
+    f.cotizado_monto = Number(r.MontoCotizaciones) || 0;
+    f.cotizado_cant = Number(r.Cotizaciones) || 0;
   }
-  for (const r of cerradoFacturado) {
-    const k = clave(r.Anio, r.Mes, r.VenCod);
-    const existente = filas.get(k);
-    if (existente) {
-      existente.cerrado_monto = Number(r.MontoNV) || 0;
-      existente.cerrado_cant = Number(r.NVEmitidas) || 0;
-      existente.facturado_monto = Number(r.MontoFacturado) || 0;
-      existente.facturado_cant = Number(r.NVFacturadas) || 0;
-      if (!existente.nombre_vendedor) existente.nombre_vendedor = r.NombreVendedor || null;
-    } else {
-      filas.set(k, {
-        anio: r.Anio, mes: r.Mes, vencod: r.VenCod, nombre_vendedor: r.NombreVendedor || null,
-        cotizado_monto: 0, cotizado_cant: 0,
-        cerrado_monto: Number(r.MontoNV) || 0, cerrado_cant: Number(r.NVEmitidas) || 0,
-        facturado_monto: Number(r.MontoFacturado) || 0, facturado_cant: Number(r.NVFacturadas) || 0,
-      });
-    }
+  for (const r of cerrado) {
+    const f = fila(r);
+    f.cerrado_monto = Number(r.MontoNV) || 0;
+    f.cerrado_cant = Number(r.NVEmitidas) || 0;
+  }
+  for (const r of facturado) {
+    const f = fila(r);
+    f.facturado_monto = Number(r.TotalNeto) || 0;
+    f.facturado_cant = Number(r.NumDoctos) || 0;
   }
   return Array.from(filas.values());
 }
@@ -128,12 +150,13 @@ function combinarMensual(cotizado, cerradoFacturado) {
 async function sincronizar() {
   const hoy = fechaChileHoy();
   try {
-    const [cotizado, cerradoFacturado, nvPendientes] = await Promise.all([
+    const [cotizado, cerrado, facturado, nvPendientes] = await Promise.all([
       softland.query(SQL_COTIZADO),
-      softland.query(SQL_CERRADO_FACTURADO),
+      softland.query(SQL_CERRADO),
+      softland.query(SQL_FACTURADO),
       softland.query(SQL_NV_PENDIENTES),
     ]);
-    const mensual = combinarMensual(cotizado, cerradoFacturado);
+    const mensual = combinarMensual(cotizado, cerrado, facturado);
 
     const client = await db.pool.connect();
     try {
