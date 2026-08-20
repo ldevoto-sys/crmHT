@@ -147,9 +147,36 @@ export default function ReporteriaSoftland() {
   const canvasMensualRef = useRef(null);
   useEffect(() => { dibujarMensual(canvasMensualRef.current, rowsSerie, años, unidad); }, [rowsSerie, años, unidad, tab]);
 
-  // --- Gráfico "Comparación anual" ---
+  // --- Gráfico "Comparación anual" (barras por mes + versión acumulada) ---
   const canvasAnualRef = useRef(null);
-  useEffect(() => { dibujarAnual(canvasAnualRef.current, rowsSerie, años, metricaAnual, unidad); }, [rowsSerie, años, metricaAnual, unidad, tab]);
+  const canvasAnualAcumRef = useRef(null);
+  const layoutAnualRef = useRef(null);
+  const layoutAnualAcumRef = useRef(null);
+  const [tooltipAnual, setTooltipAnual] = useState(null); // {x, y, titulo, valor}
+  const [tooltipAnualAcum, setTooltipAnualAcum] = useState(null);
+
+  const matrizAnual = useMemo(() => matrizPorAnioMes(rowsSerie, años, metricaAnual, unidad), [rowsSerie, años, metricaAnual, unidad]);
+  const matrizAnualAcum = useMemo(() => acumularPorAnio(matrizAnual, años), [matrizAnual, años]);
+
+  useEffect(() => {
+    layoutAnualRef.current = dibujarBarrasPorAnio(canvasAnualRef.current, matrizAnual, años, unidad);
+  }, [matrizAnual, años, unidad, tab]);
+  useEffect(() => {
+    layoutAnualAcumRef.current = dibujarBarrasPorAnio(canvasAnualAcumRef.current, matrizAnualAcum, años, unidad);
+  }, [matrizAnualAcum, años, unidad, tab]);
+
+  function hoverAnual(e, layoutRef, matriz, setTooltip) {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const celda = celdaEnPosicion(layoutRef.current, años, e.clientX - rect.left, e.clientY - rect.top);
+    if (!celda) { setTooltip(null); return; }
+    const valor = matriz[celda.anio]?.[celda.mes] ?? 0;
+    setTooltip({
+      x: e.clientX - rect.left, y: e.clientY - rect.top,
+      titulo: `${MESES[celda.mes]} ${celda.anio}`,
+      valor: unidad === 'monto' ? fmtMoney(valor) : fmtCant(valor),
+    });
+  }
 
   const limpiarFiltros = () => { setAnio(''); setMes(''); setVencod(''); setArea(''); };
 
@@ -269,24 +296,70 @@ export default function ReporteriaSoftland() {
       )}
 
       {tab === 'anual' && (
-        <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="font-semibold text-ht-navy text-sm">Ene–Dic por año, una métrica a la vez</h2>
-            <div className="inline-flex border border-gray-300 rounded overflow-hidden text-xs">
-              {[['cotizado', 'Cotizado'], ['cerrado', 'Cerrado (NV)'], ['facturado', 'Facturado']].map(([k, l]) => (
-                <button key={k} onClick={() => setMetricaAnual(k)}
-                  className={`px-3 py-1.5 font-semibold ${metricaAnual === k ? '' : 'bg-white text-gray-500'}`}
-                  style={metricaAnual === k ? { background: k === 'cotizado' ? '#E8F7FC' : k === 'cerrado' ? '#FBF1E1' : '#E7F5EC', color: k === 'cotizado' ? COLOR_COTIZADO : k === 'cerrado' ? COLOR_CERRADO : COLOR_FACTURADO } : {}}>
-                  {l}
-                </button>
-              ))}
+        <div className="space-y-5">
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h2 className="font-semibold text-ht-navy text-sm">Ene–Dic por año, una métrica a la vez</h2>
+              <div className="inline-flex border border-gray-300 rounded overflow-hidden text-xs">
+                {[['cotizado', 'Cotizado'], ['cerrado', 'Cerrado (NV)'], ['facturado', 'Facturado']].map(([k, l]) => (
+                  <button key={k} onClick={() => setMetricaAnual(k)}
+                    className={`px-3 py-1.5 font-semibold ${metricaAnual === k ? '' : 'bg-white text-gray-500'}`}
+                    style={metricaAnual === k ? { background: k === 'cotizado' ? '#E8F7FC' : k === 'cerrado' ? '#FBF1E1' : '#E7F5EC', color: k === 'cotizado' ? COLOR_COTIZADO : k === 'cerrado' ? COLOR_CERRADO : COLOR_FACTURADO } : {}}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-4 text-xs text-gray-500 mb-2">
+              {años.map(a => <span key={a}><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: AÑO_COLOR[a] || '#999' }} />{a}</span>)}
+            </div>
+            <div className="overflow-x-auto relative">
+              <canvas ref={canvasAnualRef} height={300}
+                onMouseMove={e => hoverAnual(e, layoutAnualRef, matrizAnual, setTooltipAnual)}
+                onMouseLeave={() => setTooltipAnual(null)} />
+              <GraficoTooltip t={tooltipAnual} />
             </div>
           </div>
-          <div className="flex gap-4 text-xs text-gray-500 mb-2">
-            {años.map(a => <span key={a}><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: AÑO_COLOR[a] || '#999' }} />{a}</span>)}
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="font-semibold text-ht-navy text-sm mb-3">Ene–Dic acumulado por año</h2>
+            <div className="flex gap-4 text-xs text-gray-500 mb-2">
+              {años.map(a => <span key={a}><span className="inline-block w-2.5 h-2.5 rounded-sm mr-1 align-[-1px]" style={{ background: AÑO_COLOR[a] || '#999' }} />{a}</span>)}
+            </div>
+            <div className="overflow-x-auto relative">
+              <canvas ref={canvasAnualAcumRef} height={300}
+                onMouseMove={e => hoverAnual(e, layoutAnualAcumRef, matrizAnualAcum, setTooltipAnualAcum)}
+                onMouseLeave={() => setTooltipAnualAcum(null)} />
+              <GraficoTooltip t={tooltipAnualAcum} />
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <canvas ref={canvasAnualRef} height={300} />
+
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100">
+              <h2 className="font-semibold text-ht-navy text-sm">Detalle por año — {{ cotizado: 'Cotizado', cerrado: 'Cerrado (NV)', facturado: 'Facturado' }[metricaAnual]}</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-gray-600">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium">Año</th>
+                    {MESES_ABR.map(m => <th key={m} className="text-right px-3 py-2 font-medium">{m}</th>)}
+                    <th className="text-right px-4 py-2 font-medium">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {años.map(a => (
+                    <tr key={a} className="border-t border-gray-100 hover:bg-slate-50">
+                      <td className="px-4 py-2 text-ht-navy font-medium">
+                        <span className="inline-block w-2.5 h-2.5 rounded-sm mr-2 align-[-1px]" style={{ background: AÑO_COLOR[a] || '#999' }} />{a}
+                      </td>
+                      {matrizAnual[a].map((v, i) => <td key={i} className="px-3 py-2 text-right num">{fmtUnidad(v)}</td>)}
+                      <td className="px-4 py-2 text-right text-ht-navy font-semibold num">{fmtUnidad(matrizAnual[a].reduce((s, v) => s + v, 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -418,6 +491,17 @@ function TarjetaKpi({ color, label, valor, sub }) {
   );
 }
 
+function GraficoTooltip({ t }) {
+  if (!t) return null;
+  return (
+    <div className="absolute z-10 pointer-events-none bg-ht-navy text-white text-xs rounded px-2.5 py-1.5 shadow-lg -translate-x-1/2 -translate-y-full"
+      style={{ left: t.x, top: t.y - 8 }}>
+      <div className="font-semibold">{t.titulo}</div>
+      <div>{t.valor}</div>
+    </div>
+  );
+}
+
 function Leyenda() {
   return (
     <div className="flex gap-4 text-xs text-gray-500">
@@ -512,22 +596,45 @@ function dibujarMensual(canvas, rows, años, unidad) {
   });
 }
 
-function dibujarAnual(canvas, rows, años, metrica, unidad) {
-  if (!canvas) return;
+// Matriz {año: [valor_ene..valor_dic]} para la métrica/unidad elegidas.
+function matrizPorAnioMes(rows, años, metrica, unidad) {
   const campo = unidad === 'monto' ? metrica : `cant_${metrica}`;
   const porAnioMes = {};
   años.forEach(a => { porAnioMes[a] = Array(12).fill(0); });
   rows.forEach(r => { if (porAnioMes[r.anio]) porAnioMes[r.anio][r.mes - 1] += r[campo] || 0; });
+  return porAnioMes;
+}
 
-  const wCss = Math.max(760, 12 * Math.max(años.length, 1) * 22), hCss = 300;
-  const ctx = prepararCanvas(canvas, wCss, hCss);
-  if (!ctx) return;
+// Misma matriz, pero acumulada mes a mes dentro de cada año (Ene, Ene+Feb, ...).
+function acumularPorAnio(porAnioMes, años) {
+  const acum = {};
+  años.forEach(a => {
+    let corrido = 0;
+    acum[a] = porAnioMes[a].map(v => (corrido += v));
+  });
+  return acum;
+}
 
+// Geometría del gráfico de barras agrupadas por año — se calcula una vez y
+// la usan tanto el dibujo en canvas como la detección de hover (mismos
+// números en los dos, no se puede permitir que se desalineen).
+function layoutBarrasPorAnio(porAnioMes, años, wCss, hCss) {
   const padL = 60, padB = 30, padT = 12, padR = 10;
   const plotW = wCss - padL - padR, plotH = hCss - padT - padB;
   let maxV = 1;
   años.forEach(a => { maxV = Math.max(maxV, ...porAnioMes[a]); });
   maxV *= 1.12;
+  const stepMes = plotW / 12, grupoW = stepMes * 0.72, barW = grupoW / Math.max(1, años.length);
+  return { padL, padT, padR, padB, plotW, plotH, maxV, stepMes, grupoW, barW, wCss, hCss };
+}
+
+function dibujarBarrasPorAnio(canvas, porAnioMes, años, unidad) {
+  if (!canvas) return null;
+  const wCss = Math.max(760, 12 * Math.max(años.length, 1) * 22), hCss = 300;
+  const layout = layoutBarrasPorAnio(porAnioMes, años, wCss, hCss);
+  const { padL, padT, padR, plotW, plotH, maxV, stepMes, grupoW, barW } = layout;
+  const ctx = prepararCanvas(canvas, wCss, hCss);
+  if (!ctx) return layout;
 
   ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1; ctx.font = '10px -apple-system, sans-serif'; ctx.fillStyle = '#94A3B8';
   for (let g = 0; g <= 4; g++) {
@@ -538,16 +645,35 @@ function dibujarAnual(canvas, rows, años, metrica, unidad) {
     ctx.fillText(unidad === 'monto' ? `${(val / 1e6).toFixed(0)}M` : Math.round(val).toLocaleString('es-CL'), padL - 8, y + 3);
   }
 
-  const stepMes = plotW / 12, grupoW = stepMes * 0.72, barW = grupoW / Math.max(1, años.length);
   ctx.textAlign = 'center';
   for (let m = 0; m < 12; m++) {
     const gx = padL + m * stepMes + (stepMes - grupoW) / 2;
     años.forEach((a, ai) => {
-      const v = porAnioMes[a][m], h = (v / maxV) * plotH;
+      const v = porAnioMes[a][m], h = plotW ? (v / maxV) * plotH : 0;
       ctx.fillStyle = AÑO_COLOR[a] || '#999';
       ctx.fillRect(gx + ai * barW + 1, padT + plotH - h, barW - 2, h);
     });
     ctx.fillStyle = '#94A3B8';
     ctx.fillText(MESES_ABR[m], padL + m * stepMes + stepMes / 2, hCss - 10);
   }
+  return layout;
+}
+
+// Dado un evento de mouse sobre el canvas y la geometría ya calculada,
+// determina qué (año, mes) está bajo el cursor — o null si está fuera del
+// área de las barras. No exige acertar el pixel exacto de la barra: alcanza
+// con estar en la columna del mes y dentro del alto del gráfico, como
+// cualquier tooltip de gráfico de barras.
+function celdaEnPosicion(layout, años, xCss, yCss) {
+  if (!layout) return null;
+  const { padL, padT, plotH, stepMes, grupoW, barW } = layout;
+  if (yCss < padT || yCss > padT + plotH) return null;
+  const mes = Math.floor((xCss - padL) / stepMes);
+  if (mes < 0 || mes > 11) return null;
+  const inicioGrupo = padL + mes * stepMes + (stepMes - grupoW) / 2;
+  const offset = xCss - inicioGrupo;
+  if (offset < 0 || offset > grupoW) return null;
+  const ai = Math.floor(offset / barW);
+  if (ai < 0 || ai >= años.length) return null;
+  return { anio: años[ai], mes };
 }
