@@ -12,6 +12,7 @@
 // El "detector de respuesta" tampoco existe todavía por canal: la pausa se
 // hace a mano con /marcar-respondido, endpoint que también podrá invocarse
 // desde un webhook de Graph/WhatsApp el día que existan.
+const crypto = require('crypto');
 const { db } = require('../db');
 const timeline = require('./timeline');
 const email = require('./email');
@@ -57,6 +58,72 @@ async function crearTareaSeguimiento(ns, paso, totalPasos, motivoSinCorreo) {
   return tarea.rows[0].id;
 }
 
+// Paso "cambiar_etapa" (19-08-2026): en vez de generar un mensaje, mueve el
+// negocio a paso.etapa_destino_id — mismo bloque que PUT /negocios/:id/etapa
+// (movimiento manual en el kanban), para no divergir en comportamiento
+// (historial de etapas, timeline, alCambiarEtapa, encuesta de satisfacción
+// si la etapa destino es "ganada"). Marca la secuencia como completada
+// ANTES de llamar a alCambiarEtapa, para que su cancelarTodas() (si la etapa
+// destino cierra el negocio) no encuentre esta fila todavía "activa" y no
+// haya un forcejeo entre ambas actualizaciones.
+async function cambiarEtapaSeguimiento(ns, paso) {
+  const negocio = await db.get(
+    `SELECT n.*, pe.nombre AS etapa_nombre, pe.secuencia_id AS etapa_anterior_secuencia_id
+     FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`,
+    [ns.negocio_id]
+  );
+  const etapaNueva = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [paso.etapa_destino_id]);
+  if (!negocio || !etapaNueva) {
+    return `Paso ${paso.orden} de "${ns.secuencia_nombre}" no se pudo ejecutar (el negocio o la etapa destino ya no existen)`;
+  }
+
+  const cierra = etapaNueva.tipo === 'ganada' || etapaNueva.tipo === 'perdida';
+  await db.run(
+    `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
+            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now()
+     WHERE id=$6`,
+    [etapaNueva.id, etapaNueva.probabilidad_cierre,
+     etapaNueva.tipo === 'perdida' ? paso.causa_no_cierre_id : null,
+     etapaNueva.tipo === 'perdida' ? 'Secuencia de seguimiento sin respuesta del cliente' : null,
+     cierra ? new Date().toISOString() : null, negocio.id]
+  );
+  if (etapaNueva.id !== negocio.etapa_id) {
+    await db.run('UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL', [negocio.id]);
+    await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaNueva.id]);
+  }
+
+  await db.run(
+    `UPDATE negocio_secuencias SET estado='completada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`,
+    [ns.id]
+  );
+
+  await alCambiarEtapa({
+    negocio,
+    etapaAnterior: negocio.etapa_id ? { secuencia_id: negocio.etapa_anterior_secuencia_id } : null,
+    etapaNueva,
+    usuarioId: ns.iniciado_por_id || null,
+    origenDescripcion: 'por una secuencia de seguimiento sin respuesta',
+  });
+
+  if (etapaNueva.tipo === 'ganada') {
+    const token = crypto.randomBytes(16).toString('hex');
+    const r = await db.run(
+      `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2) ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
+      [negocio.id, token]
+    );
+    if (r.rows[0]) {
+      await db.run(
+        `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+         VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
+        ['Enviar encuesta de satisfacción al cliente', `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
+         negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, negocio.id]
+      );
+    }
+  }
+
+  return `Paso ${paso.orden} de "${ns.secuencia_nombre}" movió el negocio de "${negocio.etapa_nombre || '—'}" a "${etapaNueva.nombre}" (secuencia sin respuesta del cliente)`;
+}
+
 // Avanza todas las secuencias activas cuya próxima ejecución ya venció.
 // Idempotente: cada ejecución queda registrada en secuencia_ejecuciones y
 // proxima_ejecucion se recalcula antes de que el próximo tick pueda repetirla.
@@ -79,6 +146,24 @@ async function avanzarPasosPendientes() {
     const paso = await pasoSiguiente(ns.secuencia_id, ns.paso_actual + 1);
     if (!paso) {
       await db.run(`UPDATE negocio_secuencias SET estado='completada', proxima_ejecucion=NULL, updated_at=now() WHERE id=$1`, [ns.id]);
+      continue;
+    }
+
+    // "cambiar_etapa" es terminal: mueve el negocio y cierra la secuencia
+    // ahí mismo (ver cambiarEtapaSeguimiento) — no hay "paso siguiente" que
+    // evaluar, a diferencia de los demás canales.
+    if (paso.canal === 'cambiar_etapa') {
+      const descripcionTimeline = await cambiarEtapaSeguimiento(ns, paso);
+      await db.run(
+        `INSERT INTO secuencia_ejecuciones (negocio_secuencia_id, paso_id, tarea_id) VALUES ($1,$2,NULL)`,
+        [ns.id, paso.id]
+      );
+      await timeline.registrar({
+        negocio_id: ns.negocio_id, contacto_id: ns.contacto_id, empresa_id: ns.empresa_id,
+        tipo: 'seguimiento_auto',
+        descripcion: descripcionTimeline,
+      });
+      ejecutados++;
       continue;
     }
 

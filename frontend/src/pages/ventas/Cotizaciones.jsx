@@ -11,11 +11,11 @@ const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractio
 const fecha = formatFecha;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
 
-const estadoColor = {
-  borrador: 'bg-gray-100 text-gray-600', enviada: 'bg-blue-100 text-blue-700',
-  vista: 'bg-ht-accent/20 text-ht-navy', aceptada: 'bg-green-100 text-green-700',
-  rechazada: 'bg-red-100 text-red-700', vencida: 'bg-amber-100 text-amber-700',
-  reemplazada: 'bg-gray-100 text-gray-400',
+// Color por tipo de etapa del negocio (abierta/ganada/perdida) — no por
+// estado del documento (borrador/enviada/...), que es un ciclo de vida
+// distinto y ya no se muestra en este listado (HT-AP-03).
+const etapaColor = {
+  abierta: 'bg-ht-accent/20 text-ht-navy', ganada: 'bg-green-100 text-green-700', perdida: 'bg-red-100 text-red-700',
 };
 
 export default function Cotizaciones() {
@@ -112,7 +112,7 @@ export default function Cotizaciones() {
             <tr>
               <th className="text-left px-4 py-2 font-medium">Número</th>
               <th className="text-left px-4 py-2 font-medium">Negocio</th>
-              <th className="text-left px-4 py-2 font-medium">Estado</th>
+              <th className="text-left px-4 py-2 font-medium">Etapa</th>
               <th className="text-right px-4 py-2 font-medium">Monto neto</th>
               <th className="text-left px-4 py-2 font-medium">Fecha</th>
               <th className="text-left px-4 py-2 font-medium">Vendedor</th>
@@ -132,7 +132,11 @@ export default function Cotizaciones() {
                   </div>
                   {c.titulo && <div className="truncate text-xs text-gray-400" title={c.titulo}>{c.titulo}</div>}
                 </td>
-                <td className="px-4 py-2"><span className={`text-xs px-2 py-0.5 rounded-full capitalize ${estadoColor[c.estado] || ''}`}>{c.estado}</span></td>
+                <td className="px-4 py-2">
+                  {c.negocio_etapa_nombre
+                    ? <span className={`text-xs px-2 py-0.5 rounded-full ${etapaColor[c.negocio_etapa_tipo] || 'bg-gray-100 text-gray-600'}`}>{c.negocio_etapa_nombre}</span>
+                    : <span className="text-xs text-gray-300">—</span>}
+                </td>
                 <td className="px-4 py-2 text-right text-ht-navy">{money(c.neto)}</td>
                 <td className="px-4 py-2 text-gray-500">{fecha(c.created_at)}</td>
                 <td className="px-4 py-2 text-gray-500">{c.creado_por}</td>

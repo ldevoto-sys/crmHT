@@ -1098,6 +1098,17 @@ async function initDb() {
   // sigue expresando como dias_espera días + horas_espera horas, nunca al revés.
   await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS horas_espera INTEGER NOT NULL DEFAULT 0 CHECK (horas_espera >= 0 AND horas_espera < 24)`);
 
+  // Paso "cambiar etapa" (19-08-2026): en vez de enviar un mensaje, mueve el
+  // negocio a otra etapa del pipeline — usa el mismo dias_espera/horas_espera
+  // que ya tienen los demás pasos como "plazo de gracia" antes de actuar. Si
+  // el contacto responde antes (secuencia pausada por /marcar-respondido),
+  // este paso nunca se ejecuta, igual que cualquier otro paso posterior.
+  await db.run(`ALTER TABLE secuencia_pasos DROP CONSTRAINT IF EXISTS secuencia_pasos_canal_check`);
+  await db.run(`ALTER TABLE secuencia_pasos ADD CONSTRAINT secuencia_pasos_canal_check CHECK (canal IN ('correo','whatsapp','llamada','tarea','cambiar_etapa'))`);
+  await db.run(`ALTER TABLE secuencia_pasos ALTER COLUMN mensaje DROP NOT NULL`); // no aplica al canal 'cambiar_etapa'
+  await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS etapa_destino_id INTEGER REFERENCES pipeline_etapas(id)`);
+  await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS causa_no_cierre_id INTEGER REFERENCES causas_no_cierre(id)`);
+
   await db.run(`
     CREATE TABLE IF NOT EXISTS negocio_secuencias (
       id SERIAL PRIMARY KEY,
@@ -1127,6 +1138,14 @@ async function initDb() {
       ejecutado_en TIMESTAMP DEFAULT now()
     )
   `);
+  // Editar una secuencia reemplaza todos sus pasos (borra e inserta de
+  // nuevo) — sin esto, borrar un paso que ya se ejecutó alguna vez rompería
+  // por la llave foránea. El log de ejecución queda igual, solo pierde la
+  // referencia al paso exacto (19-08-2026: se saca el candado que impedía
+  // editar una secuencia ya usada — ver nota de cambio).
+  await db.run(`ALTER TABLE secuencia_ejecuciones ALTER COLUMN paso_id DROP NOT NULL`);
+  await db.run(`ALTER TABLE secuencia_ejecuciones DROP CONSTRAINT IF EXISTS secuencia_ejecuciones_paso_id_fkey`);
+  await db.run(`ALTER TABLE secuencia_ejecuciones ADD CONSTRAINT secuencia_ejecuciones_paso_id_fkey FOREIGN KEY (paso_id) REFERENCES secuencia_pasos(id) ON DELETE SET NULL`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_secuencia_pasos_secuencia ON secuencia_pasos (secuencia_id, orden)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_negocio_secuencias_pendientes ON negocio_secuencias (estado, proxima_ejecucion)`);
 
