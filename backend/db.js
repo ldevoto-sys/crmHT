@@ -1378,6 +1378,78 @@ async function initDb() {
     )
   `);
 
+  // === Reportería Comercial + Softland (HT-AP-03, acordado con Gerencia el
+  // 19-08-2026) ===
+  // Área comercial del vendedor (Ventas Mesón / Operaciones / V Región /
+  // Otros). Antes vivía hardcodeada a mano en un script externo (mapa
+  // VenCod→área, uno por uno); se formaliza acá como campo editable en
+  // Usuarios para que no se rompa cada vez que se suma un vendedor nuevo o
+  // alguien cambia de área.
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS area TEXT`);
+  await db.run(`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_area_check`);
+  await db.run(`ALTER TABLE users ADD CONSTRAINT users_area_check CHECK (area IS NULL OR area IN ('meson','operaciones','vregion','otros'))`);
+
+  // Caché del extracto nocturno de Softland (23:00 hora Chile) — evita
+  // consultar la réplica de Softland en cada carga del reporte. Se recarga
+  // completa cada noche (trunca + inserta), no incremental.
+  //
+  // Cotizado: solo trae datos hasta jul-2026 (la consulta a Softland ya
+  // filtra por fecha, igual que el script que reemplaza) — desde ago-2026
+  // el cotizado se lee en vivo desde la tabla `cotizaciones` propia del CRM,
+  // no de acá. Cerrado (NV emitidas) y Facturado sí son de Softland siempre,
+  // sin corte de fecha y sin cruce con el pipeline del CRM (acordado
+  // 19-08-2026: cuentan las NV que Softland generó, punto, sin exigir que el
+  // negocio esté marcado "Ganado" en el CRM ni que tenga cotización acá).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_mensual (
+      id SERIAL PRIMARY KEY,
+      anio INTEGER NOT NULL,
+      mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
+      vencod TEXT NOT NULL,
+      nombre_vendedor TEXT,
+      cotizado_monto NUMERIC NOT NULL DEFAULT 0,
+      cotizado_cant INTEGER NOT NULL DEFAULT 0,
+      cerrado_monto NUMERIC NOT NULL DEFAULT 0,
+      cerrado_cant INTEGER NOT NULL DEFAULT 0,
+      facturado_monto NUMERIC NOT NULL DEFAULT 0,
+      facturado_cant INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (anio, mes, vencod)
+    )
+  `);
+
+  // Snapshot de notas de venta pendientes de facturar (una fila por NV, no
+  // por línea de detalle — si más adelante hace falta el detalle línea por
+  // línea, esta tabla se extiende, no se rediseña).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_nv_pendientes (
+      id SERIAL PRIMARY KEY,
+      nv_numero TEXT NOT NULL,
+      fecha_nv DATE NOT NULL,
+      vencod TEXT,
+      nombre_vendedor TEXT,
+      cod_cliente TEXT,
+      nombre_cliente TEXT,
+      num_oc TEXT,
+      monto_pendiente NUMERIC NOT NULL DEFAULT 0
+    )
+  `);
+
+  // Control de la rutina nocturna: registra cada corrida (exitosa o
+  // fallida) para poder diagnosticar sin tener que revisar logs de Railway.
+  // A diferencia de *_envios (que solo evitan reenviar el mismo día), acá
+  // además queda el detalle de filas cargadas o el error, porque esta
+  // rutina depende de una red externa (Softland) que puede fallar.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_sync (
+      fecha DATE PRIMARY KEY,
+      ejecutado_en TIMESTAMP NOT NULL DEFAULT now(),
+      ok BOOLEAN NOT NULL,
+      filas_mensual INTEGER,
+      filas_pendientes INTEGER,
+      error TEXT
+    )
+  `);
+
   // === Rol de solo lectura para BI externo (Power BI, Looker Studio, etc.) ===
   // Se provisiona solo si BI_READONLY_PASSWORD está definida (variable de
   // entorno en Railway). La contraseña se resincroniza en cada arranque: para
