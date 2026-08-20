@@ -14,6 +14,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Reportería Softland', to: '/reportes/softland' },
     { label: 'Postventa', to: '/postventa' },
     { label: 'Despacho', to: '/despacho' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
@@ -27,6 +28,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Reportería Softland', to: '/reportes/softland' },
     { label: 'Postventa', to: '/postventa' },
     { label: 'Despacho', to: '/despacho' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
@@ -40,6 +42,7 @@ const menuByRole = {
     { label: 'Contactos', to: '/contactos' },
     { label: 'Productos', to: '/productos' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Reportería Softland', to: '/reportes/softland' },
     { label: 'Postventa', to: '/postventa' },
     { label: 'Despacho', to: '/despacho' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
@@ -55,6 +58,7 @@ const menuByRole = {
     { label: 'Dashboard', to: '/dashboard' },
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Reportería Softland', to: '/reportes/softland' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
   // Rol dedicado: solo ve Servicio Técnico, nada más (HT-AP-03).
@@ -166,6 +170,7 @@ const ICONO_POR_RUTA = {
   '/dashboard': IconDashboard, '/pipeline': IconPipeline, '/cotizaciones': IconCotizaciones,
   '/tareas': IconTareas, '/bandeja': IconBandeja, '/cola': IconCola,
   '/empresas': IconEmpresas, '/contactos': IconContactos, '/productos': IconProductos, '/reportes': IconReportes,
+  '/reportes/softland': IconReportes,
   '/postventa': IconPostventa, '/despacho': IconDespacho, '/servicio-tecnico': IconServicioTecnico,
 };
 

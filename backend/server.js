@@ -10,6 +10,7 @@ const { enviarRecordatorios } = require('./services/encuestas');
 const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
 const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
+const { sincronizarSiCorresponde: sincronizarSoftlandSiCorresponde } = require('./services/softlandSync');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -122,6 +123,13 @@ if (require.main === module) {
       // tabla postventa_vencidos_envios).
       setInterval(() => {
         enviarPostventaVencidosSiCorresponde().catch(err => console.error('[postventaVencidos] Error:', err));
+      }, QUINCE_MIN);
+      // Reportería Comercial + Softland: recarga el caché desde la réplica
+      // a las 23:00 hora Chile, solo en producción y una vez por día (ver
+      // services/softlandSync.js). En staging se actualiza a mano con el
+      // botón "Actualizar" del reporte.
+      setInterval(() => {
+        sincronizarSoftlandSiCorresponde().catch(err => console.error('[softlandSync] Error:', err));
       }, QUINCE_MIN);
     })
     .catch((err) => {
