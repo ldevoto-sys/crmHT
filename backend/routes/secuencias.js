@@ -7,13 +7,26 @@ const PUEDE_CONFIGURAR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
 
-function validarPasos(pasos) {
+// Canal "cambiar_etapa" (19-08-2026): en vez de mensaje, mueve el negocio a
+// pipeline_etapas(etapa_destino_id). Si esa etapa es de tipo 'perdida', el
+// resto del sistema exige causa_no_cierre_id para cerrar un negocio así
+// (ver routes/negocios.js) — se valida acá también para no descubrirlo
+// recién cuando la secuencia intente ejecutar el paso.
+async function validarPasos(pasos) {
   if (!Array.isArray(pasos) || pasos.length === 0) return 'Debes definir al menos un paso';
   for (const p of pasos) {
-    if (!p.canal || !['correo', 'whatsapp', 'llamada', 'tarea'].includes(p.canal)) return 'Canal inválido en un paso';
-    if (!p.mensaje || !p.mensaje.trim()) return 'Cada paso requiere un mensaje';
+    if (!p.canal || !['correo', 'whatsapp', 'llamada', 'tarea', 'cambiar_etapa'].includes(p.canal)) return 'Canal inválido en un paso';
     if (p.dias_espera === undefined || p.dias_espera === null || Number(p.dias_espera) < 0) return 'dias_espera inválido en un paso';
     if (p.horas_espera !== undefined && p.horas_espera !== null && (Number(p.horas_espera) < 0 || Number(p.horas_espera) >= 24)) return 'horas_espera inválido en un paso (debe ser 0-23)';
+
+    if (p.canal === 'cambiar_etapa') {
+      if (!p.etapa_destino_id) return 'El paso "cambiar etapa" requiere elegir la etapa destino';
+      const etapa = await db.get('SELECT id, tipo FROM pipeline_etapas WHERE id = $1', [p.etapa_destino_id]);
+      if (!etapa) return 'La etapa destino de un paso "cambiar etapa" no existe';
+      if (etapa.tipo === 'perdida' && !p.causa_no_cierre_id) return 'Si la etapa destino es de tipo "perdida", el paso requiere una causa de no cierre';
+    } else if (!p.mensaje || !p.mensaje.trim()) {
+      return 'Cada paso requiere un mensaje';
+    }
   }
   return null;
 }
@@ -52,7 +65,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   const { nombre, descripcion, respetar_horario, pasos } = req.body;
   if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
-  const errPasos = validarPasos(pasos);
+  const errPasos = await validarPasos(pasos);
   if (errPasos) return res.status(400).json({ error: errPasos });
 
   const client = await db.pool.connect();
@@ -66,9 +79,13 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [secuenciaId, orden++, p.dias_espera, p.horas_espera || 0, p.canal, p.asunto || null, p.mensaje.trim()]
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [secuenciaId, orden++, p.dias_espera, p.horas_espera || 0, p.canal,
+         p.canal === 'cambiar_etapa' ? null : (p.asunto || null),
+         p.canal === 'cambiar_etapa' ? null : p.mensaje.trim(),
+         p.canal === 'cambiar_etapa' ? p.etapa_destino_id : null,
+         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null]
       );
     }
     await client.query('COMMIT');
@@ -82,23 +99,19 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   }
 });
 
-// PUT /api/secuencias/:id {nombre, descripcion, respetar_horario, pasos} — reemplaza los pasos completos
+// PUT /api/secuencias/:id {nombre, descripcion, respetar_horario, pasos} — reemplaza los pasos completos.
+// Se permite editar aunque la secuencia ya tenga casos en curso o historial
+// (19-08-2026, ver nota de cambio): los negocios activos avanzan por número
+// de orden, no por el id del paso, así que retoman la versión nueva solos la
+// próxima vez que les toque avanzar — no hace falta migrarlos a mano.
 router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
   const { nombre, descripcion, respetar_horario, pasos } = req.body;
   if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'Nombre requerido' });
-  const errPasos = validarPasos(pasos);
+  const errPasos = await validarPasos(pasos);
   if (errPasos) return res.status(400).json({ error: errPasos });
 
   const existe = await db.get('SELECT id FROM secuencias WHERE id = $1', [req.params.id]);
   if (!existe) return res.status(404).json({ error: 'Secuencia no encontrada' });
-
-  const enUso = await db.get(
-    `SELECT 1 FROM secuencia_ejecuciones se
-     JOIN secuencia_pasos sp ON sp.id = se.paso_id
-     WHERE sp.secuencia_id = $1 LIMIT 1`,
-    [req.params.id]
-  );
-  if (enUso) return res.status(409).json({ error: 'Esta secuencia ya se usó en algún negocio; desactívala y crea una nueva en vez de editar sus pasos' });
 
   const client = await db.pool.connect();
   try {
@@ -108,9 +121,13 @@ router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [req.params.id, orden++, p.dias_espera, p.horas_espera || 0, p.canal, p.asunto || null, p.mensaje.trim()]
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [req.params.id, orden++, p.dias_espera, p.horas_espera || 0, p.canal,
+         p.canal === 'cambiar_etapa' ? null : (p.asunto || null),
+         p.canal === 'cambiar_etapa' ? null : p.mensaje.trim(),
+         p.canal === 'cambiar_etapa' ? p.etapa_destino_id : null,
+         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null]
       );
     }
     await client.query('COMMIT');

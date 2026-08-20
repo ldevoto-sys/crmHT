@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
 import api from '../../api';
 
-const CANALES = ['correo', 'whatsapp', 'llamada', 'tarea'];
-const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '' });
+const CANALES = ['correo', 'whatsapp', 'llamada', 'tarea', 'cambiar_etapa'];
+const CANAL_LABEL = { correo: 'correo', whatsapp: 'whatsapp', llamada: 'llamada', tarea: 'tarea', cambiar_etapa: 'cambiar etapa' };
+const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '', etapa_destino_id: '', causa_no_cierre_id: '' });
 
 export default function ConfigSecuencias() {
   const [secuencias, setSecuencias] = useState([]);
+  const [etapas, setEtapas] = useState([]); // todas las etapas de todos los pipelines, para el paso "cambiar etapa"
+  const [causas, setCausas] = useState([]);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [editId, setEditId] = useState(null);
   const [nombre, setNombre] = useState(''); const [descripcion, setDescripcion] = useState('');
@@ -17,7 +20,17 @@ export default function ConfigSecuencias() {
     try { setSecuencias((await api.get('/secuencias')).data); }
     catch { setError('No se pudieron cargar las secuencias.'); }
   };
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    cargar();
+    api.get('/config/causas-no-cierre').then(r => setCausas(r.data.filter(c => c.activo))).catch(() => {});
+    api.get('/config/pipelines').then(async r => {
+      const porPipeline = await Promise.all(
+        r.data.map(pl => api.get('/config/pipeline-etapas', { params: { pipeline_id: pl.id } })
+          .then(res => res.data.map(e => ({ ...e, pipeline_nombre: pl.nombre }))))
+      );
+      setEtapas(porPipeline.flat());
+    }).catch(() => {});
+  }, []);
 
   const nueva = () => { setEditId(null); setNombre(''); setDescripcion(''); setRespetarHorario(false); setPasos([pasoVacio()]); setShowForm(true); };
   const editar = async s => {
@@ -25,7 +38,11 @@ export default function ConfigSecuencias() {
       const { data } = await api.get(`/secuencias/${s.id}`);
       setEditId(s.id); setNombre(data.nombre); setDescripcion(data.descripcion || '');
       setRespetarHorario(!!data.respetar_horario);
-      setPasos(data.pasos.map(p => ({ dias_espera: p.dias_espera, horas_espera: p.horas_espera || 0, canal: p.canal, asunto: p.asunto || '', mensaje: p.mensaje })));
+      setPasos(data.pasos.map(p => ({
+        dias_espera: p.dias_espera, horas_espera: p.horas_espera || 0, canal: p.canal,
+        asunto: p.asunto || '', mensaje: p.mensaje || '',
+        etapa_destino_id: p.etapa_destino_id || '', causa_no_cierre_id: p.causa_no_cierre_id || '',
+      })));
       setShowForm(true);
     } catch { setError('No se pudo cargar la secuencia.'); }
   };
@@ -54,10 +71,13 @@ export default function ConfigSecuencias() {
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Secuencias de seguimiento</h1>
       <p className="text-gray-500 text-sm mb-4">
         Un paso de canal "correo" se envía solo, sin que nadie lo redacte a mano (si el contacto no tiene correo o el
-        envío falla, cae a una tarea para el vendedor). Los demás canales ("whatsapp", "llamada", "tarea") siguen
-        generando una tarea para que el vendedor lo ejecute — por ahora, hasta conectar WhatsApp.
+        envío falla, cae a una tarea para el vendedor). Los canales "whatsapp", "llamada" y "tarea" siguen
+        generando una tarea para que el vendedor lo ejecute — por ahora, hasta conectar WhatsApp. El canal
+        "cambiar etapa" no envía nada: mueve el negocio a la etapa que elijas (ej. Perdido, con causa "Sin respuesta")
+        — útil como último paso de una secuencia, si el cliente no respondió a ninguno de los anteriores.
         Para que una secuencia se inicie sola al entrar un negocio a una etapa del pipeline (ej. Cotizado), asígnala
         en Configuración → Pipeline. Se detiene al salir de esa etapa hacia otra sin secuencia asignada, o manualmente.
+        Puedes editar una secuencia aunque tenga negocios en curso: siguen avanzando, solo que con la versión nueva.
       </p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
@@ -138,7 +158,7 @@ export default function ConfigSecuencias() {
                   <label className="block text-xs text-gray-500 mb-1">Canal</label>
                   <select value={p.canal} onChange={e => cambiarPaso(i, 'canal', e.target.value)}
                     className="border border-gray-300 rounded px-3 py-2 text-base">
-                    {CANALES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {CANALES.map(c => <option key={c} value={c}>{CANAL_LABEL[c]}</option>)}
                   </select>
                 </div>
                 {p.canal === 'correo' && (
@@ -148,13 +168,36 @@ export default function ConfigSecuencias() {
                       className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
                   </div>
                 )}
-                <div className="flex-1 min-w-[280px] basis-full">
-                  <label className="block text-xs text-gray-500 mb-1">
-                    {p.canal === 'correo' ? 'Mensaje (se envía tal cual, sin editar)' : 'Mensaje / guion'}
-                  </label>
-                  <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
-                    className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
-                </div>
+                {p.canal === 'cambiar_etapa' ? (
+                  <>
+                    <div className="flex-1 min-w-[220px]">
+                      <label className="block text-xs text-gray-500 mb-1">Etapa destino</label>
+                      <select required value={p.etapa_destino_id} onChange={e => cambiarPaso(i, 'etapa_destino_id', e.target.value)}
+                        className="w-full border border-gray-300 rounded px-3 py-2 text-base">
+                        <option value="">Selecciona una etapa…</option>
+                        {etapas.map(e => <option key={e.id} value={e.id}>{e.nombre} ({e.pipeline_nombre})</option>)}
+                      </select>
+                    </div>
+                    {etapas.find(e => String(e.id) === String(p.etapa_destino_id))?.tipo === 'perdida' && (
+                      <div className="flex-1 min-w-[220px]">
+                        <label className="block text-xs text-gray-500 mb-1">Causa de no cierre</label>
+                        <select required value={p.causa_no_cierre_id} onChange={e => cambiarPaso(i, 'causa_no_cierre_id', e.target.value)}
+                          className="w-full border border-gray-300 rounded px-3 py-2 text-base">
+                          <option value="">Selecciona una causa…</option>
+                          {causas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex-1 min-w-[280px] basis-full">
+                    <label className="block text-xs text-gray-500 mb-1">
+                      {p.canal === 'correo' ? 'Mensaje (se envía tal cual, sin editar)' : 'Mensaje / guion'}
+                    </label>
+                    <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
+                  </div>
+                )}
                 {pasos.length > 1 && (
                   <button type="button" onClick={() => quitarPaso(i)} className="text-red-500 hover:underline text-xs">Quitar</button>
                 )}

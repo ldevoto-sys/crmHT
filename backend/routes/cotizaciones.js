@@ -324,6 +324,7 @@ router.get('/', async (req, res) => {
       `SELECT c.id, c.numero, c.version, c.estado, c.total, c.descuento_pct, c.negocio_id, c.titulo, c.moneda,
               c.created_at, c.fecha_envio, n.titulo AS negocio_titulo, u.nombre AS creado_por,
               ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, e.razon_social AS empresa_nombre,
+              pe.nombre AS negocio_etapa_nombre, pe.tipo AS negocio_etapa_tipo,
               CASE WHEN c.origen = 'operaciones' THEN c.subtotal
                    ELSE ROUND(c.subtotal * (1 - COALESCE(c.descuento_pct, 0) / 100.0))
               END AS neto
@@ -332,6 +333,7 @@ router.get('/', async (req, res) => {
        JOIN contactos ct ON ct.id = n.contacto_id
        LEFT JOIN empresas e ON e.id = n.empresa_id
        LEFT JOIN users u ON u.id = c.creado_por_id
+       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
        ${where} ORDER BY c.created_at DESC LIMIT 500`, params);
     res.json(cots);
   } catch (err) {
