@@ -36,6 +36,7 @@ import CotizacionPublica from './pages/publico/CotizacionPublica';
 import EncuestaPublica from './pages/publico/EncuestaPublica';
 import MisTareas from './pages/ventas/MisTareas';
 import Reportes from './pages/ventas/Reportes';
+import ReporteriaSoftland from './pages/ventas/ReporteriaSoftland';
 import Postventa from './pages/postventa/Postventa';
 import ConfigPostventaEtapas from './pages/postventa/ConfigPostventaEtapas';
 import Despacho from './pages/despacho/Despacho';
@@ -138,6 +139,9 @@ export default function App() {
             } />
             <Route path="reportes" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Reportes /></ProtectedRoute>
+            } />
+            <Route path="reportes/softland" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReporteriaSoftland /></ProtectedRoute>
             } />
 
             {/* Servicio Técnico — abierto a todos los roles existentes, más el rol dedicado "tecnico" */}
