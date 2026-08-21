@@ -50,6 +50,19 @@ const AREA_LABEL = { meson: 'Ventas Mesón', operaciones: 'Operaciones', vregion
 // (mismo criterio ya usado y validado en generar_dashboard.py).
 const VENCOD_SIN_CODIGO = 'OTRO';
 
+// Códigos de Softland que no son vendedores sino grupos de contrato/
+// mantención (M10 GRUPO A MANTENCION, M20 GRUPO B MANTENCION, M30 GRUPO C
+// MANTENCION, M50 GRUPO E MANTENCION, U12 SOLICITUD FR, U13 REPARACIONES):
+// solo facturan, no tienen cotización ni NV propia, y no tienen usuario en
+// el CRM — así que u.area (join por codigo_softland) siempre queda NULL
+// para ellos y quedaban fuera del reporte por área. Confirmado con
+// Comercial 21-08-2026 que los 6 van a "Operaciones".
+const AREA_POR_VENCOD_SIN_USUARIO = {
+  M10: 'operaciones', M20: 'operaciones', M30: 'operaciones', M50: 'operaciones',
+  U12: 'operaciones', U13: 'operaciones',
+};
+const resolverArea = (vencod, areaDeUsuario) => areaDeUsuario || AREA_POR_VENCOD_SIN_USUARIO[vencod] || null;
+
 // GET /api/softland/reporte — dataset completo para la Reportería Comercial
 // + Softland. Sin filtros por query string a propósito: el volumen es bajo
 // (unos cientos de filas mensuales) y la maqueta ya resolvió filtrar/agregar
@@ -92,7 +105,7 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
     const clave = r => `${r.anio}-${r.mes}-${r.vencod}`;
     for (const r of base) {
       filas.set(clave(r), {
-        anio: r.anio, mes: r.mes, vencod: r.vencod, nombre_vendedor: r.nombre_vendedor, area: r.area,
+        anio: r.anio, mes: r.mes, vencod: r.vencod, nombre_vendedor: r.nombre_vendedor, area: resolverArea(r.vencod, r.area),
         cotizado_monto: Number(r.cotizado_monto), cotizado_cant: Number(r.cotizado_cant),
         cerrado_monto: Number(r.cerrado_monto), cerrado_cant: Number(r.cerrado_cant),
         facturado_monto: Number(r.facturado_monto), facturado_cant: Number(r.facturado_cant),
