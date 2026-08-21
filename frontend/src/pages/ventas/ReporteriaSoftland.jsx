@@ -143,9 +143,39 @@ export default function ReporteriaSoftland() {
       .sort((a, b) => b.dias - a.dias);
   }, [datos, vencod, area, vendedores, buscarNv]);
 
-  // --- Gráfico "Mensual (2023-hoy)" ---
+  // --- Gráfico "Evolución" (reacciona a los filtros de Año/Mes) ---
+  // Sin año ni mes: serie corrida 2023-hoy (comportamiento original).
+  // Con mes (sin año): un punto por año — compara ese mes entre años.
+  // Con año (con o sin mes): un punto por mes — Ene-Dic de ese año.
+  const modoMensual = anio ? 'anio' : (mes ? 'mes' : 'trend');
+  const tituloMensual = modoMensual === 'anio' ? `Meses de ${anio}` : modoMensual === 'mes' ? `${MESES[mes - 1]} — comparación entre años` : 'Evolución mensual';
+  const puntosMensual = useMemo(() => construirPuntosMensual(años, anio, mes), [años, anio, mes]);
+  const serieMensual = useMemo(() => agregarPorPunto(rowsSerie, puntosMensual), [rowsSerie, puntosMensual]);
   const canvasMensualRef = useRef(null);
-  useEffect(() => { dibujarMensual(canvasMensualRef.current, rowsSerie, años, unidad); }, [rowsSerie, años, unidad, tab]);
+  const layoutMensualRef = useRef(null);
+  const [tooltipMensual, setTooltipMensual] = useState(null);
+  useEffect(() => {
+    layoutMensualRef.current = dibujarMensual(canvasMensualRef.current, serieMensual, unidad, { dividers: modoMensual === 'trend' });
+  }, [serieMensual, unidad, tab, modoMensual]);
+
+  function hoverMensual(e) {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const layout = layoutMensualRef.current;
+    if (!layout || y < layout.padT || y > layout.padT + layout.plotH) { setTooltipMensual(null); return; }
+    const i = Math.floor((x - layout.padL) / layout.stepX);
+    const s = layout.serie[i];
+    if (!s) { setTooltipMensual(null); return; }
+    setTooltipMensual({
+      x, y, titulo: `${MESES[s.mes - 1]} ${s.anio}`,
+      lineas: [
+        { color: COLOR_COTIZADO, texto: `Cotizado: ${fmtUnidad(s[campo('cotizado')])}` },
+        { color: COLOR_CERRADO, texto: `Cerrado: ${fmtUnidad(s[campo('cerrado')])}` },
+        { color: COLOR_FACTURADO, texto: `Facturado: ${fmtUnidad(s[campo('facturado')])}` },
+      ],
+    });
+  }
 
   // --- Gráfico "Comparación anual" (barras por mes + versión acumulada) ---
   const canvasAnualRef = useRef(null);
@@ -286,11 +316,12 @@ export default function ReporteriaSoftland() {
       {tab === 'mensual' && (
         <div className="bg-white border border-gray-200 rounded-lg p-5">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-ht-navy text-sm">Evolución mensual</h2>
+            <h2 className="font-semibold text-ht-navy text-sm">{tituloMensual}</h2>
             <Leyenda />
           </div>
-          <div className="overflow-x-auto">
-            <canvas ref={canvasMensualRef} height={280} />
+          <div className="overflow-x-auto relative">
+            <canvas ref={canvasMensualRef} height={280} onMouseMove={hoverMensual} onMouseLeave={() => setTooltipMensual(null)} />
+            <GraficoTooltip t={tooltipMensual} />
           </div>
         </div>
       )}
@@ -496,8 +527,14 @@ function GraficoTooltip({ t }) {
   return (
     <div className="absolute z-10 pointer-events-none bg-ht-navy text-white text-xs rounded px-2.5 py-1.5 shadow-lg -translate-x-1/2 -translate-y-full"
       style={{ left: t.x, top: t.y - 8 }}>
-      <div className="font-semibold">{t.titulo}</div>
-      <div>{t.valor}</div>
+      <div className="font-semibold mb-0.5">{t.titulo}</div>
+      {t.lineas
+        ? t.lineas.map((l, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <span className="inline-block w-2 h-2 rounded-sm flex-shrink-0" style={{ background: l.color }} />{l.texto}
+          </div>
+        ))
+        : <div>{t.valor}</div>}
     </div>
   );
 }
@@ -537,26 +574,49 @@ function prepararCanvas(canvas, wCss, hCss) {
   return ctx;
 }
 
-function dibujarMensual(canvas, rows, años, unidad) {
-  if (!canvas) return;
-  const meses = mesesDesde2023();
-  const campo = base => (unidad === 'monto' ? base : `cant_${base}`);
-  const porMes = {};
-  meses.forEach(p => { porMes[`${p.anio}-${p.mes}`] = { cotizado: 0, cerrado: 0, facturado: 0 }; });
-  rows.forEach(r => {
-    const k = `${r.anio}-${r.mes}`;
-    if (!porMes[k]) return;
-    porMes[k].cotizado += r[campo('cotizado')]; porMes[k].cerrado += r[campo('cerrado')]; porMes[k].facturado += r[campo('facturado')];
-  });
-  const serie = meses.map(p => ({ p, d: porMes[`${p.anio}-${p.mes}`] }));
+// Puntos del eje X del gráfico "Evolución" según los filtros de Año/Mes:
+// - ninguno de los dos: serie corrida 2023-hoy (un punto por mes, todos los años).
+// - mes fijado (sin año): un punto por año — compara ese mes entre años.
+// - año fijado (con o sin mes): un punto por mes de ese año (Ene-Dic).
+function construirPuntosMensual(años, anio, mes) {
+  if (anio) {
+    return Array.from({ length: 12 }, (_, i) => ({ anio: Number(anio), mes: i + 1, ejeLabel: MESES_ABR[i] }));
+  }
+  if (mes) {
+    return años.map(a => ({ anio: a, mes: Number(mes), ejeLabel: String(a) }));
+  }
+  return mesesDesde2023().map(p => ({ anio: p.anio, mes: p.mes, ejeLabel: p.mes === 1 ? String(p.anio) : '' }));
+}
 
-  const wCss = Math.max(720, serie.length * 20), hCss = 280;
+// Suma cotizado/cerrado/facturado (monto y cantidad) de `rows` para cada
+// punto (anio, mes) — mismo criterio para el dibujo y para el hover.
+function agregarPorPunto(rows, puntos) {
+  return puntos.map(p => {
+    const acc = { ...p, cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 };
+    rows.forEach(r => {
+      if (r.anio !== p.anio || r.mes !== p.mes) return;
+      acc.cotizado += r.cotizado; acc.cerrado += r.cerrado; acc.facturado += r.facturado;
+      acc.cant_cotizado += r.cant_cotizado; acc.cant_cerrado += r.cant_cerrado; acc.cant_facturado += r.cant_facturado;
+    });
+    return acc;
+  });
+}
+
+// Dibuja el gráfico "Evolución" ya con los puntos agregados (uno por
+// año-mes, según construirPuntosMensual) y devuelve la geometría para que
+// el hover (afuera, en el componente) sepa qué punto está bajo el mouse —
+// mismo patrón que layoutBarrasPorAnio/celdaEnPosicion.
+function dibujarMensual(canvas, serie, unidad, { dividers = false } = {}) {
+  if (!canvas || !serie.length) return null;
+  const campo = base => (unidad === 'monto' ? base : `cant_${base}`);
+  const anchoPunto = serie.length <= 15 ? 60 : 20;
+  const wCss = Math.max(480, serie.length * anchoPunto), hCss = 280;
   const ctx = prepararCanvas(canvas, wCss, hCss);
-  if (!ctx) return;
+  if (!ctx) return null;
 
   const padL = 60, padB = 26, padT = 10, padR = 10;
   const plotW = wCss - padL - padR, plotH = hCss - padT - padB;
-  const maxV = Math.max(1, ...serie.map(s => s.d.cotizado)) * 1.12;
+  const maxV = Math.max(1, ...serie.map(s => s[campo('cotizado')])) * 1.12;
 
   ctx.strokeStyle = '#E2E8F0'; ctx.lineWidth = 1; ctx.font = '10px -apple-system, sans-serif'; ctx.fillStyle = '#94A3B8';
   for (let g = 0; g <= 4; g++) {
@@ -571,13 +631,13 @@ function dibujarMensual(canvas, rows, años, unidad) {
   ctx.fillStyle = COLOR_COTIZADO;
   serie.forEach((s, i) => {
     const x = padL + i * stepX + (stepX - barW) / 2;
-    const h = (s.d.cotizado / maxV) * plotH;
+    const h = (s[campo('cotizado')] / maxV) * plotH;
     ctx.fillRect(x, padT + plotH - h, barW, h);
   });
-  const linea = (campoNombre, color) => {
+  const linea = (campoBase, color) => {
     ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
     serie.forEach((s, i) => {
-      const x = padL + i * stepX + stepX / 2, y = padT + plotH - (s.d[campoNombre] / maxV) * plotH;
+      const x = padL + i * stepX + stepX / 2, y = padT + plotH - (s[campo(campoBase)] / maxV) * plotH;
       i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     });
     ctx.stroke();
@@ -587,13 +647,16 @@ function dibujarMensual(canvas, rows, años, unidad) {
 
   ctx.fillStyle = '#94A3B8'; ctx.textAlign = 'center';
   serie.forEach((s, i) => {
-    if (s.p.mes === 1 || i === 0) {
-      const x = padL + i * stepX + stepX / 2;
-      ctx.fillText(String(s.p.anio), x, hCss - 8);
+    if (!s.ejeLabel) return;
+    const x = padL + i * stepX + stepX / 2;
+    ctx.fillText(s.ejeLabel, x, hCss - 8);
+    if (dividers) {
       ctx.strokeStyle = '#E2E8F0';
       ctx.beginPath(); ctx.moveTo(padL + i * stepX, padT); ctx.lineTo(padL + i * stepX, padT + plotH); ctx.stroke();
     }
   });
+
+  return { padL, padT, padB, padR, plotW, plotH, maxV, stepX, wCss, hCss, serie };
 }
 
 // Matriz {año: [valor_ene..valor_dic]} para la métrica/unidad elegidas.
