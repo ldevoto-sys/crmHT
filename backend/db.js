@@ -1469,6 +1469,76 @@ async function initDb() {
     )
   `);
 
+  // Listados documento por documento (cotizaciones, notas de venta —todas,
+  // no solo pendientes— y facturas), para las pestañas de detalle de la
+  // Reportería Comercial + Softland (nota de cambio v1.31). anio/mes quedan
+  // como columnas propias (no solo derivadas de `fecha`) para que el
+  // backend pueda filtrar/indexar sin tener que extraerlos en cada consulta.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_cotizaciones (
+      id SERIAL PRIMARY KEY,
+      cot_num TEXT NOT NULL UNIQUE,
+      anio INTEGER NOT NULL,
+      mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
+      fecha DATE NOT NULL,
+      vencod TEXT,
+      nombre_vendedor TEXT,
+      cod_cliente TEXT,
+      nombre_cliente TEXT,
+      monto NUMERIC NOT NULL DEFAULT 0
+    )
+  `);
+  await db.run('CREATE INDEX IF NOT EXISTS idx_softland_cotizaciones_anio_mes ON reporte_softland_cotizaciones (anio, mes)');
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_notas_venta (
+      id SERIAL PRIMARY KEY,
+      nv_numero TEXT NOT NULL UNIQUE,
+      anio INTEGER NOT NULL,
+      mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
+      fecha DATE NOT NULL,
+      vencod TEXT,
+      nombre_vendedor TEXT,
+      cod_cliente TEXT,
+      nombre_cliente TEXT,
+      num_oc TEXT,
+      monto NUMERIC NOT NULL DEFAULT 0
+    )
+  `);
+  await db.run('CREATE INDEX IF NOT EXISTS idx_softland_notas_venta_anio_mes ON reporte_softland_notas_venta (anio, mes)');
+
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_facturas (
+      id SERIAL PRIMARY KEY,
+      folio TEXT NOT NULL UNIQUE,
+      anio INTEGER NOT NULL,
+      mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
+      fecha DATE NOT NULL,
+      vencod TEXT,
+      nombre_vendedor TEXT,
+      cod_cliente TEXT,
+      nombre_cliente TEXT,
+      monto NUMERIC NOT NULL DEFAULT 0
+    )
+  `);
+  await db.run('CREATE INDEX IF NOT EXISTS idx_softland_facturas_anio_mes ON reporte_softland_facturas (anio, mes)');
+
+  // Control de backfill histórico: cada dataset de Softland con historial
+  // "congelado" (no cambia una vez pasados ~2 meses) se consulta completo
+  // UNA sola vez; de ahí en adelante la sincronización nocturna solo repite
+  // el mes abierto + el mes anterior (acordado con Comercial 22-08-2026 —
+  // no tiene sentido volver a pedirle 3 años de historial a la réplica de
+  // Softland todas las noches si esos datos ya no cambian). La presencia de
+  // una fila acá es lo único que indica "ya se hizo la carga histórica" —
+  // si la fila no existe, se asume que nunca se corrió y se hace completa.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS reporte_softland_backfill (
+      dataset TEXT PRIMARY KEY,
+      completado_hasta TEXT,
+      ejecutado_en TIMESTAMP NOT NULL DEFAULT now()
+    )
+  `);
+
   // === Rol de solo lectura para BI externo (Power BI, Looker Studio, etc.) ===
   // Se provisiona solo si BI_READONLY_PASSWORD está definida (variable de
   // entorno en Railway). La contraseña se resincroniza en cada arranque: para

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../api';
+import ListadoDocumentosSoftland from './ListadoDocumentosSoftland';
 
 const AREA_LABEL = { meson: 'Ventas Mesón', operaciones: 'Operaciones', vregion: 'V Región', otros: 'Otros' };
 const AREA_BADGE = {
@@ -305,7 +306,7 @@ export default function ReporteriaSoftland() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200 mb-4">
-        {[['mensual', 'Mensual (2023–hoy)'], ['anual', 'Comparación anual'], ['vendedor', 'Por vendedor'], ['area', 'Por área'], ['nvpend', 'NV sin facturar']].map(([k, l]) => (
+        {[['mensual', 'Mensual (2023–hoy)'], ['anual', 'Comparación anual'], ['vendedor', 'Por vendedor'], ['area', 'Por área'], ['nvpend', 'NV sin facturar'], ['cotizaciones_doc', 'Cotizaciones'], ['nv_doc', 'Notas de Venta'], ['facturas_doc', 'Facturas']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px ${tab === k ? 'text-ht-navy border-ht-accent' : 'text-gray-500 border-transparent hover:text-ht-navy'}`}>
             {l}
@@ -506,6 +507,16 @@ export default function ReporteriaSoftland() {
             </div>
           </div>
         </>
+      )}
+
+      {tab === 'cotizaciones_doc' && (
+        <ListadoDocumentosSoftland tipo="cotizaciones" anio={anio} mes={mes} vencod={vencod} area={area} />
+      )}
+      {tab === 'nv_doc' && (
+        <ListadoDocumentosSoftland tipo="notas-venta" anio={anio} mes={mes} vencod={vencod} area={area} />
+      )}
+      {tab === 'facturas_doc' && (
+        <ListadoDocumentosSoftland tipo="facturas" anio={anio} mes={mes} vencod={vencod} area={area} />
       )}
     </div>
   );

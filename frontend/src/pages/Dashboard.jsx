@@ -48,6 +48,7 @@ export default function Dashboard() {
   const [datos, setDatos] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
+  const [softland, setSoftland] = useState(null); // null = todavía no disponible (o el rol no tiene acceso) — se ocultan las tarjetas
   const { desde, hasta, etiqueta } = rangoMesEnCurso();
 
   useEffect(() => {
@@ -55,8 +56,20 @@ export default function Dashboard() {
       .then(r => setDatos(r.data))
       .catch(() => setError('No se pudo cargar la actividad del mes.'))
       .finally(() => setCargando(false));
+    // Notas de venta y facturas del mes en curso (Softland) — no todos los
+    // roles tienen acceso a este endpoint (ej. callcenter); si falla, se
+    // ocultan las tarjetas en silencio, sin mostrar error.
+    api.get('/softland/reporte').then(r => setSoftland(r.data)).catch(() => setSoftland(null));
     // eslint-disable-next-line
   }, []);
+
+  const hoy = new Date();
+  const anioActual = hoy.getFullYear(), mesActual = hoy.getMonth() + 1;
+  const softlandMes = softland?.mensual?.filter(m => m.anio === anioActual && m.mes === mesActual) || [];
+  const nvMonto = softlandMes.reduce((s, m) => s + Number(m.cerrado_monto || 0), 0);
+  const nvCant = softlandMes.reduce((s, m) => s + Number(m.cerrado_cant || 0), 0);
+  const facturasMonto = softlandMes.reduce((s, m) => s + Number(m.facturado_monto || 0), 0);
+  const facturasCant = softlandMes.reduce((s, m) => s + Number(m.facturado_cant || 0), 0);
 
   const totalCotizado = datos.reduce((s, d) => s + Number(d.cotizaciones_monto || 0), 0);
   const totalGanado = datos.reduce((s, d) => s + Number(d.ganados_monto || 0), 0);
@@ -83,6 +96,8 @@ export default function Dashboard() {
       <div className="flex flex-wrap gap-4 mb-6">
         <StatTile titulo="Cotizado en el mes" monto={totalCotizado} cantidad={cantCotizado} colorClase="text-ht-accent" />
         <StatTile titulo="Cerrado ganado en el mes" monto={totalGanado} cantidad={cantGanado} colorClase="text-ht-navy" />
+        {softland && <StatTile titulo="Notas de venta del mes (Softland)" monto={nvMonto} cantidad={nvCant} colorClase="text-amber-600" />}
+        {softland && <StatTile titulo="Facturas del mes (Softland)" monto={facturasMonto} cantidad={facturasCant} colorClase="text-emerald-600" />}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
