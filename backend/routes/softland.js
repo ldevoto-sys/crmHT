@@ -50,18 +50,38 @@ const AREA_LABEL = { meson: 'Ventas Mesón', operaciones: 'Operaciones', vregion
 // (mismo criterio ya usado y validado en generar_dashboard.py).
 const VENCOD_SIN_CODIGO = 'OTRO';
 
-// Códigos de Softland que no son vendedores sino grupos de contrato/
-// mantención (M10 GRUPO A MANTENCION, M20 GRUPO B MANTENCION, M30 GRUPO C
-// MANTENCION, M50 GRUPO E MANTENCION, U12 SOLICITUD FR, U13 REPARACIONES):
-// solo facturan, no tienen cotización ni NV propia, y no tienen usuario en
-// el CRM — así que u.area (join por codigo_softland) siempre queda NULL
-// para ellos y quedaban fuera del reporte por área. Confirmado con
-// Comercial 21-08-2026 que los 6 van a "Operaciones".
-const AREA_POR_VENCOD_SIN_USUARIO = {
-  M10: 'operaciones', M20: 'operaciones', M30: 'operaciones', M50: 'operaciones',
-  U12: 'operaciones', U13: 'operaciones',
+// Mapa oficial vendedor/código → área (HT-IN-01 §4.6, skill de dashboards
+// Softland — responsable Luis Devoto), el mismo ya validado y usado en
+// generar_dashboard.py. Es la fuente de verdad: cubre tanto vendedores
+// reales como códigos de contrato/grupo (M10, U12, etc.) que no tienen
+// cotización ni NV propia y nunca van a tener usuario en el CRM. Reemplaza
+// la corrección puntual del 21-08-2026 (que solo cubría 6 de los 10
+// códigos de Operaciones documentados acá).
+const AREA_MAP = {
+  V02: 'meson', V03: 'meson', V04: 'meson', V05: 'meson', V06: 'meson', V07: 'meson',
+  V09: 'meson', V16: 'meson', V17: 'meson', VI2: 'meson', VI3: 'meson', VI5: 'meson', C10: 'meson',
+  C20: 'operaciones', U12: 'operaciones', U13: 'operaciones', L14: 'operaciones',
+  M10: 'operaciones', M16: 'operaciones', M20: 'operaciones', M30: 'operaciones', M40: 'operaciones', M50: 'operaciones',
+  V10: 'vregion',
+  V01: 'otros', U14: 'otros', ESP: 'otros',
 };
-const resolverArea = (vencod, areaDeUsuario) => areaDeUsuario || AREA_POR_VENCOD_SIN_USUARIO[vencod] || null;
+
+// Mismo fallback documentado en HT-IN-01 §4.6 para códigos no listados
+// arriba (ej. un vendedor nuevo con código todavía no agregado al mapa).
+function areaPorFallback(codigo) {
+  if (codigo.startsWith('VT')) return 'operaciones';
+  if (codigo.startsWith('M')) return 'operaciones';
+  if (codigo.startsWith('V')) return 'meson';
+  return null;
+}
+
+// Área cargada a mano en Usuarios queda como último recurso — solo aplica
+// a códigos que ni el mapa oficial ni el fallback por prefijo reconocen
+// (ej. códigos numéricos como vendedores cargados con un VenCod atípico).
+const resolverArea = (vencod, areaDeUsuario) => {
+  const codigo = String(vencod || '').toUpperCase();
+  return AREA_MAP[codigo] || areaPorFallback(codigo) || areaDeUsuario || null;
+};
 
 // GET /api/softland/reporte — dataset completo para la Reportería Comercial
 // + Softland. Sin filtros por query string a propósito: el volumen es bajo
