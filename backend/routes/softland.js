@@ -165,4 +165,108 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
   }
 });
 
+// ===== Listados de documentos (Cotizaciones / Notas de Venta / Facturas) =====
+// A diferencia de /reporte (agregado mensual, unos cientos de filas, se
+// manda todo y se filtra en el navegador), acá el histórico completo
+// 2023-hoy puede ser varios miles de documentos — se filtra y pagina en el
+// servidor (nota de cambio v1.31).
+
+const TABLA_DOC = {
+  cotizaciones: { tabla: 'reporte_softland_cotizaciones', numero: 'cot_num', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'cot_num'] },
+  'notas-venta': { tabla: 'reporte_softland_notas_venta', numero: 'nv_numero', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'nv_numero', 'num_oc'] },
+  facturas: { tabla: 'reporte_softland_facturas', numero: 'folio', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'folio'] },
+};
+
+// vencods agrupados por área, con el mismo resolverArea que usa /reporte —
+// se calcula sobre el universo chico de códigos conocidos (no sobre los
+// documentos), y de ahí se arma el WHERE vencod = ANY(...) de la consulta.
+async function vencodsPorArea() {
+  const filas = await db.all(`
+    SELECT DISTINCT t.vencod, u.area AS area_usuario
+    FROM (
+      SELECT vencod FROM reporte_softland_mensual
+      UNION SELECT vencod FROM reporte_softland_cotizaciones
+      UNION SELECT vencod FROM reporte_softland_notas_venta
+      UNION SELECT vencod FROM reporte_softland_facturas
+    ) t
+    LEFT JOIN users u ON u.codigo_softland = t.vencod
+  `);
+  const mapa = {};
+  for (const f of filas) {
+    const a = resolverArea(f.vencod, f.area_usuario);
+    if (a) (mapa[a] = mapa[a] || []).push(f.vencod);
+  }
+  return mapa;
+}
+
+// WHERE + params compartidos por el listado paginado y el export CSV.
+async function filtroDocumentos(cfg, query) {
+  const { anio, mes, dia, vendedor, area, q } = query;
+  const cond = [], params = [];
+  if (anio) { params.push(Number(anio)); cond.push(`anio = $${params.length}`); }
+  if (mes) { params.push(Number(mes)); cond.push(`mes = $${params.length}`); }
+  if (dia) { params.push(dia); cond.push(`fecha = $${params.length}`); }
+  if (vendedor) { params.push(vendedor); cond.push(`vencod = $${params.length}`); }
+  if (area) {
+    const mapa = await vencodsPorArea();
+    params.push(mapa[area] || []);
+    cond.push(`vencod = ANY($${params.length})`);
+  }
+  if (q) {
+    params.push(`%${String(q).toLowerCase()}%`);
+    cond.push('(' + cfg.columnasBusqueda.map(c => `LOWER(${c}::text) LIKE $${params.length}`).join(' OR ') + ')');
+  }
+  return { where: cond.length ? `WHERE ${cond.join(' AND ')}` : '', params };
+}
+
+// GET /api/softland/documentos/:tipo — listado paginado de cotizaciones,
+// notas de venta o facturas, filtrable por año/mes/día/vendedor/área/texto.
+router.get('/documentos/:tipo', authorize('administrador', 'jefe_comercial', 'vendedor', 'gerencia'), async (req, res) => {
+  const cfg = TABLA_DOC[req.params.tipo];
+  if (!cfg) return res.status(400).json({ error: 'Tipo de documento no reconocido.' });
+  try {
+    const { where, params } = await filtroDocumentos(cfg, req.query);
+    const total = await db.get(`SELECT COUNT(*) AS n FROM ${cfg.tabla} ${where}`, params);
+    const pageSize = Math.min(200, Math.max(1, Number(req.query.pageSize) || 50));
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const paramsPagina = [...params, pageSize, (page - 1) * pageSize];
+    const rows = await db.all(
+      `SELECT * FROM ${cfg.tabla} ${where} ORDER BY fecha DESC, ${cfg.numero} DESC LIMIT $${paramsPagina.length - 1} OFFSET $${paramsPagina.length}`,
+      paramsPagina
+    );
+    res.json({
+      rows: rows.map(r => ({ ...r, monto: Number(r.monto), area: resolverArea(r.vencod, null) })),
+      total: Number(total.n),
+      page, pageSize,
+    });
+  } catch (err) {
+    console.error('[softland/documentos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/softland/documentos/:tipo/exportar — mismo filtro, sin paginar
+// (tope de 20.000 filas), como CSV descargable.
+router.get('/documentos/:tipo/exportar', authorize('administrador', 'jefe_comercial', 'vendedor', 'gerencia'), async (req, res) => {
+  const cfg = TABLA_DOC[req.params.tipo];
+  if (!cfg) return res.status(400).json({ error: 'Tipo de documento no reconocido.' });
+  try {
+    const { where, params } = await filtroDocumentos(cfg, req.query);
+    const rows = await db.all(`SELECT * FROM ${cfg.tabla} ${where} ORDER BY fecha DESC LIMIT 20000`, params);
+    const encabezados = ['fecha', cfg.numero, 'vencod', 'nombre_vendedor', 'cod_cliente', 'nombre_cliente', ...(cfg.numero === 'nv_numero' ? ['num_oc'] : []), 'monto'];
+    const csvEscape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lineas = [encabezados.join(';')];
+    for (const r of rows) {
+      lineas.push(encabezados.map(c => csvEscape(c === 'fecha' ? new Date(r.fecha).toLocaleDateString('es-CL') : r[c])).join(';'));
+    }
+    const csv = '﻿' + lineas.join('\r\n'); // BOM para que Excel abra bien los acentos
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.tipo}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    console.error('[softland/documentos/exportar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
