@@ -171,16 +171,46 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
 // 2023-hoy puede ser varios miles de documentos — se filtra y pagina en el
 // servidor (nota de cambio v1.31).
 
+// Cotizaciones: Softland solo trae hasta jul-2026 (igual que el agregado
+// mensual, §9) — desde ago-2026 se lee en vivo desde `cotizaciones` del
+// CRM, igual que hace GET /reporte con cotizadoCrm. Sin este UNION, el
+// listado de Cotizaciones quedaba sin nada del mes en curso en adelante.
+// `id` negativo en el lado CRM para no chocar con los id (positivos) de
+// reporte_softland_cotizaciones al usarlo como key en el listado.
+const SQL_COTIZACIONES_TODAS = `(
+  SELECT id, cot_num, anio, mes, fecha, vencod, nombre_vendedor, cod_cliente, nombre_cliente, monto
+  FROM reporte_softland_cotizaciones
+  UNION ALL
+  SELECT -c.id AS id,
+         c.numero AS cot_num,
+         date_part('year', c.created_at)::int AS anio,
+         date_part('month', c.created_at)::int AS mes,
+         c.created_at::date AS fecha,
+         COALESCE(u.codigo_softland, 'OTRO') AS vencod,
+         u.nombre AS nombre_vendedor,
+         NULL::text AS cod_cliente,
+         COALESCE(e.razon_social, ct.nombre || ' ' || COALESCE(ct.apellido, '')) AS nombre_cliente,
+         c.subtotal AS monto
+  FROM cotizaciones c
+  JOIN negocios n ON n.id = c.negocio_id
+  JOIN contactos ct ON ct.id = n.contacto_id
+  LEFT JOIN empresas e ON e.id = n.empresa_id
+  LEFT JOIN users u ON u.id = n.vendedor_id
+  WHERE c.estado <> 'reemplazada' AND c.created_at >= '2026-08-01'
+) cotizaciones_todas`;
+
 const TABLA_DOC = {
-  cotizaciones: { tabla: 'reporte_softland_cotizaciones', numero: 'cot_num', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'cot_num'] },
+  cotizaciones: { tabla: SQL_COTIZACIONES_TODAS, numero: 'cot_num', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'cot_num'] },
   'notas-venta': { tabla: 'reporte_softland_notas_venta', numero: 'nv_numero', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'nv_numero', 'num_oc'] },
   facturas: { tabla: 'reporte_softland_facturas', numero: 'folio', columnasBusqueda: ['nombre_cliente', 'cod_cliente', 'nombre_vendedor', 'folio'] },
 };
 
-// vencods agrupados por área, con el mismo resolverArea que usa /reporte —
+// Área resuelta por vencod, con el mismo resolverArea que usa /reporte —
 // se calcula sobre el universo chico de códigos conocidos (no sobre los
-// documentos), y de ahí se arma el WHERE vencod = ANY(...) de la consulta.
-async function vencodsPorArea() {
+// documentos). Sirve tanto para armar el WHERE vencod = ANY(...) del
+// filtro por área (agrupado, ver vencodsPorArea) como para pintar la
+// columna Área de cada fila en el listado de documentos (mapaAreaPorVencod).
+async function mapaAreaPorVencod() {
   const filas = await db.all(`
     SELECT DISTINCT t.vencod, u.area AS area_usuario
     FROM (
@@ -188,13 +218,20 @@ async function vencodsPorArea() {
       UNION SELECT vencod FROM reporte_softland_cotizaciones
       UNION SELECT vencod FROM reporte_softland_notas_venta
       UNION SELECT vencod FROM reporte_softland_facturas
+      UNION SELECT COALESCE(codigo_softland, 'OTRO') FROM users
     ) t
     LEFT JOIN users u ON u.codigo_softland = t.vencod
   `);
   const mapa = {};
-  for (const f of filas) {
-    const a = resolverArea(f.vencod, f.area_usuario);
-    if (a) (mapa[a] = mapa[a] || []).push(f.vencod);
+  for (const f of filas) mapa[f.vencod] = resolverArea(f.vencod, f.area_usuario);
+  return mapa;
+}
+
+async function vencodsPorArea() {
+  const porVencod = await mapaAreaPorVencod();
+  const mapa = {};
+  for (const [vencod, a] of Object.entries(porVencod)) {
+    if (a) (mapa[a] = mapa[a] || []).push(vencod);
   }
   return mapa;
 }
@@ -234,8 +271,9 @@ router.get('/documentos/:tipo', authorize('administrador', 'jefe_comercial', 've
       `SELECT * FROM ${cfg.tabla} ${where} ORDER BY fecha DESC, ${cfg.numero} DESC LIMIT $${paramsPagina.length - 1} OFFSET $${paramsPagina.length}`,
       paramsPagina
     );
+    const areaPorVencod = await mapaAreaPorVencod();
     res.json({
-      rows: rows.map(r => ({ ...r, monto: Number(r.monto), area: resolverArea(r.vencod, null) })),
+      rows: rows.map(r => ({ ...r, monto: Number(r.monto), area: areaPorVencod[r.vencod] ?? resolverArea(r.vencod, null) })),
       total: Number(total.n),
       page, pageSize,
     });
