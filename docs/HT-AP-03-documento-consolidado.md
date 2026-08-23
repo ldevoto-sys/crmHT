@@ -49,9 +49,20 @@ del lugar frecuente en la parada de Despacho (§6), **envío automático por
 correo** en el motor de seguimiento con personalización, teléfono del
 vendedor y copia (CC) (§8), fixes de PDF y de la lista de Cotizaciones
 (§4), filtro por cliente en Reportería (§9), y la primera versión de la
-**API de integración para Cowork** (§18, nueva). Este documento es el que
-debe subirse a SharePoint reemplazando la versión anterior del documento
-base.
+**API de integración para Cowork** (§18, nueva); de v1.29 (19-08-2026):
+`GET /negocios` con filtros en la API de Cowork (§18); de v1.30
+(20-08-2026): etapa del pipeline en vez de estado del documento en el
+listado de Cotizaciones (§4), secuencias editables con casos en curso, y
+el nuevo paso de secuencia "cambiar etapa" (§8); y de v1.31 (19 al
+23-08-2026): la **Reportería Comercial + Softland** completa —nunca antes
+documentada en este consolidado— con su listado documento por documento
+de Cotizaciones/NV/Facturas y su sincronización con backfill único +
+ventana viva (§9/§13/§14), la unificación de "Reportes" en una sola
+sección del menú, las tarjetas de Notas de Venta/Facturas del mes en el
+Dashboard (§9), y el estado de habilitación de WhatsApp Business Platform
+con Meta, incluido el bloqueo pendiente por cuenta desactivada (§11). Este
+documento es el que debe subirse a SharePoint reemplazando la versión
+anterior del documento base.
 
 ---
 
@@ -757,6 +768,27 @@ mismo criterio que Secuencias (§8).
   usuario, corresponde enviar este aviso además de (no en reemplazo de) la
   nota de cambio técnica de esta carpeta.
 
+**Reportería Comercial + Softland (v1.31):** sección propia dentro de
+"Reportes" (selector Pipeline / Comercial), con datos de Cotizado, Cerrado
+(NV emitidas) y Facturado por vendedor/área, en monto y cantidad —
+reemplaza el script manual `generar_dashboard.py` que se corría a mano
+desde un equipo personal. Cotizado: Softland hasta jul-2026 (histórico
+estático), en vivo desde el CRM desde ago-2026. Cerrado y Facturado:
+siempre Softland, sin cruce con el pipeline del CRM. Pestañas: Mensual
+(2023-hoy, reactiva a los filtros de Año/Mes, con tooltip), Comparación
+anual (con acumulado y tabla de detalle), Por vendedor, Por área, NV sin
+facturar (con buscador), y **Cotizaciones/Notas de Venta/Facturas**
+documento por documento (filtro por año/mes/día/vendedor/área + texto,
+exportar CSV, paginado server-side por el volumen — a diferencia del
+resto del reporte). Botón "Actualizar" manual + sincronización automática
+a las 23:00 hora Chile (solo producción), con backfill único del histórico
+congelado y ventana viva (mes abierto + anterior) para lo que todavía
+puede cambiar — ver detalle completo en la nota de cambio v1.31 y en §13
+(modelo de datos) y §14 (integraciones externas, conexión a Softland).
+Área comercial resuelta por el mapa oficial de HT-IN-01 §4.6. Dashboard:
+agrega tarjetas de Notas de Venta y Facturas del mes en curso, además de
+Cotizado/Cerrado ganado del CRM.
+
 ## 10. Encuesta post-cierre
 
 - Al mover un negocio a etapa "ganada" se crea automáticamente una encuesta
@@ -768,6 +800,25 @@ mismo criterio que Secuencias (§8).
   `ENCUESTA_DIAS_RECORDATORIO`).
 
 ## 11. WhatsApp
+
+**Estado de habilitación con Meta (v1.31, 23-08-2026):** app de
+desarrollador creada, webhook verificado, flujo probado extremo a extremo
+en `staging` (mensaje entrante visible en la Bandeja real; plantilla
+`hello_world` enviada y recibida), política de privacidad publicada y
+3 plantillas de mensaje aprobadas (`envio_cotizacion`,
+`cierre_de_cotizacion`, `seguimiento1`, las 3 categoría "Marketing").
+**Bloqueada:** la cuenta de WhatsApp Business quedó desactivada
+permanentemente por Meta por la Política de Comercio, sin actividad real
+de mensajería — causa más probable, el portafolio se administraba desde
+un perfil personal de fantasía en vez del perfil real del administrador.
+En curso: crear un portafolio empresarial nuevo desde el perfil real,
+recrear ahí la app/WABA, y completar verificación de negocio + número de
+producción + método de pago. **Aclaración para evitar repetir un desvío
+ya identificado:** no hace falta "Tech Provider" ni Advanced Access/App
+Review de `whatsapp_business_management`/`whatsapp_business_messaging` —
+eso es solo para quien administra cuentas de **otras** empresas (modelo
+BSP); Hidrotécnica administra directamente su propia única cuenta. Ver
+detalle completo en la nota de cambio v1.31.
 
 **Bot (categorización y recontacto):** integración con la Cloud API de
 WhatsApp (Meta), app en modo desarrollo (ver pendientes, §16).
@@ -951,17 +1002,42 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `encuesta_config`.
 - **Acceso BI:** rol de PostgreSQL `bi_readonly` (a nivel de base de datos,
   fuera del modelo de aplicación).
+- **Reportería Comercial + Softland (v1.31, ver §9/§14):** `users.area`
+  (CHECK, 4 valores: meson/operaciones/vregion/otros — usado solo como
+  último recurso, ver §14); tabla `reporte_softland_mensual` (agregado
+  mensual por vencod: cotizado/cerrado/facturado, monto y cantidad);
+  tabla `reporte_softland_nv_pendientes` (NV del año en curso pendientes
+  de facturar, una fila por NV); tabla `reporte_softland_sync` (registro
+  de cada corrida de la sincronización, exitosa o fallida); tablas
+  `reporte_softland_cotizaciones`, `reporte_softland_notas_venta`,
+  `reporte_softland_facturas` (detalle documento por documento, con
+  índice por año/mes para el filtrado del listado); tabla
+  `reporte_softland_backfill` (marca qué dataset ya tuvo su carga
+  histórica única — ver §14).
 
 ## 14. Integraciones externas
 
 - **Brevo (SMTP):** correos transaccionales y envío de cotizaciones.
   Remitente genérico con "Responder a" = vendedor.
 - **WhatsApp Cloud API (Meta):** bot, Bandeja, envío de cotizaciones y
-  adjuntos. App en modo desarrollo (número de prueba, máx. 5 destinatarios)
-  y sin credenciales cargadas en producción — por eso, desde v1.19, el botón
-  "Enviar cotización" (§4) y el menú (Bandeja/Cola, §1) no lo exponen
-  todavía; el código sigue existiendo, listo para cuando se publique la app
-  (§16, punto 3).
+  adjuntos. Credenciales cargadas en `staging` desde el 22-08-2026, flujo
+  probado extremo a extremo (ver §11) — pero la cuenta de WhatsApp Business
+  quedó desactivada por Meta el 23-08-2026, en proceso de recrearse desde
+  un portafolio empresarial nuevo (ver §11 y nota de cambio v1.31). Hasta
+  que quede resuelto, sigue sin exponerse en producción: el botón "Enviar
+  cotización" (§4) y el menú (Bandeja/Cola, §1) no lo muestran todavía; el
+  código sigue existiendo, listo para cuando la cuenta quede operativa.
+- **Softland (SQL Server, solo lectura — v1.31):** réplica de Softland vía
+  `mssql`, variables `SOFTLAND_DB_SERVER/NAME/USER/PASS` (+ opcional
+  `SOFTLAND_DB_TRUST_CERT`) cargadas en `staging` y `main`. Alimenta la
+  Reportería Comercial + Softland (§9): agregado mensual y detalle
+  documento por documento de cotizaciones/NV/facturas. Arquitectura de
+  sincronización con **backfill único + ventana viva** (mes abierto + el
+  anterior) — el histórico más viejo se consulta a Softland una sola vez
+  (tabla `reporte_softland_backfill`), no todas las noches; ver §13 y la
+  nota de cambio v1.31 para el detalle completo. Consultas SQL y mapa de
+  vendedor/código → área documentados en HT-IN-01 §4.1/§4.6 (skill de
+  dashboards Softland).
 - **Google Maps Platform (v1.16):** Directions API + Geocoding API, para
   optimización de ruta de Despacho (§6). Uso exclusivamente server-side —
   la key nunca se expone al navegador, restringida en Google Cloud Console
