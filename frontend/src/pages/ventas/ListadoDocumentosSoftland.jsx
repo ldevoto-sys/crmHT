@@ -2,7 +2,16 @@ import { useEffect, useState } from 'react';
 import api from '../../api';
 
 const fmtMoney = v => `$${Math.round(v || 0).toLocaleString('es-CL')}`;
-const fmtFecha = iso => (iso ? new Date(iso).toLocaleDateString('es-CL') : '—');
+// `fecha` es una fecha pura (sin hora), servida como medianoche UTC — pasarla
+// por Date/toLocaleDateString sin huso horario explícito la retrocede un día
+// para cualquier usuario en un huso negativo (Chile incluido). Se toma el
+// texto tal cual, sin pasar por conversión de huso (mismo bug ya corregido
+// antes en Cotizaciones — ver utils/fecha.js).
+const fmtFecha = iso => {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).slice(0, 10).split('-');
+  return `${d}-${m}-${y}`;
+};
 const AREA_LABEL = { meson: 'Ventas Mesón', operaciones: 'Operaciones', vregion: 'V Región', otros: 'Otros' };
 
 const CONFIG = {
