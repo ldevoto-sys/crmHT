@@ -159,7 +159,12 @@ export default function DetalleNegocio() {
               <div className="flex gap-2">
                 <Link to={`/despacho?negocio_id=${id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
                 <Link to={`/postventa?negocio_id=${id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear caso de postventa</Link>
-                {n.puede_editar && <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>}
+                {/* Un negocio solo puede tener un hilo de cotización (26-08-2026) — con una ya
+                    creada, otra versión se agrega desde la cotización misma ("Nueva versión"),
+                    no desde acá, para no volver a dejar dos cotizaciones colgando del mismo negocio. */}
+                {n.puede_editar && cots.length === 0 && (
+                  <Link to={`/negocios/${id}/cotizar`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">+ Cotizar</Link>
+                )}
               </div>
             </div>
             {cots.length === 0 ? <p className="text-sm text-gray-400">Sin cotizaciones.</p> : (
