@@ -1109,6 +1109,13 @@ async function initDb() {
   await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS etapa_destino_id INTEGER REFERENCES pipeline_etapas(id)`);
   await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS causa_no_cierre_id INTEGER REFERENCES causas_no_cierre(id)`);
 
+  // Canal "whatsapp" con envío automático (26-08-2026): WhatsApp exige una
+  // plantilla aprobada por Meta para mensajes que inicia la empresa fuera de
+  // la ventana de 24h de servicio — no texto libre como el canal correo. El
+  // nombre guardado acá coincide con el nombre de la plantilla en Meta (ver
+  // services/secuencias.js#PLANTILLAS_WHATSAPP).
+  await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS whatsapp_template TEXT`);
+
   await db.run(`
     CREATE TABLE IF NOT EXISTS negocio_secuencias (
       id SERIAL PRIMARY KEY,

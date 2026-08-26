@@ -122,6 +122,49 @@ async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, captio
   }
 }
 
+// Mensaje de plantilla aprobada por Meta — obligatorio para mensajes que
+// inicia la empresa fuera de la ventana de 24h de servicio al cliente (ej.
+// pasos de secuencias de seguimiento). `parametros` es un arreglo de
+// {nombre, valor} que debe calzar con los parámetros nombrados definidos en
+// la plantilla dentro de Meta (ver services/secuencias.js#PLANTILLAS_WHATSAPP).
+async function enviarPlantilla(telefonoE164, nombrePlantilla, parametros, idioma = 'es_CL') {
+  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+    console.log(`[whatsapp] Sin credenciales configuradas; no se envió la plantilla "${nombrePlantilla}" a ${telefonoE164}.`);
+    return { enviado: false, motivo: 'WhatsApp no configurado' };
+  }
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: telefonoE164.replace('+', ''),
+          type: 'template',
+          template: {
+            name: nombrePlantilla,
+            language: { code: idioma },
+            components: [{
+              type: 'body',
+              parameters: parametros.map(p => ({ type: 'text', parameter_name: p.nombre, text: String(p.valor) })),
+            }],
+          },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error(`[whatsapp] Error enviando plantilla "${nombrePlantilla}" a`, telefonoE164, ':', err);
+      return { enviado: false, motivo: errorAmigable(err) };
+    }
+    return { enviado: true };
+  } catch (e) {
+    console.error(`[whatsapp] Error enviando plantilla "${nombrePlantilla}" a`, telefonoE164, ':', e.message);
+    return { enviado: false, motivo: e.message };
+  }
+}
+
 const TIPO_WHATSAPP = { imagen: 'image', video: 'video', audio: 'audio', documento: 'document' };
 
 // Envío genérico de media por link público (imagen/video/audio/documento) —
@@ -193,4 +236,4 @@ async function descargarMedia(mediaId) {
   }
 }
 
-module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, descargarMedia };
+module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, enviarPlantilla, descargarMedia };
