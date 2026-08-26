@@ -64,16 +64,23 @@ export default function NuevaCotizacion() {
   const contactoIdNuevo = searchParams.get('contacto_id');
   const productosPreseleccionados = searchParams.get('productos');
   const modoEdicion = !!cotizacionId;
-  const modoNegocioNuevo = !modoEdicion && !negocioId && !!contactoIdNuevo;
+  // Un negocio solo puede tener un hilo de cotización (26-08-2026, ver nota
+  // de cambio): crear una cotización SIEMPRE crea su propio negocio nuevo,
+  // nunca se cuelga de uno existente — evita que dos cotizaciones
+  // independientes terminen compartiendo etapa/resultado sin que nadie lo
+  // haya elegido a propósito. negocioId en la URL, cuando viene, es solo el
+  // origen del contacto para precargar los datos (ej. desde la ficha de un
+  // negocio ya cotizado) — nunca el destino.
+  const modoNegocioNuevo = !modoEdicion;
   // Autoguardado de borrador (HT-AP-03 nota v1.25): una sesión larga
   // armando una cotización se pierde por completo si algo interrumpe la
   // página (sesión expirada, refresh, cierre accidental) antes de apretar
   // "Guardar" — no había ninguna persistencia local. La key identifica la
-  // cotización en curso: editar una existente, o crear una nueva para un
-  // negocio (nuevo o ya existente).
+  // cotización en curso: editar una existente, o crear una nueva (a partir
+  // de un contacto, o del contacto de un negocio ya existente).
   const borradorKey = modoEdicion
     ? `cotizacion_borrador_editar_${cotizacionId}`
-    : modoNegocioNuevo
+    : contactoIdNuevo
     ? `cotizacion_borrador_negocio_nuevo_${contactoIdNuevo}`
     : `cotizacion_borrador_negocio_${negocioId}`;
   const restauradoRef = useRef(false);
@@ -217,20 +224,24 @@ export default function NuevaCotizacion() {
         setOtrasConsideracionesTexto(c.otras_consideraciones_texto || '');
         api.get(`/negocios/${c.negocio_id}`).then(rn => setNegocio(rn.data)).finally(() => setCargando(false));
       }).catch(() => { setError('No se pudo cargar la cotización.'); setCargando(false); });
-    } else if (modoNegocioNuevo) {
-      api.get(`/contactos/${contactoIdNuevo}`).then(r => {
-        const c = r.data;
-        setNegocio({
-          contacto_id: c.id, contacto_nombre: c.nombre, contacto_apellido: c.apellido,
-          contacto_email: c.email, contacto_telefono: c.telefono_e164, empresa_nombre: c.empresa_nombre,
-        });
-        setCargando(false);
-      }).catch(() => { setError('No se pudo cargar el contacto.'); setCargando(false); });
     } else {
-      api.get(`/negocios/${negocioId}`).then(r => { setNegocio(r.data); setCargando(false); })
-        .catch(() => { setError('No se pudo cargar el negocio.'); setCargando(false); });
+      const cargarDatosContacto = c => setNegocio({
+        contacto_id: c.id, contacto_nombre: c.nombre, contacto_apellido: c.apellido,
+        contacto_email: c.email, contacto_telefono: c.telefono_e164, empresa_nombre: c.empresa_nombre,
+      });
+      if (contactoIdNuevo) {
+        api.get(`/contactos/${contactoIdNuevo}`).then(r => { cargarDatosContacto(r.data); setCargando(false); })
+          .catch(() => { setError('No se pudo cargar el contacto.'); setCargando(false); });
+      } else {
+        // Origen = un negocio ya existente: se usa solo para saber de qué
+        // contacto se trata, nunca como destino de la cotización.
+        api.get(`/negocios/${negocioId}`)
+          .then(rn => api.get(`/contactos/${rn.data.contacto_id}`))
+          .then(r => { cargarDatosContacto(r.data); setCargando(false); })
+          .catch(() => { setError('No se pudo cargar el negocio.'); setCargando(false); });
+      }
     }
-  }, [negocioId, cotizacionId, modoEdicion, modoNegocioNuevo, contactoIdNuevo]);
+  }, [negocioId, cotizacionId, modoEdicion, contactoIdNuevo]);
 
   // Al terminar de cargar los datos del servidor, si hay un borrador local
   // más reciente lo ofrece recuperar (sobrescribiendo lo recién cargado,
@@ -343,7 +354,7 @@ export default function NuevaCotizacion() {
         // (que es siempre CLP). Se deja sin estimar; la propia cotización lo
         // fija segundos después, ya convertido, vía sincronizarMontoEstimado.
         const { data: nuevoNegocio } = await api.post('/negocios', {
-          contacto_id: Number(contactoIdNuevo), titulo: tituloNegocio,
+          contacto_id: Number(negocio.contacto_id), titulo: tituloNegocio,
           monto_estimado: esUF ? null : neto, fecha_cierre_estimada: fechaCierreEstimada || null,
         });
         negocioDestino = nuevoNegocio.id;
@@ -386,8 +397,8 @@ export default function NuevaCotizacion() {
 
   return (
     <div>
-      <Link to={modoEdicion ? `/cotizaciones/${cotizacionId}` : modoNegocioNuevo ? '/cotizaciones' : `/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">
-        ← {modoEdicion ? 'Volver a la cotización' : modoNegocioNuevo ? 'Cotizaciones' : negocio.titulo}
+      <Link to={modoEdicion ? `/cotizaciones/${cotizacionId}` : '/cotizaciones'} className="text-sm text-ht-accent hover:underline">
+        ← {modoEdicion ? 'Volver a la cotización' : 'Cotizaciones'}
       </Link>
       <h1 className="text-2xl font-bold text-ht-navy mt-2 mb-1">{modoEdicion ? 'Editar cotización' : 'Nueva cotización'}</h1>
       <p className="text-gray-500 text-sm mb-1">{negocio.contacto_nombre} {negocio.contacto_apellido}</p>
