@@ -12,6 +12,7 @@ export default function BandejaWhatsApp() {
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
+  const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
   const [texto, setTexto] = useState('');
@@ -78,6 +79,16 @@ export default function BandejaWhatsApp() {
 
   const conversacionActual = conversaciones.find(c => c.contacto_id === seleccionada);
 
+  // Búsqueda libre en el lado del cliente (la lista ya viene acotada a 300
+  // conversaciones desde el backend) — sin distinguir mayúsculas ni tildes.
+  const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
+  const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+  const terminoBusqueda = normalizar(busqueda.trim());
+  const conversacionesFiltradas = terminoBusqueda
+    ? conversaciones.filter(c => [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
+        .some(campo => normalizar(campo).includes(terminoBusqueda)))
+    : conversaciones;
+
   const enviar = async (e) => {
     e.preventDefault();
     if (!texto.trim()) return;
@@ -119,6 +130,9 @@ export default function BandejaWhatsApp() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
       <div className="flex gap-4 mb-4 flex-wrap">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+          placeholder="Buscar por cliente, empresa o teléfono…"
+          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
           className="border border-gray-300 rounded px-2 py-1.5 text-sm">
           <option value="">Todos los vendedores</option>
@@ -140,11 +154,14 @@ export default function BandejaWhatsApp() {
 
       <div className="flex gap-4 bg-white border border-gray-200 rounded-lg overflow-hidden" style={{ height: '65vh' }}>
         <div className={`w-full md:w-80 flex-shrink-0 border-r border-gray-200 overflow-y-auto ${seleccionada ? 'hidden md:block' : 'block'}`}>
-          {conversaciones.map(c => (
+          {conversacionesFiltradas.map(c => (
             <button key={c.contacto_id} onClick={() => setSeleccionada(c.contacto_id)}
               className={`w-full text-left p-3 border-b border-gray-100 hover:bg-slate-50 ${seleccionada === c.contacto_id ? 'bg-ht-accent/10' : ''}`}>
               <div className="flex justify-between items-start">
-                <div className="font-medium text-ht-navy text-sm">{c.contacto_nombre} {c.contacto_apellido || ''}</div>
+                <div className="font-medium text-ht-navy text-sm">
+                  {c.contacto_nombre} {c.contacto_apellido || ''}
+                  {c.empresa_razon_social && <span className="text-gray-400 font-normal"> · {c.empresa_razon_social}</span>}
+                </div>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${c.abierta ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   {c.abierta ? 'abierta' : 'cerrada'}
                 </span>
@@ -157,7 +174,11 @@ export default function BandejaWhatsApp() {
               </div>
             </button>
           ))}
-          {conversaciones.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">Sin conversaciones.</div>}
+          {conversacionesFiltradas.length === 0 && (
+            <div className="p-6 text-center text-gray-400 text-sm">
+              {terminoBusqueda ? 'Sin resultados para esa búsqueda.' : 'Sin conversaciones.'}
+            </div>
+          )}
         </div>
 
         <div className={`flex-1 flex-col min-w-0 ${seleccionada ? 'flex' : 'hidden md:flex'}`}>
