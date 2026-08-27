@@ -42,6 +42,7 @@ import Despacho from './pages/despacho/Despacho';
 import ConfigLugaresDespacho from './pages/despacho/ConfigLugaresDespacho';
 import ConfigOperaciones from './pages/admin/ConfigOperaciones';
 import ConfigFormasPago from './pages/admin/ConfigFormasPago';
+import ConfigCausasNoCierre from './pages/admin/ConfigCausasNoCierre';
 import ServicioTecnico from './pages/servicio_tecnico/ServicioTecnico';
 import ConfigServicioTecnicoEtapas from './pages/servicio_tecnico/ConfigServicioTecnicoEtapas';
 import Novedades from './pages/admin/Novedades';
@@ -185,6 +186,9 @@ export default function App() {
             } />
             <Route path="config/formas-pago" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigFormasPago /></ProtectedRoute>
+            } />
+            <Route path="config/causas-no-cierre" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigCausasNoCierre /></ProtectedRoute>
             } />
             <Route path="config/novedades" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><Novedades /></ProtectedRoute>
