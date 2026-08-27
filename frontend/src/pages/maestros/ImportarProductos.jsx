@@ -187,11 +187,13 @@ export default function ImportarProductos() {
       <div className="bg-white border border-gray-200 rounded-lg p-5 mt-8 max-w-2xl">
         <h2 className="font-semibold text-ht-navy mb-1">Imágenes y fichas técnicas (Cloudflare R2)</h2>
         <p className="text-gray-500 text-sm mb-3">
-          Sube las imágenes a la carpeta <code>img/</code> y las fichas PDF a la carpeta <code>pdf/</code> del bucket
-          de Cloudflare (fuera del CRM), nombrando cada archivo según el <strong>código del producto</strong>:
-          las imágenes con el prefijo <code>imagen1_</code> (ej. <code>img/imagen1_BAC-1500.jpg</code>) y las
-          fichas con el sufijo <code>FT</code> (ej. <code>pdf/BAC-1500FT.pdf</code>). Esta acción no sube nada — solo
-          completa la URL de cada producto según ese nombre de archivo.
+          Sube las imágenes a la carpeta <code>img/</code> del bucket de Cloudflare (fuera del CRM) y las fichas PDF
+          a <code>/files/pdf/</code> del sitio web <code>hidrotecnica.cl</code> (las fichas dejaron de servirse desde
+          Cloudflare — un dominio genérico tipo <code>r2.dev</code> hacía que Microsoft bloqueara el PDF completo por
+          phishing), nombrando cada archivo según el <strong>código del producto</strong>: las imágenes con el
+          prefijo <code>imagen1_</code> (ej. <code>img/imagen1_BAC-1500.jpg</code>) y las fichas con el sufijo
+          <code>FT</code> (ej. <code>BAC-1500FT.pdf</code>). Esta acción no sube nada — solo completa la URL de cada
+          producto según ese nombre de archivo.
         </p>
         {errorR2 && <div className="mb-3 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorR2}</div>}
         {resultadoR2 && (
@@ -209,7 +211,7 @@ export default function ImportarProductos() {
         </label>
         <button onClick={aplicarR2} disabled={cargandoR2}
           className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
-          {cargandoR2 ? 'Aplicando…' : 'Aplicar URLs de Cloudflare por código'}
+          {cargandoR2 ? 'Aplicando…' : 'Aplicar URLs por código'}
         </button>
       </div>
     </div>
