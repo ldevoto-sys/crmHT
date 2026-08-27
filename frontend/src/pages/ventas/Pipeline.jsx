@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { slaEstado, ESTILO_SLA } from '../../utils/sla';
@@ -18,16 +18,22 @@ export default function Pipeline() {
   const puedeCambiarPipeline = PUEDE_CAMBIAR_PIPELINE.includes(user?.rol);
   const puedeMoverPipeline = PUEDE_MOVER_PIPELINE.includes(user?.rol);
 
+  // Filtros en la URL (28-08-2026): antes vivían solo en useState, así que
+  // se perdían al entrar al detalle de un negocio y volver (con el botón
+  // del navegador o el link "Volver") — el componente se monta de nuevo
+  // desde cero. Guardarlos en la query string hace que la propia URL sea la
+  // fuente de verdad: "atrás" del navegador la restaura sola.
+  const [searchParams, setSearchParams] = useSearchParams();
   const [negocios, setNegocios] = useState([]);
   const [etapas, setEtapas] = useState([]);
   const [causas, setCausas] = useState([]);
   const [pipelines, setPipelines] = useState([]);
-  const [pipelineId, setPipelineId] = useState(user?.pipeline_default_id || 1);
+  const [pipelineId, setPipelineId] = useState(() => Number(searchParams.get('pipeline_id')) || user?.pipeline_default_id || 1);
   const [vendedores, setVendedores] = useState([]);
-  const [vendedorId, setVendedorId] = useState('');
-  const [cierreDesde, setCierreDesde] = useState('');
-  const [cierreHasta, setCierreHasta] = useState('');
-  const [busqueda, setBusqueda] = useState('');
+  const [vendedorId, setVendedorId] = useState(() => searchParams.get('vendedor_id') || '');
+  const [cierreDesde, setCierreDesde] = useState(() => searchParams.get('desde') || '');
+  const [cierreHasta, setCierreHasta] = useState(() => searchParams.get('hasta') || '');
+  const [busqueda, setBusqueda] = useState(() => searchParams.get('q') || '');
   const [error, setError] = useState('');
   const [drag, setDrag] = useState(null);
   const [modalPerdido, setModalPerdido] = useState(null); // {negocio, etapa}
@@ -48,6 +54,19 @@ export default function Pipeline() {
     } catch { setError('No se pudieron cargar los negocios.'); }
   };
   useEffect(() => { cargar(); }, [pipelineId, vendedorId, cierreDesde, cierreHasta]); // eslint-disable-line
+
+  // Refleja los filtros en la URL (reemplaza la entrada actual del
+  // historial, no agrega una nueva por cada tecla/cambio).
+  useEffect(() => {
+    const next = {};
+    if (busqueda) next.q = busqueda;
+    if (pipelineId) next.pipeline_id = String(pipelineId);
+    if (vendedorId) next.vendedor_id = vendedorId;
+    if (cierreDesde) next.desde = cierreDesde;
+    if (cierreHasta) next.hasta = cierreHasta;
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line
+  }, [busqueda, pipelineId, vendedorId, cierreDesde, cierreHasta]);
 
   useEffect(() => {
     if (puedeCambiarPipeline) {

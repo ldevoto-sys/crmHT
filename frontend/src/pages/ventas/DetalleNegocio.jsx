@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import NotasYTareas from '../../components/NotasYTareas';
@@ -17,6 +17,7 @@ const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
 
 export default function DetalleNegocio() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [n, setN] = useState(null);
   const [etapas, setEtapas] = useState([]);
@@ -108,7 +109,10 @@ export default function DetalleNegocio() {
 
   return (
     <div>
-      <Link to="/pipeline" className="text-sm text-ht-accent hover:underline">← Pipeline</Link>
+      {/* Vuelve a la página anterior real (con sus filtros/query), no siempre
+          a /pipeline sin filtros — este detalle también se abre desde
+          Contactos, Reportes, Cotizaciones, etc. */}
+      <button onClick={() => navigate(-1)} className="text-sm text-ht-accent hover:underline">← Volver</button>
       <div className="flex items-center justify-between mt-2 mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">{n.titulo}</h1>
         <span className="text-sm px-3 py-1 rounded-full bg-ht-accent/15 text-ht-navy">{n.etapa_nombre}</span>
