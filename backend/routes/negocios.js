@@ -76,6 +76,7 @@ router.get('/exportar', authorize('administrador', 'jefe_comercial'), async (req
     const { where, params } = filtrosNegocios(req.query, req.user);
     const negociosRows = await db.all(
       `SELECT n.id, n.titulo, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
+              c.email AS contacto_email, c.telefono_e164 AS contacto_telefono,
               e.razon_social AS empresa, u.nombre AS vendedor, pe.nombre AS etapa,
               n.probabilidad_cierre, n.monto_estimado, n.fecha_cierre_estimada, n.fecha_cierre,
               ca.nombre AS causa_no_cierre, n.causa_no_cierre_detalle, n.created_at
@@ -95,8 +96,8 @@ router.get('/exportar', authorize('administrador', 'jefe_comercial'), async (req
       fecha_cierre: fechaDDMMAAAA(n.fecha_cierre),
       created_at: fechaDDMMAAAA(n.created_at),
     }));
-    const headers = ['id', 'titulo', 'contacto_nombre', 'contacto_apellido', 'empresa', 'vendedor', 'etapa',
-      'probabilidad_cierre', 'monto_estimado', 'fecha_cierre_estimada', 'fecha_cierre',
+    const headers = ['id', 'titulo', 'contacto_nombre', 'contacto_apellido', 'contacto_email', 'contacto_telefono',
+      'empresa', 'vendedor', 'etapa', 'probabilidad_cierre', 'monto_estimado', 'fecha_cierre_estimada', 'fecha_cierre',
       'causa_no_cierre', 'causa_no_cierre_detalle', 'created_at'];
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="negocios.csv"');
@@ -801,6 +802,256 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
     await client.query('ROLLBACK');
     console.error('[negocios/importar/confirmar]', err);
     res.status(500).json({ error: 'Error al importar: ' + err.message + (err.detail ? ' — ' + err.detail : '') });
+  } finally {
+    client.release();
+  }
+});
+
+// Actualización masiva por id (27-08-2026): a diferencia de /importar, que
+// siempre CREA negocios nuevos, esta lee el mismo archivo que ya entrega
+// "Exportar" (con la columna id) y actualiza puntualmente cada fila
+// existente — pensado para bajar el listado, editar y volver a subirlo, sin
+// duplicar nada. No todas las columnas se tratan igual:
+// - titulo, monto_estimado, fecha_cierre_estimada, fecha_cierre: editables directo.
+// - etapa: si viene distinta a la actual, mueve el negocio de verdad — mismos
+//   efectos que moverlo a mano en el Pipeline (secuencias, encuesta de
+//   satisfacción, historial de etapas) — ver PUT /:id/etapa, misma lógica.
+// - probabilidad_cierre y causa_no_cierre/detalle: no se leen sueltos, van
+//   siempre de la mano del cambio de etapa (la probabilidad la fija la etapa
+//   destino; la causa solo aplica si esa etapa es "perdida").
+// - contacto_email, contacto_telefono, contacto_nombre, contacto_apellido:
+//   solo lectura acá (identifican la fila) — son del contacto, no del
+//   negocio, y un mismo contacto puede estar en más de un negocio.
+// - empresa, vendedor, created_at: protegidos — si la fila trae un valor
+//   distinto al que ya tiene el negocio, se rechaza esa fila completa (no se
+//   reasigna nada por error de tipeo o de arrastre en Excel).
+const FECHA_ACTUALIZAR_RE = /^(\d{2})-(\d{2})-(\d{4})$/;
+
+function parseFechaActualizar(valor) {
+  const m = FECHA_ACTUALIZAR_RE.exec((valor || '').trim());
+  if (!m) return undefined; // no vino / formato inválido
+  const [, dd, mm, yyyy] = m;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// Resuelve y valida una fila contra el estado actual del negocio en la BD.
+// No escribe nada — solo lectura, usable tanto en preview como antes de
+// escribir en confirmar. Devuelve {error} o un "plan" con lo que hay que
+// aplicar.
+async function resolverFilaActualizacion(client, row, fila) {
+  const idRaw = (row.id || '').trim();
+  if (!idRaw || !/^\d+$/.test(idRaw)) return { error: { fila, motivo: 'id inválido o vacío' } };
+  const id = Number(idRaw);
+
+  const negocio = (await client.query(
+    `SELECT n.*, c.email AS contacto_email, e.razon_social AS empresa_nombre, u.nombre AS vendedor_nombre,
+            pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.pipeline_id AS etapa_pipeline_id,
+            pe.secuencia_id AS etapa_anterior_secuencia_id
+     FROM negocios n
+     JOIN contactos c ON c.id = n.contacto_id
+     LEFT JOIN empresas e ON e.id = n.empresa_id
+     LEFT JOIN users u ON u.id = n.vendedor_id
+     LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+     WHERE n.id = $1`, [id]
+  )).rows[0];
+  if (!negocio) return { error: { fila, motivo: `no existe un negocio con id ${id}` } };
+
+  // Campos protegidos: solo se valida si la columna viene con contenido —
+  // una fila con esa columna vacía no se interpreta como "vaciar el campo".
+  const empresaCsv = (row.empresa || '').trim();
+  if (empresaCsv && empresaCsv.toLowerCase() !== (negocio.empresa_nombre || '').toLowerCase()) {
+    return { error: { fila, motivo: `la columna empresa no se puede cambiar acá (era "${negocio.empresa_nombre || '—'}", vino "${empresaCsv}")` } };
+  }
+  const vendedorCsv = (row.vendedor || '').trim();
+  if (vendedorCsv && vendedorCsv.toLowerCase() !== (negocio.vendedor_nombre || '').toLowerCase()) {
+    return { error: { fila, motivo: `la columna vendedor no se puede cambiar acá (era "${negocio.vendedor_nombre || '—'}", vino "${vendedorCsv}")` } };
+  }
+  const createdAtCsv = (row.created_at || '').trim();
+  if (createdAtCsv && createdAtCsv !== fechaDDMMAAAA(negocio.created_at)) {
+    return { error: { fila, motivo: `la columna created_at no se puede cambiar acá (era "${fechaDDMMAAAA(negocio.created_at)}", vino "${createdAtCsv}")` } };
+  }
+
+  // Etapa destino: vacía = sin cambio. Se busca por nombre dentro del mismo
+  // pipeline del negocio (el mismo criterio que usa el Pipeline/kanban).
+  const etapaCsv = (row.etapa || '').trim();
+  let etapaNueva = null;
+  if (etapaCsv && etapaCsv.toLowerCase() !== (negocio.etapa_nombre || '').toLowerCase()) {
+    etapaNueva = (await client.query(
+      `SELECT * FROM pipeline_etapas WHERE pipeline_id = $1 AND activo = true AND lower(nombre) = lower($2)`,
+      [negocio.pipeline_id, etapaCsv]
+    )).rows[0];
+    if (!etapaNueva) return { error: { fila, motivo: `etapa "${etapaCsv}" no es una etapa activa del pipeline de este negocio` } };
+  }
+
+  let causaId = null;
+  const causaCsv = (row.causa_no_cierre || '').trim();
+  if (etapaNueva && etapaNueva.tipo === 'perdida') {
+    if (!causaCsv) return { error: { fila, motivo: 'la etapa destino es "perdida" y falta la columna causa_no_cierre' } };
+    const causa = (await client.query(`SELECT id FROM causas_no_cierre WHERE activo = true AND lower(nombre) = lower($1)`, [causaCsv])).rows[0];
+    if (!causa) return { error: { fila, motivo: `causa_no_cierre "${causaCsv}" no existe o está inactiva` } };
+    causaId = causa.id;
+  }
+
+  // Postgres devuelve las columnas DATE como objeto Date, no como texto —
+  // hay que normalizar a ISO (AAAA-MM-DD) antes de comparar con lo que
+  // parsea el CSV, si no toda fila sin cambio real de fecha se marca como
+  // "distinta" solo por la diferencia de tipos.
+  const isoDb = valor => {
+    if (!valor) return null;
+    return valor instanceof Date ? valor.toISOString().slice(0, 10) : valor;
+  };
+
+  const cambios = {};
+  if (row.titulo !== undefined && row.titulo.trim() && row.titulo.trim() !== negocio.titulo) cambios.titulo = row.titulo.trim();
+  if (row.monto_estimado !== undefined && row.monto_estimado.trim()) {
+    const monto = Number(row.monto_estimado.replace(/\./g, '').replace(',', '.'));
+    if (Number.isNaN(monto)) return { error: { fila, motivo: 'monto_estimado no es un número válido' } };
+    if (monto !== Number(negocio.monto_estimado)) cambios.monto_estimado = monto;
+  }
+  if ((row.fecha_cierre_estimada || '').trim()) {
+    const iso = parseFechaActualizar(row.fecha_cierre_estimada);
+    if (!iso) return { error: { fila, motivo: 'fecha_cierre_estimada no tiene formato DD-MM-AAAA' } };
+    if (iso !== isoDb(negocio.fecha_cierre_estimada)) cambios.fecha_cierre_estimada = iso;
+  }
+  if ((row.fecha_cierre || '').trim()) {
+    const iso = parseFechaActualizar(row.fecha_cierre);
+    if (!iso) return { error: { fila, motivo: 'fecha_cierre no tiene formato DD-MM-AAAA' } };
+    if (iso !== isoDb(negocio.fecha_cierre)) cambios.fecha_cierre = iso;
+  }
+
+  if (!etapaNueva && Object.keys(cambios).length === 0) return { sinCambios: true };
+
+  return { negocio, etapaNueva, causaId, causaDetalle: (row.causa_no_cierre_detalle || '').trim() || null, cambios };
+}
+
+async function aplicarFilaActualizacion(client, plan, usuarioId) {
+  const { negocio, etapaNueva, causaId, causaDetalle, cambios } = plan;
+
+  if (etapaNueva) {
+    const cierra = etapaNueva.tipo === 'ganada' || etapaNueva.tipo === 'perdida';
+    await client.query(
+      `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2, causa_no_cierre_id=$3, causa_no_cierre_detalle=$4,
+              fecha_cierre=$5, titulo=COALESCE($6,titulo), monto_estimado=COALESCE($7,monto_estimado),
+              fecha_cierre_estimada=$8, ultima_actividad=now()
+       WHERE id=$9`,
+      [etapaNueva.id, etapaNueva.probabilidad_cierre,
+       etapaNueva.tipo === 'perdida' ? causaId : null,
+       etapaNueva.tipo === 'perdida' ? causaDetalle : null,
+       cierra ? new Date().toISOString() : null,
+       cambios.titulo || null, cambios.monto_estimado ?? null,
+       cierra ? null : (cambios.fecha_cierre_estimada ?? negocio.fecha_cierre_estimada),
+       negocio.id]
+    );
+    await client.query('UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL', [negocio.id]);
+    await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaNueva.id]);
+    await timeline.registrar({
+      contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
+      tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapaNueva.nombre} (importación masiva)`, usuario_id: usuarioId,
+    }, client);
+
+    await secuencias.alCambiarEtapa({
+      negocio, etapaAnterior: negocio.etapa_id ? { secuencia_id: negocio.etapa_anterior_secuencia_id } : null,
+      etapaNueva, usuarioId, origenDescripcion: 'por una actualización masiva',
+    });
+
+    if (etapaNueva.tipo === 'ganada') {
+      const token = crypto.randomBytes(16).toString('hex');
+      const r = await client.query(
+        `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2) ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
+        [negocio.id, token]
+      );
+      if (r.rows[0]) {
+        await client.query(
+          `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+           VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
+          ['Enviar encuesta de satisfacción al cliente', `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
+           negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, negocio.id]
+        );
+      }
+    }
+  } else if (Object.keys(cambios).length) {
+    await client.query(
+      `UPDATE negocios SET titulo=COALESCE($1,titulo), monto_estimado=COALESCE($2,monto_estimado),
+              fecha_cierre_estimada=COALESCE($3,fecha_cierre_estimada), fecha_cierre=COALESCE($4,fecha_cierre),
+              ultima_actividad=now()
+       WHERE id=$5`,
+      [cambios.titulo || null, cambios.monto_estimado ?? null, cambios.fecha_cierre_estimada ?? null, cambios.fecha_cierre ?? null, negocio.id]
+    );
+    const descripcion = Object.entries(cambios).map(([k, v]) => `${k} → ${v}`).join(', ');
+    await timeline.registrar({
+      contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
+      tipo: 'nota', descripcion: `Actualizado por importación masiva: ${descripcion}`, usuario_id: usuarioId,
+    }, client);
+  }
+}
+
+// POST /api/negocios/actualizar/preview
+router.post('/actualizar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCSV.single('archivo'), async (req, res) => {
+  const client = await db.pool.connect();
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+    const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+
+    const rechazos = [];
+    const finales = [];
+    let sinCambios = 0;
+    const idsVistos = new Set();
+    for (let idx = 0; idx < rows.length; idx++) {
+      const fila = idx + 2;
+      const idRaw = (rows[idx].id || '').trim();
+      if (idRaw && idsVistos.has(idRaw)) { rechazos.push({ fila, motivo: `id ${idRaw} repetido en el archivo` }); continue; }
+      if (idRaw) idsVistos.add(idRaw);
+      const resultado = await resolverFilaActualizacion(client, rows[idx], fila);
+      if (resultado.error) { rechazos.push(resultado.error); continue; }
+      if (resultado.sinCambios) { sinCambios++; continue; }
+      finales.push({ fila, ...resultado });
+    }
+
+    res.json({
+      resumen: { total_filas_validas: finales.length, sin_cambios: sinCambios, rechazos: rechazos.length },
+      muestra: finales.slice(0, 20).map(v => ({
+        id: v.negocio.id, titulo: v.negocio.titulo,
+        etapa: v.etapaNueva ? `${v.negocio.etapa_nombre || '—'} → ${v.etapaNueva.nombre}` : (v.negocio.etapa_nombre || '—'),
+        cambios: Object.keys(v.cambios).length ? Object.entries(v.cambios).map(([k, val]) => `${k}: ${val}`).join('; ') : '—',
+      })),
+      rechazos: rechazos.slice(0, 200),
+    });
+  } catch (err) {
+    console.error('[negocios/actualizar/preview]', err);
+    res.status(500).json({ error: 'Error al procesar el archivo: ' + err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/negocios/actualizar/confirmar
+router.post('/actualizar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCSV.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+  const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    let actualizados = 0;
+    const omitidos = [];
+    const idsVistos = new Set();
+    for (let idx = 0; idx < rows.length; idx++) {
+      const fila = idx + 2;
+      const idRaw = (rows[idx].id || '').trim();
+      if (idRaw && idsVistos.has(idRaw)) { omitidos.push({ fila, motivo: `id ${idRaw} repetido en el archivo` }); continue; }
+      if (idRaw) idsVistos.add(idRaw);
+      const resultado = await resolverFilaActualizacion(client, rows[idx], fila);
+      if (resultado.error) { omitidos.push(resultado.error); continue; }
+      if (resultado.sinCambios) continue;
+      await aplicarFilaActualizacion(client, resultado, req.user.id);
+      actualizados++;
+    }
+    await client.query('COMMIT');
+    res.json({ actualizados, omitidos });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[negocios/actualizar/confirmar]', err);
+    res.status(500).json({ error: 'Error al aplicar los cambios: ' + err.message + (err.detail ? ' — ' + err.detail : '') });
   } finally {
     client.release();
   }
