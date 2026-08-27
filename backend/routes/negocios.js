@@ -834,16 +834,13 @@ function parseFechaActualizar(valor) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-// Resuelve y valida una fila contra el estado actual del negocio en la BD.
-// No escribe nada — solo lectura, usable tanto en preview como antes de
-// escribir en confirmar. Devuelve {error} o un "plan" con lo que hay que
-// aplicar.
-async function resolverFilaActualizacion(client, row, fila) {
-  const idRaw = (row.id || '').trim();
-  if (!idRaw || !/^\d+$/.test(idRaw)) return { error: { fila, motivo: 'id inválido o vacío' } };
-  const id = Number(idRaw);
-
-  const negocio = (await client.query(
+// Carga en 3 consultas TODO lo que puede necesitar cualquier fila del
+// archivo, sin importar cuántas filas traiga — antes se hacía una consulta
+// (o más) por fila, y con archivos de varios cientos de filas la petición
+// se caía por tiempo de espera antes de terminar. Preview y confirmar
+// arrancan llamando a esto una sola vez.
+async function cargarContextoActualizacion(client, ids) {
+  const negociosDb = ids.length ? (await client.query(
     `SELECT n.*, c.email AS contacto_email, e.razon_social AS empresa_nombre, u.nombre AS vendedor_nombre,
             pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.pipeline_id AS etapa_pipeline_id,
             pe.secuencia_id AS etapa_anterior_secuencia_id
@@ -852,8 +849,31 @@ async function resolverFilaActualizacion(client, row, fila) {
      LEFT JOIN empresas e ON e.id = n.empresa_id
      LEFT JOIN users u ON u.id = n.vendedor_id
      LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
-     WHERE n.id = $1`, [id]
-  )).rows[0];
+     WHERE n.id = ANY($1)`, [ids]
+  )).rows : [];
+  const negociosPorId = new Map(negociosDb.map(n => [n.id, n]));
+
+  const pipelineIds = [...new Set(negociosDb.map(n => n.pipeline_id).filter(Boolean))];
+  const etapasDb = pipelineIds.length ? (await client.query(
+    `SELECT * FROM pipeline_etapas WHERE pipeline_id = ANY($1) AND activo = true`, [pipelineIds]
+  )).rows : [];
+  const etapasPorClave = new Map(etapasDb.map(e => [`${e.pipeline_id}:${e.nombre.toLowerCase()}`, e]));
+
+  const causasDb = (await client.query(`SELECT id, nombre FROM causas_no_cierre WHERE activo = true`)).rows;
+  const causasPorNombre = new Map(causasDb.map(c => [c.nombre.toLowerCase(), c.id]));
+
+  return { negociosPorId, etapasPorClave, causasPorNombre };
+}
+
+// Resuelve y valida una fila contra el contexto ya cargado — sin consultas
+// a la BD, solo lectura de los mapas. Devuelve {error} o un "plan" con lo
+// que hay que aplicar.
+function resolverFilaActualizacion(contexto, row, fila) {
+  const idRaw = (row.id || '').trim();
+  if (!idRaw || !/^\d+$/.test(idRaw)) return { error: { fila, motivo: 'id inválido o vacío' } };
+  const id = Number(idRaw);
+
+  const negocio = contexto.negociosPorId.get(id);
   if (!negocio) return { error: { fila, motivo: `no existe un negocio con id ${id}` } };
 
   // Campos protegidos: solo se valida si la columna viene con contenido —
@@ -876,10 +896,7 @@ async function resolverFilaActualizacion(client, row, fila) {
   const etapaCsv = (row.etapa || '').trim();
   let etapaNueva = null;
   if (etapaCsv && etapaCsv.toLowerCase() !== (negocio.etapa_nombre || '').toLowerCase()) {
-    etapaNueva = (await client.query(
-      `SELECT * FROM pipeline_etapas WHERE pipeline_id = $1 AND activo = true AND lower(nombre) = lower($2)`,
-      [negocio.pipeline_id, etapaCsv]
-    )).rows[0];
+    etapaNueva = contexto.etapasPorClave.get(`${negocio.pipeline_id}:${etapaCsv.toLowerCase()}`);
     if (!etapaNueva) return { error: { fila, motivo: `etapa "${etapaCsv}" no es una etapa activa del pipeline de este negocio` } };
   }
 
@@ -887,9 +904,8 @@ async function resolverFilaActualizacion(client, row, fila) {
   const causaCsv = (row.causa_no_cierre || '').trim();
   if (etapaNueva && etapaNueva.tipo === 'perdida') {
     if (!causaCsv) return { error: { fila, motivo: 'la etapa destino es "perdida" y falta la columna causa_no_cierre' } };
-    const causa = (await client.query(`SELECT id FROM causas_no_cierre WHERE activo = true AND lower(nombre) = lower($1)`, [causaCsv])).rows[0];
-    if (!causa) return { error: { fila, motivo: `causa_no_cierre "${causaCsv}" no existe o está inactiva` } };
-    causaId = causa.id;
+    causaId = contexto.causasPorNombre.get(causaCsv.toLowerCase());
+    if (!causaId) return { error: { fila, motivo: `causa_no_cierre "${causaCsv}" no existe o está inactiva` } };
   }
 
   // Postgres devuelve las columnas DATE como objeto Date, no como texto —
@@ -992,6 +1008,9 @@ router.post('/actualizar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
     if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
     const { rows } = parseCSV(req.file.buffer.toString('utf8'));
 
+    const ids = [...new Set(rows.map(r => (r.id || '').trim()).filter(v => /^\d+$/.test(v)).map(Number))];
+    const contexto = await cargarContextoActualizacion(client, ids);
+
     const rechazos = [];
     const finales = [];
     let sinCambios = 0;
@@ -1001,7 +1020,7 @@ router.post('/actualizar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       const idRaw = (rows[idx].id || '').trim();
       if (idRaw && idsVistos.has(idRaw)) { rechazos.push({ fila, motivo: `id ${idRaw} repetido en el archivo` }); continue; }
       if (idRaw) idsVistos.add(idRaw);
-      const resultado = await resolverFilaActualizacion(client, rows[idx], fila);
+      const resultado = resolverFilaActualizacion(contexto, rows[idx], fila);
       if (resultado.error) { rechazos.push(resultado.error); continue; }
       if (resultado.sinCambios) { sinCambios++; continue; }
       finales.push({ fila, ...resultado });
@@ -1032,6 +1051,9 @@ router.post('/actualizar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uplo
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
+    const ids = [...new Set(rows.map(r => (r.id || '').trim()).filter(v => /^\d+$/.test(v)).map(Number))];
+    const contexto = await cargarContextoActualizacion(client, ids);
+
     let actualizados = 0;
     const omitidos = [];
     const idsVistos = new Set();
@@ -1040,7 +1062,7 @@ router.post('/actualizar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uplo
       const idRaw = (rows[idx].id || '').trim();
       if (idRaw && idsVistos.has(idRaw)) { omitidos.push({ fila, motivo: `id ${idRaw} repetido en el archivo` }); continue; }
       if (idRaw) idsVistos.add(idRaw);
-      const resultado = await resolverFilaActualizacion(client, rows[idx], fila);
+      const resultado = resolverFilaActualizacion(contexto, rows[idx], fila);
       if (resultado.error) { omitidos.push(resultado.error); continue; }
       if (resultado.sinCambios) continue;
       await aplicarFilaActualizacion(client, resultado, req.user.id);
