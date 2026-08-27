@@ -93,6 +93,8 @@ configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/o
 configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
 configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-pago' });
 configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago' });
+configByRole.administrador.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre' });
+configByRole.jefe_comercial.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre' });
 configByRole.administrador.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
 configByRole.jefe_comercial.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
 configByRole.administrador.push({ label: 'Avisar novedades', to: '/config/novedades' });
