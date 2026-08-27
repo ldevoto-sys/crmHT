@@ -878,13 +878,19 @@ function resolverFilaActualizacion(contexto, row, fila) {
 
   // Campos protegidos: solo se valida si la columna viene con contenido —
   // una fila con esa columna vacía no se interpreta como "vaciar el campo".
+  // El valor de la BD se recorta antes de comparar — algunos registros
+  // tienen espacios de más al final (ej. "Hidrotecnica ") que el CSV ya
+  // llega sin ellos (parseCSV recorta cada campo), y sin este trim un
+  // archivo re-subido SIN NINGÚN CAMBIO rechazaba solo por eso.
+  const empresaDb = (negocio.empresa_nombre || '').trim();
   const empresaCsv = (row.empresa || '').trim();
-  if (empresaCsv && empresaCsv.toLowerCase() !== (negocio.empresa_nombre || '').toLowerCase()) {
-    return { error: { fila, motivo: `la columna empresa no se puede cambiar acá (era "${negocio.empresa_nombre || '—'}", vino "${empresaCsv}")` } };
+  if (empresaCsv && empresaCsv.toLowerCase() !== empresaDb.toLowerCase()) {
+    return { error: { fila, motivo: `la columna empresa no se puede cambiar acá (era "${empresaDb || '—'}", vino "${empresaCsv}")` } };
   }
+  const vendedorDb = (negocio.vendedor_nombre || '').trim();
   const vendedorCsv = (row.vendedor || '').trim();
-  if (vendedorCsv && vendedorCsv.toLowerCase() !== (negocio.vendedor_nombre || '').toLowerCase()) {
-    return { error: { fila, motivo: `la columna vendedor no se puede cambiar acá (era "${negocio.vendedor_nombre || '—'}", vino "${vendedorCsv}")` } };
+  if (vendedorCsv && vendedorCsv.toLowerCase() !== vendedorDb.toLowerCase()) {
+    return { error: { fila, motivo: `la columna vendedor no se puede cambiar acá (era "${vendedorDb || '—'}", vino "${vendedorCsv}")` } };
   }
   const createdAtCsv = (row.created_at || '').trim();
   if (createdAtCsv && createdAtCsv !== fechaDDMMAAAA(negocio.created_at)) {
@@ -893,9 +899,10 @@ function resolverFilaActualizacion(contexto, row, fila) {
 
   // Etapa destino: vacía = sin cambio. Se busca por nombre dentro del mismo
   // pipeline del negocio (el mismo criterio que usa el Pipeline/kanban).
+  const etapaDb = (negocio.etapa_nombre || '').trim();
   const etapaCsv = (row.etapa || '').trim();
   let etapaNueva = null;
-  if (etapaCsv && etapaCsv.toLowerCase() !== (negocio.etapa_nombre || '').toLowerCase()) {
+  if (etapaCsv && etapaCsv.toLowerCase() !== etapaDb.toLowerCase()) {
     etapaNueva = contexto.etapasPorClave.get(`${negocio.pipeline_id}:${etapaCsv.toLowerCase()}`);
     if (!etapaNueva) return { error: { fila, motivo: `etapa "${etapaCsv}" no es una etapa activa del pipeline de este negocio` } };
   }
@@ -918,7 +925,7 @@ function resolverFilaActualizacion(contexto, row, fila) {
   };
 
   const cambios = {};
-  if (row.titulo !== undefined && row.titulo.trim() && row.titulo.trim() !== negocio.titulo) cambios.titulo = row.titulo.trim();
+  if (row.titulo !== undefined && row.titulo.trim() && row.titulo.trim() !== (negocio.titulo || '').trim()) cambios.titulo = row.titulo.trim();
   if (row.monto_estimado !== undefined && row.monto_estimado.trim()) {
     const monto = Number(row.monto_estimado.replace(/\./g, '').replace(',', '.'));
     if (Number.isNaN(monto)) return { error: { fila, motivo: 'monto_estimado no es un número válido' } };
