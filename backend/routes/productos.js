@@ -166,6 +166,14 @@ router.put('/:id', authorize('administrador', 'jefe_comercial'), async (req, res
 // Esta acción no sube nada: solo completa url_imagen/ficha_tecnica_url
 // calculando la URL esperada según esa convención, para los productos que
 // tengan código.
+// Fichas técnicas (26-08-2026): dejaron de servirse desde el bucket de
+// Cloudflare — un link de ficha con dominio "pub-....r2.dev" hacía que
+// Microsoft Defender marcara el PDF completo como phishing y lo bloqueara,
+// incluso en reenvíos internos entre cuentas de la propia empresa (ver nota
+// de cambio). Las fichas viven en el sitio web (dominio propio, con
+// reputación normal), las imágenes de producto siguen en Cloudflare.
+const FICHAS_TECNICAS_BASE = 'https://www.hidrotecnica.cl/files/pdf';
+
 // POST /api/productos/aplicar-r2 {sobrescribir}
 router.post('/aplicar-r2', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
@@ -181,8 +189,8 @@ router.post('/aplicar-r2', authorize('administrador', 'jefe_comercial'), async (
       [base]
     );
     const fichas = await db.run(
-      `UPDATE productos SET ficha_tecnica_url = $1 || '/pdf/' || sku || 'FT.pdf' WHERE sku IS NOT NULL AND sku != '' ${condicionFicha}`,
-      [base]
+      `UPDATE productos SET ficha_tecnica_url = $1 || '/' || sku || 'FT.pdf' WHERE sku IS NOT NULL AND sku != '' ${condicionFicha}`,
+      [FICHAS_TECNICAS_BASE]
     );
     const sinCodigo = await db.get(`SELECT count(*)::int AS n FROM productos WHERE sku IS NULL OR sku = ''`);
 
