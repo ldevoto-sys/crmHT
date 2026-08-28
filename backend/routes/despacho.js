@@ -20,6 +20,19 @@ function formatoHora(minutos) {
   return `${String(h).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
+// Convierte fecha (AAAA-MM-DD) + hora (HH:MM), interpretadas como hora de
+// Chile, al instante UTC real — necesario para pedirle tráfico en tiempo
+// real a Directions (requiere un timestamp, no una hora "de pared"). Chile
+// cambia de huso en el año (verano/invierno), así que no se puede asumir un
+// offset fijo: se arma como si fuera UTC, se lee esa misma marca de tiempo
+// como si estuviera en America/Santiago, y la diferencia entre ambas
+// lecturas es el offset real de esa fecha.
+function epochChile(fechaISO, horaHHMM) {
+  const comoUTC = new Date(`${fechaISO}T${horaHHMM}:00Z`);
+  const enChile = new Date(comoUTC.toLocaleString('en-US', { timeZone: 'America/Santiago' }));
+  return new Date(comoUTC.getTime() + (comoUTC.getTime() - enChile.getTime()));
+}
+
 // cualquier usuario con el atributo es_encargado_despacho marcado —
 // independiente de su rol, mismo patrón que Postventa.
 function puedeGestionar(user) {
@@ -83,6 +96,38 @@ router.put('/lugares-frecuentes/:id', async (req, res) => {
     res.json({ message: 'Lugar actualizado' });
   } catch (err) {
     console.error('[despachos/lugares-frecuentes PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// --- Autocompletado de direcciones (Places API) — antes de las rutas
+// genéricas /:id de más abajo, para que Express no las confunda con un id.
+
+// GET /api/despachos/autocompletar-direccion?q=... — sugerencias mientras
+// se escribe una dirección nueva (gestor, es parte del formulario de parada).
+router.get('/autocompletar-direccion', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const resultado = await googlemaps.autocompletarDireccion(req.query.q || '');
+    if (!resultado.ok) return res.status(400).json({ error: resultado.motivo });
+    res.json(resultado.sugerencias);
+  } catch (err) {
+    console.error('[despachos GET /autocompletar-direccion]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/despachos/lugar/:placeId — resuelve una sugerencia elegida a
+// dirección/comuna/coordenadas (evita re-geocodificar después: ya viene con
+// lat/lng, así que optimizar-ruta no necesita pedirlas de nuevo).
+router.get('/lugar/:placeId', async (req, res) => {
+  try {
+    if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+    const resultado = await googlemaps.detalleLugar(req.params.placeId);
+    if (!resultado.ok) return res.status(400).json({ error: resultado.motivo });
+    res.json(resultado);
+  } catch (err) {
+    console.error('[despachos GET /lugar/:placeId]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -534,7 +579,23 @@ router.post('/:id/optimizar-ruta', async (req, res) => {
       p.lat = geo.lat; p.lng = geo.lng;
     }
 
-    const resultado = await googlemaps.optimizarRuta(origen, paradas);
+    // Se valida la hora de salida ANTES de pedir la ruta: si viene, se usa
+    // también como departure_time para que Directions devuelva duración con
+    // tráfico real en vez de la duración teórica sin tráfico.
+    let departureTimestamp = null;
+    if (req.body.hora_salida) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(req.body.hora_salida)) {
+        return res.status(400).json({ error: 'Hora de salida inválida (formato HH:MM).' });
+      }
+      const salida = epochChile(paradas[0].fecha.toISOString().slice(0, 10), req.body.hora_salida);
+      // Directions solo devuelve tráfico para un instante actual o futuro —
+      // si la hora ya pasó (ruta de un día anterior, por ejemplo), se pide
+      // sin departure_time y Directions devuelve la duración teórica, igual
+      // que antes de este cambio.
+      if (salida.getTime() >= Date.now()) departureTimestamp = Math.floor(salida.getTime() / 1000);
+    }
+
+    const resultado = await googlemaps.optimizarRuta(origen, paradas, departureTimestamp);
     if (!resultado.ok) return res.status(400).json({ error: resultado.motivo });
 
     const ordenSugerido = resultado.ordenSugerido.map(i => paradas[i].id);
@@ -545,9 +606,6 @@ router.post('/:id/optimizar-ruta', async (req, res) => {
     let horasEstimadas = null;
     let horaRegresoEstimada = null;
     if (req.body.hora_salida) {
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(req.body.hora_salida)) {
-        return res.status(400).json({ error: 'Hora de salida inválida (formato HH:MM).' });
-      }
       const [h, m] = req.body.hora_salida.split(':').map(Number);
       let minutos = h * 60 + m;
       horasEstimadas = resultado.ordenSugerido.map((i, idx) => {

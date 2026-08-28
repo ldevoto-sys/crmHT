@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,6 +16,27 @@ const hoyISO = () => new Date().toISOString().slice(0, 10);
 const urlMapsPunto = p => {
   const q = (p.lat != null && p.lng != null) ? `${p.lat},${p.lng}` : `${p.direccion}, ${p.comuna}, Chile`;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+};
+
+// Mapa embebido con todas las paradas del despacho, para verlas de un
+// vistazo sin entrar a cada dirección. Usa una key aparte de la que usa el
+// backend (GOOGLE_MAPS_API_KEY): esta queda expuesta en el navegador porque
+// va en la URL del <iframe>, así que tiene que ser una key restringida por
+// dominio en la consola de Google, nunca la misma que usa el servidor. Sin
+// esa key configurada (VITE_GOOGLE_MAPS_EMBED_KEY), esta función devuelve
+// null y el mapa simplemente no se muestra — no rompe nada.
+const GOOGLE_MAPS_EMBED_KEY = import.meta.env.VITE_GOOGLE_MAPS_EMBED_KEY;
+const direccionParaEmbed = p => encodeURIComponent(`${p.direccion}, ${p.comuna}, Chile`);
+const urlMapaEmbed = puntos => {
+  if (!GOOGLE_MAPS_EMBED_KEY || puntos.length === 0) return null;
+  if (puntos.length === 1) {
+    return `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_EMBED_KEY}&q=${direccionParaEmbed(puntos[0])}`;
+  }
+  const origen = direccionParaEmbed(puntos[0]);
+  const destino = direccionParaEmbed(puntos[puntos.length - 1]);
+  const intermedios = puntos.slice(1, -1).map(direccionParaEmbed).join('|');
+  return `https://www.google.com/maps/embed/v1/directions?key=${GOOGLE_MAPS_EMBED_KEY}`
+    + `&origin=${origen}&destination=${destino}${intermedios ? `&waypoints=${intermedios}` : ''}&mode=driving`;
 };
 
 const ESTADOS = ['programado', 'en_ruta', 'completado', 'cancelado'];
@@ -194,6 +215,39 @@ function CamposPunto({ punto, onChange, lugares = [] }) {
     if ((campo === 'direccion' || campo === 'comuna') && punto.lugar_frecuente_id) cambios.lugar_frecuente_id = null;
     onChange({ ...punto, ...cambios });
   };
+
+  // Sugerencias de Google Places mientras se escribe la dirección — con
+  // debounce para no pedirle una dirección a Google por cada tecla. Si la
+  // API no está configurada/habilitada, el buscador devuelve error y acá
+  // simplemente no aparecen sugerencias — el campo sigue funcionando como
+  // texto libre, igual que antes de este cambio.
+  const [sugerencias, setSugerencias] = useState([]);
+  const debounceRef = useRef(null);
+
+  const onDireccionChange = val => {
+    set('direccion', val);
+    clearTimeout(debounceRef.current);
+    if (val.trim().length < 3) { setSugerencias([]); return; }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/despachos/autocompletar-direccion', { params: { q: val } });
+        setSugerencias(data);
+      } catch { setSugerencias([]); }
+    }, 400);
+  };
+
+  const elegirSugerencia = async s => {
+    setSugerencias([]);
+    try {
+      const { data } = await api.get(`/despachos/lugar/${s.place_id}`);
+      onChange({
+        ...punto,
+        direccion: data.direccion || punto.direccion,
+        comuna: data.comuna || punto.comuna,
+        lugar_frecuente_id: null,
+      });
+    } catch { /* si falla, el usuario sigue escribiendo/corrigiendo a mano */ }
+  };
   const elegirLugar = id => {
     const lugar = lugares.find(l => String(l.id) === id);
     if (!lugar) return;
@@ -231,10 +285,22 @@ function CamposPunto({ punto, onChange, lugares = [] }) {
             className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </div>
       </div>
-      <div>
+      <div className="relative">
         <label className="block text-xs text-gray-600 mb-1">Dirección</label>
-        <input required value={punto.direccion} onChange={e => set('direccion', e.target.value)}
+        <input required value={punto.direccion} onChange={e => onDireccionChange(e.target.value)}
+          onBlur={() => setTimeout(() => setSugerencias([]), 150)}
+          autoComplete="off"
           className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        {sugerencias.length > 0 && (
+          <div className="absolute z-10 left-0 right-0 border border-gray-200 rounded mt-1 bg-white shadow-lg max-h-48 overflow-y-auto">
+            {sugerencias.map(s => (
+              <button type="button" key={s.place_id} onClick={() => elegirSugerencia(s)}
+                className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50">
+                {s.descripcion}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div>
         <label className="block text-xs text-gray-600 mb-1">Comuna</label>
@@ -586,6 +652,11 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
       )}
       {error && <div className="mb-3 p-2 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
 
+      {urlMapaEmbed(despacho.puntos) && (
+        <iframe title="Mapa de paradas" src={urlMapaEmbed(despacho.puntos)} className="w-full h-48 rounded border border-gray-200 mb-3"
+          loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+      )}
+
       {puedeGestionar && paradasPendientes.length >= 2 && (
         <div className="mb-3">
           {!sugerenciaRuta && (
@@ -614,7 +685,11 @@ function DetalleDespacho({ despacho, puedeGestionar, lugares, onClose, onCambio 
                   return (
                     <li key={puntoId}>
                       {parada?.direccion}, {parada?.comuna}
-                      {tramo && <span className="text-gray-400"> ({tramo.duracion_min} min, {tramo.distancia_km} km)</span>}
+                      {tramo && (
+                        <span className="text-gray-400">
+                          {' '}({tramo.duracion_min} min{tramo.con_trafico ? ', con tráfico' : ''}, {tramo.distancia_km} km)
+                        </span>
+                      )}
                       {horas && (
                         <span className="text-ht-navy font-medium"> — llegada estimada {horas.llegada_estimada}</span>
                       )}
