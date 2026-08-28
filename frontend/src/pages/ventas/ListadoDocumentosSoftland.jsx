@@ -102,17 +102,29 @@ export default function ListadoDocumentosSoftland({ tipo, anio, mes, vencod, are
             </tr>
           </thead>
           <tbody>
-            {datos.rows.map(r => (
-              <tr key={r.id} className="border-t border-gray-100 hover:bg-slate-50">
-                <td className="px-4 py-2 text-gray-600">{fmtFecha(r.fecha)}</td>
-                <td className="px-4 py-2 text-ht-navy">{r[cfg.numeroCampo]}</td>
-                <td className="px-4 py-2 text-gray-600">{r.nombre_cliente || '—'}</td>
-                <td className="px-4 py-2 text-gray-600">{r.nombre_vendedor || '—'}</td>
-                <td className="px-4 py-2 text-gray-600">{r.area ? AREA_LABEL[r.area] : '—'}</td>
-                {cfg.mostrarOC && <td className="px-4 py-2 text-gray-600">{r.num_oc || '—'}</td>}
-                <td className="px-4 py-2 text-right text-ht-navy">{fmtMoney(r.monto)}</td>
-              </tr>
-            ))}
+            {datos.rows.map(r => {
+              // El listado de cotizaciones mezcla histórico estático de Softland
+              // (sin ficha en el CRM) con cotizaciones reales del CRM desde
+              // ago-2026 (id negativo, ver SQL_COTIZACIONES_TODAS en el backend
+              // — evita que choquen con los id positivos del lado Softland).
+              // Solo estas últimas se pueden abrir.
+              const abrible = tipo === 'cotizaciones' && r.id < 0;
+              return (
+                <tr key={r.id} className="border-t border-gray-100 hover:bg-slate-50">
+                  <td className="px-4 py-2 text-gray-600">{fmtFecha(r.fecha)}</td>
+                  <td className="px-4 py-2 text-ht-navy">
+                    {abrible
+                      ? <a href={`/cotizaciones/${-r.id}`} target="_blank" rel="noopener noreferrer" className="text-ht-accent hover:underline">{r[cfg.numeroCampo]}</a>
+                      : r[cfg.numeroCampo]}
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">{r.nombre_cliente || '—'}</td>
+                  <td className="px-4 py-2 text-gray-600">{r.nombre_vendedor || '—'}</td>
+                  <td className="px-4 py-2 text-gray-600">{r.area ? AREA_LABEL[r.area] : '—'}</td>
+                  {cfg.mostrarOC && <td className="px-4 py-2 text-gray-600">{r.num_oc || '—'}</td>}
+                  <td className="px-4 py-2 text-right text-ht-navy">{fmtMoney(r.monto)}</td>
+                </tr>
+              );
+            })}
             {!cargando && datos.rows.length === 0 && (
               <tr><td colSpan={cfg.mostrarOC ? 7 : 6} className="px-4 py-6 text-center text-gray-400">Sin documentos para este filtro.</td></tr>
             )}

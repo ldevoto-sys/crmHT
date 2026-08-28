@@ -138,7 +138,7 @@ export default function App() {
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><MisTareas /></ProtectedRoute>
             } />
             <Route path="reportes" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="pipeline" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
             } />
             <Route path="reportes/softland" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
