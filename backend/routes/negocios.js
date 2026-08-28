@@ -834,6 +834,25 @@ function parseFechaActualizar(valor) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// Acepta dos formatos de monto en la columna monto_estimado:
+// - Plano, con punto decimal: "345000.00" — es el formato en que Postgres
+//   entrega NUMERIC y en que lo escribe /exportar, así que un archivo
+//   descargado y vuelto a subir sin tocar el monto llega así.
+// - Agrupado a la chilena, con coma decimal: "345.000,50" o "345.000" —
+//   así queda si alguien lo escribe o lo reformatea a mano en Excel.
+// Se distingue por la coma: si hay coma, los puntos son separadores de
+// miles. Si no hay coma pero el último grupo después de un punto tiene
+// exactamente 2 dígitos, ese punto es el decimal (nunca puede serlo un
+// separador de miles chileno, que siempre agrupa de a 3). Cualquier otro
+// caso sin coma (grupos de 3, o sin puntos) se trata como miles/entero.
+function parseMontoActualizar(valor) {
+  if (!valor) return null;
+  if (valor.includes(',')) return Number(valor.replace(/\./g, '').replace(',', '.'));
+  const partes = valor.split('.');
+  if (partes.length === 2 && partes[1].length === 2) return Number(valor);
+  return Number(valor.replace(/\./g, ''));
+}
+
 // Carga en 3 consultas TODO lo que puede necesitar cualquier fila del
 // archivo, sin importar cuántas filas traiga — antes se hacía una consulta
 // (o más) por fila, y con archivos de varios cientos de filas la petición
@@ -927,8 +946,8 @@ function resolverFilaActualizacion(contexto, row, fila) {
   const cambios = {};
   if (row.titulo !== undefined && row.titulo.trim() && row.titulo.trim() !== (negocio.titulo || '').trim()) cambios.titulo = row.titulo.trim();
   if (row.monto_estimado !== undefined && row.monto_estimado.trim()) {
-    const monto = Number(row.monto_estimado.replace(/\./g, '').replace(',', '.'));
-    if (Number.isNaN(monto)) return { error: { fila, motivo: 'monto_estimado no es un número válido' } };
+    const monto = parseMontoActualizar(row.monto_estimado.trim());
+    if (monto === null || Number.isNaN(monto)) return { error: { fila, motivo: 'monto_estimado no es un número válido' } };
     if (monto !== Number(negocio.monto_estimado)) cambios.monto_estimado = monto;
   }
   if ((row.fecha_cierre_estimada || '').trim()) {
