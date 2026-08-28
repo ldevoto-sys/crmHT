@@ -9,6 +9,15 @@ import { useAuth } from '../../contexts/AuthContext';
 const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
 const hoyISO = () => new Date().toISOString().slice(0, 10);
 
+// Link a Google Maps: sin API key, es un link común a maps.google.com. En el
+// celular, si el usuario tiene la app instalada, el navegador la abre solo.
+// Usa las coordenadas cacheadas si ya se geocodificó (más preciso); si no,
+// arma la búsqueda con dirección + comuna.
+const urlMapsPunto = p => {
+  const q = (p.lat != null && p.lng != null) ? `${p.lat},${p.lng}` : `${p.direccion}, ${p.comuna}, Chile`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+};
+
 const ESTADOS = ['programado', 'en_ruta', 'completado', 'cancelado'];
 // "Completado" no se elige a mano: sale solo cuando todas las paradas quedan
 // completadas (cada una ya exige su foto de respaldo antes de eso).
@@ -111,7 +120,24 @@ export default function Despacho() {
             <tbody>
               {despachos.map(d => (
                 <tr key={d.id} onClick={() => abrirDetalle(d)} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer">
-                  <td className="px-4 py-2 text-ht-navy font-medium">{d.titulo}</td>
+                  <td className="px-4 py-2 text-ht-navy font-medium">
+                    {d.titulo}
+                    {d.puntos.length > 0 && (
+                      <div className="mt-0.5 font-normal text-xs">
+                        <a href={urlMapsPunto(d.puntos[0])} target="_blank" rel="noopener noreferrer"
+                          onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-ht-accent hover:underline">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 shrink-0">
+                            <path fillRule="evenodd" d="M10 18s6-5.686 6-10a6 6 0 10-12 0c0 4.314 6 10 6 10zm0-7a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                          </svg>
+                          {d.puntos[0].direccion}, {d.puntos[0].comuna}
+                        </a>
+                        {d.puntos.length > 1 && (
+                          <span className="text-gray-400"> +{d.puntos.length - 1} más</span>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-gray-600">{fecha(d.primera_fecha)}</td>
                   <td className="px-4 py-2 text-gray-600">
                     {d.puntos.length} {d.puntos.length === 1 ? 'parada' : 'paradas'}
