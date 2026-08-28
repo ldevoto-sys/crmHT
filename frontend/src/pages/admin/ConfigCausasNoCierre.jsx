@@ -32,19 +32,25 @@ export default function ConfigCausasNoCierre() {
     setError(''); setMsg('');
   };
 
-  const toggleActivo = async c => {
+  const eliminar = async c => {
+    if (!window.confirm(`¿Eliminar "${c.nombre}"?`)) return;
     setError(''); setMsg('');
-    try { await api.put(`/config/causas-no-cierre/${c.id}`, { nombre: c.nombre, activo: !c.activo }); cargar(); }
-    catch (err) { setError(err.response?.data?.error || 'Error al actualizar.'); }
+    try {
+      await api.delete(`/config/causas-no-cierre/${c.id}`);
+      if (editId === c.id) resetForm();
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'Error al eliminar.'); }
   };
+
+  const causasVisibles = causas.filter(c => c.activo);
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Causas de no cierre</h1>
       <p className="text-gray-500 text-sm mb-6">
         Opciones seleccionables al marcar un negocio como "Perdido" (en el Pipeline, o al importar/actualizar negocios
-        por CSV). No se pueden eliminar — solo desactivar, para no romper el historial de negocios que ya usan una
-        causa. Una causa desactivada deja de ofrecerse para negocios nuevos, pero los que ya la tenían la conservan.
+        por CSV). Al eliminar una causa, los negocios que ya la tenían asignada la conservan en su historial, pero
+        deja de estar disponible para elegir en negocios nuevos.
       </p>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
@@ -74,24 +80,21 @@ export default function ConfigCausasNoCierre() {
               <thead className="bg-slate-50 text-gray-600">
                 <tr>
                   <th className="text-left px-4 py-2 font-medium">Nombre</th>
-                  <th className="text-left px-4 py-2 font-medium">Activa</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {causas.map(c => (
-                  <tr key={c.id} className={`border-t border-gray-100 hover:bg-gray-50 ${!c.activo ? 'opacity-50' : ''}`}>
+                {causasVisibles.map(c => (
+                  <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50">
                     <td className="px-4 py-2 text-ht-navy font-medium">{c.nombre}</td>
-                    <td className="px-4 py-2">
-                      <input type="checkbox" checked={c.activo} onChange={() => toggleActivo(c)} />
-                    </td>
                     <td className="px-4 py-2 text-right whitespace-nowrap">
-                      <button onClick={() => editar(c)} className="text-ht-accent hover:underline">Editar</button>
+                      <button onClick={() => editar(c)} className="text-ht-accent hover:underline mr-3">Editar</button>
+                      <button onClick={() => eliminar(c)} className="text-red-500 hover:underline">Eliminar</button>
                     </td>
                   </tr>
                 ))}
-                {causas.length === 0 && (
-                  <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">Sin causas cargadas.</td></tr>
+                {causasVisibles.length === 0 && (
+                  <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-400">Sin causas cargadas.</td></tr>
                 )}
               </tbody>
             </table>

@@ -46,6 +46,23 @@ router.put('/causas-no-cierre/:id', authorize('administrador', 'jefe_comercial')
   }
 });
 
+// DELETE /api/config/causas-no-cierre/:id (admin) — elimina de verdad si no está en uso;
+// si algún negocio ya la tiene asignada, la desactiva (queda en histórico, pero para
+// el usuario la causa desaparece de la lista igual que si se hubiera eliminado).
+router.delete('/causas-no-cierre/:id', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const causa = await db.get('SELECT id FROM causas_no_cierre WHERE id=$1', [req.params.id]);
+    if (!causa) return res.status(404).json({ error: 'Causa no encontrada' });
+    const enUso = await db.get('SELECT id FROM negocios WHERE causa_no_cierre_id=$1 LIMIT 1', [req.params.id]);
+    if (enUso) await db.run('UPDATE causas_no_cierre SET activo=false WHERE id=$1', [req.params.id]);
+    else await db.run('DELETE FROM causas_no_cierre WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Causa eliminada' });
+  } catch (err) {
+    console.error('[config/causas DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // --- Pipelines (áreas comerciales: Ventas Directas, Operaciones, ...) ---
 
 // GET /api/config/pipelines — todos los activos, para el selector del tablero
