@@ -27,8 +27,11 @@ export default function ReporteriaSoftland() {
   const [syncEstado, setSyncEstado] = useState(null);
   const [actualizando, setActualizando] = useState(false);
 
-  const [anio, setAnio] = useState('');
-  const [mes, setMes] = useState('');
+  // Por defecto, el mes en curso — no "Todos". El usuario puede ampliarlo
+  // con los filtros o "Limpiar filtros" si quiere ver el histórico completo.
+  const hoy = new Date();
+  const [anio, setAnio] = useState(String(hoy.getFullYear()));
+  const [mes, setMes] = useState(String(hoy.getMonth() + 1));
   const [vencod, setVencod] = useState('');
   const [area, setArea] = useState('');
   const [unidad, setUnidad] = useState('monto');
@@ -289,11 +292,13 @@ export default function ReporteriaSoftland() {
       </div>
 
       {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-3 mb-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-4">
         <TarjetaKpi color={COLOR_COTIZADO} label="Cotizado" valor={fmtUnidad(kpis.cot)}
           sub={unidad === 'monto' ? `${fmtCant(kpis.cotC)} cotizadas` : `${fmtMoney(kpis.cotM)} cotizado`} />
         <TarjetaKpi color={COLOR_CERRADO} label="Cerrado (NV emitidas)" valor={fmtUnidad(kpis.cer)}
           sub={unidad === 'monto' ? `${fmtCant(kpis.cerC)} NV emitidas` : `${fmtMoney(kpis.cerM)} en NV`} />
+        <TarjetaKpi color="#C6473F" label="NV pendientes de facturar" valor={fmtMoney(sum(nvPendientes, 'monto_pendiente'))}
+          sub={`${nvPendientes.length} NV sin facturar`} />
         <TarjetaKpi color={COLOR_FACTURADO} label="Facturado" valor={fmtUnidad(kpis.fac)}
           sub={unidad === 'monto' ? `${fmtCant(kpis.facC)} facturas` : `${fmtMoney(kpis.facM)} facturado`} />
       </div>
