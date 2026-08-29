@@ -19,7 +19,7 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const users = await db.all(
-      `SELECT id, nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, created_at
+      `SELECT id, nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza, created_at
        FROM users ORDER BY nombre`
     );
     res.json(users);
@@ -71,7 +71,7 @@ router.get('/con-cotizaciones', async (req, res) => {
 // pueda copiar y entregar a mano.
 router.post('/', authorize('administrador'), async (req, res) => {
   try {
-    const { nombre, rut, email, telefono, codigo_softland, area, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
+    const { nombre, rut, email, telefono, codigo_softland, area, rol, recibe_round_robin, password, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza } = req.body;
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
 
@@ -96,10 +96,10 @@ router.post('/', authorize('administrador'), async (req, res) => {
     const hash = await bcrypt.hash(passwordTemporal, 10);
 
     const result = await db.run(
-      `INSERT INTO users (nombre, rut, email, telefono, codigo_softland, area, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12)
-       RETURNING id, nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho`,
-      [nombre, rut || null, email, telefono || null, codigo_softland || null, area || null, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true, es_encargado_despacho === true]
+      `INSERT INTO users (nombre, rut, email, telefono, codigo_softland, area, password_hash, rol, must_change_password, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13)
+       RETURNING id, nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza`,
+      [nombre, rut || null, email, telefono || null, codigo_softland || null, area || null, hash, rol, recibe_round_robin !== false, pipeline_default_id || 1, es_encargado_postventa === true, es_encargado_despacho === true, es_encargado_cobranza === true]
     );
 
     await emailSvc.bienvenida({ nombre, email, rol }, passwordTemporal);
@@ -115,7 +115,7 @@ router.post('/', authorize('administrador'), async (req, res) => {
 router.put('/:id', authorize('administrador'), async (req, res) => {
   try {
     const { id } = req.params;
-    const { nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho } = req.body;
+    const { nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza } = req.body;
 
     if (!nombre || !email || !rol)
       return res.status(400).json({ error: 'Campos requeridos: nombre, email, rol' });
@@ -125,7 +125,7 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     if (rut && !validarRut(rut)) return res.status(400).json({ error: 'RUT inválido' });
     if (!validarEmail(email)) return res.status(400).json({ error: 'Email inválido' });
 
-    const user = await db.get('SELECT id, pipeline_default_id, es_encargado_postventa, es_encargado_despacho FROM users WHERE id = $1', [id]);
+    const user = await db.get('SELECT id, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza FROM users WHERE id = $1', [id]);
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
 
     const emailExiste = await db.get('SELECT id FROM users WHERE email = $1 AND id != $2', [email, id]);
@@ -137,12 +137,13 @@ router.put('/:id', authorize('administrador'), async (req, res) => {
     }
 
     await db.run(
-      `UPDATE users SET nombre = $1, rut = $2, email = $3, telefono = $4, codigo_softland = $5, area = $6, rol = $7, activo = $8, recibe_round_robin = $9, pipeline_default_id = $10, es_encargado_postventa = $11, es_encargado_despacho = $12
-       WHERE id = $13`,
+      `UPDATE users SET nombre = $1, rut = $2, email = $3, telefono = $4, codigo_softland = $5, area = $6, rol = $7, activo = $8, recibe_round_robin = $9, pipeline_default_id = $10, es_encargado_postventa = $11, es_encargado_despacho = $12, es_encargado_cobranza = $13
+       WHERE id = $14`,
       [nombre, rut || null, email, telefono || null, codigo_softland || null, area || null, rol, activo !== undefined ? activo : true, recibe_round_robin !== false,
        pipeline_default_id || user.pipeline_default_id || 1,
        es_encargado_postventa !== undefined ? es_encargado_postventa === true : user.es_encargado_postventa,
-       es_encargado_despacho !== undefined ? es_encargado_despacho === true : user.es_encargado_despacho, id]
+       es_encargado_despacho !== undefined ? es_encargado_despacho === true : user.es_encargado_despacho,
+       es_encargado_cobranza !== undefined ? es_encargado_cobranza === true : user.es_encargado_cobranza, id]
     );
 
     res.json({ message: 'Usuario actualizado correctamente' });

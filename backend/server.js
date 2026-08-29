@@ -67,6 +67,7 @@ app.use('/api/servicio-tecnico', require('./routes/servicio_tecnico'));
 app.use('/api/novedades', require('./routes/novedades'));
 app.use('/api/v1', require('./routes/api_v1')); // integración Cowork (HT-DO-XX) — API key propia, sin JWT
 app.use('/api/softland', require('./routes/softland')); // Reportería Comercial + Softland
+app.use('/api/cobranza', require('./routes/cobranza')); // Módulo Cobranzas (HT-DO-XX, en construcción por fases)
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".

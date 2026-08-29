@@ -11,7 +11,7 @@ const AREAS = [
   { value: 'vregion', label: 'V Región' },
   { value: 'otros', label: 'Otros' },
 ];
-const vacio = { nombre: '', rut: '', email: '', telefono: '', codigo_softland: '', area: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false };
+const vacio = { nombre: '', rut: '', email: '', telefono: '', codigo_softland: '', area: '', rol: 'vendedor', recibe_round_robin: true, password: '', pipeline_default_id: 1, es_encargado_postventa: false, es_encargado_despacho: false, es_encargado_cobranza: false };
 
 export default function Usuarios() {
   const [users, setUsers] = useState([]);
@@ -79,7 +79,7 @@ export default function Usuarios() {
 
   const editar = u => {
     setEditId(u.id);
-    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, telefono: u.telefono || '', codigo_softland: u.codigo_softland || '', area: u.area || '', rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1, es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false });
+    setForm({ nombre: u.nombre, rut: u.rut || '', email: u.email, telefono: u.telefono || '', codigo_softland: u.codigo_softland || '', area: u.area || '', rol: u.rol, recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1, es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false, es_encargado_cobranza: u.es_encargado_cobranza || false });
     setError(''); setMsg('');
   };
 
@@ -107,7 +107,7 @@ export default function Usuarios() {
         nombre: u.nombre, rut: u.rut || '', email: u.email, telefono: u.telefono || '',
         codigo_softland: u.codigo_softland || '', area: u.area || '', rol: u.rol, activo: true,
         recibe_round_robin: u.recibe_round_robin, pipeline_default_id: u.pipeline_default_id || 1,
-        es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false,
+        es_encargado_postventa: u.es_encargado_postventa || false, es_encargado_despacho: u.es_encargado_despacho || false, es_encargado_cobranza: u.es_encargado_cobranza || false,
       });
       setMsg(`${u.nombre} reactivado.`);
       cargar();
@@ -219,6 +219,12 @@ export default function Usuarios() {
             Encargado de despacho
           </label>
           <p className="text-xs text-gray-400 -mt-2">Se suma a su rol actual — puede gestionar todas las rutas de despacho sin importar cuál sea su rol.</p>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={form.es_encargado_cobranza}
+              onChange={e => setForm({ ...form, es_encargado_cobranza: e.target.checked })} />
+            Encargado de cobranza
+          </label>
+          <p className="text-xs text-gray-400 -mt-2">Se suma a su rol actual — puede gestionar el módulo completo de Cobranzas sin importar cuál sea su rol.</p>
           {!editId && (
             <div>
               <label className="block text-sm text-gray-700 mb-1">Contraseña <span className="text-gray-400">(opcional; si la dejas vacía se genera una)</span></label>

@@ -1617,6 +1617,180 @@ async function initDb() {
     console.log(`[DB] Backfill monto_estimado → neto aplicado (${resultado.rowCount} negocio(s) actualizados).`);
   }
 
+  // === Módulo Cobranzas — Fase 1 (especificación HT-DO-XX v0.4) ===
+  // Mismo patrón que es_encargado_postventa/despacho: se suma al rol actual,
+  // no lo reemplaza.
+  await db.run(`ALTER TABLE users ADD COLUMN IF NOT EXISTS es_encargado_cobranza BOOLEAN NOT NULL DEFAULT false`);
+
+  // Contactos de cobranza: base separada de `contactos` (los de venta) porque
+  // el interlocutor de pagos no siempre es el mismo. El nivel (par/jefe/
+  // superior) vive en la relación con la empresa, no en el contacto, porque
+  // la misma persona puede tener distinto nivel según el cliente.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_contactos (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      email TEXT,
+      telefono_e164 TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_contacto_empresa (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES cobranza_contactos(id),
+      empresa_id INTEGER NOT NULL REFERENCES empresas(id),
+      nivel TEXT NOT NULL CHECK (nivel IN ('par','jefe','superior')),
+      created_at TIMESTAMP DEFAULT now(),
+      UNIQUE (contacto_id, empresa_id)
+    )
+  `);
+
+  // Movimientos bancarios cargados desde una cartola (Fase 2 los llena; la
+  // tabla se crea ahora para no reordenar migraciones más adelante).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_movimientos_bancarios (
+      id SERIAL PRIMARY KEY,
+      banco TEXT NOT NULL,
+      cuenta_bancaria TEXT NOT NULL,
+      fecha DATE NOT NULL,
+      monto NUMERIC(14,2) NOT NULL,
+      glosa_original TEXT,
+      numero_documento TEXT,
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','preconciliado','conciliado','archivado')),
+      motivo_archivo TEXT,
+      cargado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Anticipos y redondeos generados al conciliar (ver sección 2.3/4 de la
+  // especificación — un pago puede repartirse entre una o más facturas y un
+  // ajuste por el excedente).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_ajustes (
+      id SERIAL PRIMARY KEY,
+      tipo TEXT NOT NULL CHECK (tipo IN ('anticipo','redondeo')),
+      empresa_id INTEGER REFERENCES empresas(id),
+      monto NUMERIC(14,2) NOT NULL,
+      movimiento_id INTEGER REFERENCES cobranza_movimientos_bancarios(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Vínculo movimiento↔factura. `factura_folio` es una referencia por folio,
+  // no un FK — la tabla con el saldo pendiente real de Softland todavía no
+  // existe (ver "Pendientes" de la especificación, sección 2.1); cuando esa
+  // sincronización se construya, se puede agregar el FK sin perder lo ya
+  // guardado acá. `automatica`/`dias_atraso_pago` son la base para el
+  // reconocimiento de patrones a futuro (alcance punto 11).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_conciliaciones (
+      id SERIAL PRIMARY KEY,
+      movimiento_id INTEGER NOT NULL REFERENCES cobranza_movimientos_bancarios(id),
+      factura_folio TEXT NOT NULL,
+      monto_aplicado NUMERIC(14,2) NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'propuesta' CHECK (estado IN ('propuesta','aprobada','rechazada','modificada')),
+      automatica BOOLEAN NOT NULL DEFAULT false,
+      dias_atraso_pago INTEGER,
+      resuelto_por_id INTEGER REFERENCES users(id),
+      resuelto_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Secuencias de recordatorio de cobranza — mismo concepto que
+  // secuencias/secuencia_pasos (seguimiento de cotizaciones) pero disparadas
+  // por días de atraso/vencimiento de una factura, no por etapa de negocio.
+  // niveles_destinatario es un arreglo porque un mismo paso puede escribirle
+  // a varios niveles a la vez (ej. Par + Jefe juntos).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_secuencias (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL,
+      activo BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_secuencia_pasos (
+      id SERIAL PRIMARY KEY,
+      secuencia_id INTEGER NOT NULL REFERENCES cobranza_secuencias(id),
+      orden INTEGER NOT NULL DEFAULT 0,
+      dias_gatillo INTEGER NOT NULL,
+      canal TEXT NOT NULL CHECK (canal IN ('email','whatsapp')),
+      plantilla TEXT,
+      niveles_destinatario TEXT[] NOT NULL DEFAULT '{}',
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Configuración de cuentas contables para el archivo de carga a Softland
+  // (sección 2.3/2.4 de la especificación) — fila única, mismo patrón que
+  // config_empresa. Se llena desde la pantalla de administración, no queda
+  // fijo en el código porque son datos propios de la empresa que pueden
+  // cambiar (banco nuevo, cambio de convención contable, etc.).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_config (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      monto_minimo_redondeo NUMERIC(14,2) NOT NULL DEFAULT 500,
+      monto_minimo_factura NUMERIC(14,2) NOT NULL DEFAULT 0,
+      cuenta_clientes TEXT,
+      codigo_clientes TEXT,
+      cuenta_facturas_exentas TEXT,
+      codigo_facturas_exentas TEXT,
+      codigo_tipo_transferencia TEXT,
+      codigo_iva TEXT,
+      cuenta_ingresos_ventas TEXT,
+      codigo_tipo_transferencia_documento TEXT,
+      cuenta_presupuesto_caja TEXT,
+      cuenta_flujo_efectivo TEXT,
+      centro_costos_default TEXT,
+      glosa_factura_contra_movimiento TEXT,
+      glosa_factura_contra_ajuste TEXT,
+      glosa_movimiento TEXT,
+      glosa_ajuste TEXT,
+      incluir_digito_verificador BOOLEAN NOT NULL DEFAULT true,
+      incluir_guion_codigo_auxiliar BOOLEAN NOT NULL DEFAULT true,
+      usar_slash_fechas BOOLEAN NOT NULL DEFAULT false,
+      updated_at TIMESTAMP DEFAULT now(),
+      CONSTRAINT cobranza_config_unica CHECK (id = 1)
+    )
+  `);
+  const cobranzaCfgExiste = await db.get('SELECT id FROM cobranza_config WHERE id = 1');
+  if (!cobranzaCfgExiste) await db.run('INSERT INTO cobranza_config (id) VALUES (1)');
+
+  // Tabla de ajustes contables (Anticipo/Garantía/Fluctuación/Redondeo/
+  // Indemnización) — un tipo fijo por fila, editable desde la config.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_config_ajustes (
+      tipo TEXT PRIMARY KEY CHECK (tipo IN ('anticipo','garantia','fluctuacion','redondeo','indemnizacion')),
+      cuenta_contable TEXT,
+      codigo_contra_movimiento TEXT,
+      codigo_contra_factura TEXT
+    )
+  `);
+  for (const tipo of ['anticipo', 'garantia', 'fluctuacion', 'redondeo', 'indemnizacion']) {
+    await db.run(
+      `INSERT INTO cobranza_config_ajustes (tipo) VALUES ($1) ON CONFLICT (tipo) DO NOTHING`,
+      [tipo]
+    );
+  }
+
+  // Mapeo cuenta bancaria real → cuenta contable, para saber con qué cuenta
+  // se carga el Debe al generar el archivo de carga (sección 2.3). Una
+  // cuenta bancaria sin cuenta contable asignada simplemente no genera
+  // movimientos exportables (mismo comportamiento que hoy en Buk).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_config_cuentas_bancarias (
+      id SERIAL PRIMARY KEY,
+      banco TEXT NOT NULL,
+      cuenta_bancaria TEXT NOT NULL,
+      cuenta_contable TEXT,
+      UNIQUE (banco, cuenta_bancaria)
+    )
+  `);
+
   console.log('[DB] Base de datos lista.');
 }
 
