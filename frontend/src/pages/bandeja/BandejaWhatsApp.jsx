@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import EmojiPicker from 'emoji-picker-react';
+import Recorder from 'opus-recorder';
 import api from '../../api';
 import { formatFechaHora } from '../../utils/fecha';
 
@@ -28,8 +29,7 @@ export default function BandejaWhatsApp() {
   const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
   const hiloRef = useRef(null);
   const archivoInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
+  const recorderRef = useRef(null);
   const matchRefs = useRef({});
 
   const cargarConversaciones = async () => {
@@ -157,33 +157,28 @@ export default function BandejaWhatsApp() {
     await subirYEnviarArchivo(archivo);
   };
 
-  // Nota de audio: graba con la API MediaRecorder del navegador (formato
-  // webm/opus en Chrome) y la manda por el mismo camino que un adjunto común.
-  // Meta documenta soporte de audio en AAC/MP4/MPEG/AMR/OGG(Opus) — no aparece
-  // webm explícitamente, así que conviene confirmar con un envío real en
-  // staging que lo acepta antes de darlo por definitivo.
+  // Nota de audio: se graba directo en Ogg/Opus (vía WebAssembly, librería
+  // opus-recorder) en vez del webm/opus que entrega MediaRecorder de forma
+  // nativa — WhatsApp Cloud API no acepta webm, solo AAC/MP4/MPEG/AMR/OGG
+  // (códec Opus). Se manda por el mismo camino que un adjunto común.
   const iniciarGrabacion = async () => {
     setErrorEnvio('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      chunksRef.current = [];
-      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
-        const archivo = new File([blob], `nota-de-voz-${Date.now()}.webm`, { type: blob.type });
+      const rec = new Recorder({ encoderPath: '/opus-recorder/encoderWorker.min.js', encoderApplication: 2048 });
+      rec.ondataavailable = async (arrayBuffer) => {
+        const archivo = new File([arrayBuffer], `nota-de-voz-${Date.now()}.ogg`, { type: 'audio/ogg' });
         await subirYEnviarArchivo(archivo);
       };
-      mediaRecorderRef.current = mr;
-      mr.start();
+      await rec.start();
+      recorderRef.current = rec;
       setGrabando(true);
     } catch {
       setErrorEnvio('No se pudo acceder al micrófono. Revisa los permisos del navegador.');
     }
   };
   const detenerGrabacion = () => {
-    mediaRecorderRef.current?.stop();
+    recorderRef.current?.stop();
+    recorderRef.current?.close();
     setGrabando(false);
   };
 

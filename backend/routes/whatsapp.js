@@ -124,7 +124,11 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
     if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
-    const resultado = await whatsapp.enviar(contacto.telefono_e164, texto.trim());
+    // El cliente ve el nombre de quien le escribe delante del mensaje; en el
+    // hilo interno del CRM se guarda el texto tal cual (el nombre ya se
+    // muestra aparte, sobre la burbuja) para no duplicarlo con asteriscos.
+    const textoConFirma = `*${req.user.nombre}:*\n${texto.trim()}`;
+    const resultado = await whatsapp.enviar(contacto.telefono_e164, textoConFirma);
     if (!resultado.enviado) {
       // No se guarda en el hilo como si se hubiera mandado: evita que la
       // Bandeja muestre un mensaje que en realidad nunca llegó al cliente.
@@ -199,7 +203,15 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
     if (!subida.subido) return res.status(502).json({ error: `No se pudo subir el archivo: ${subida.motivo || 'error desconocido'}` });
 
     const urlTemporal = await r2.urlFirmada(key);
-    const resultado = await whatsapp.enviarMedia(contacto.telefono_e164, tipo, urlTemporal, { nombreArchivo: req.file.originalname });
+    // El caption no existe para audio en la API de Meta (ver enviarMedia), así
+    // que ahí la firma va como un mensaje de texto corto justo antes del audio
+    // — no bloquea el envío del adjunto si ese aviso llegara a fallar.
+    if (tipo === 'audio') {
+      await whatsapp.enviar(contacto.telefono_e164, `*${req.user.nombre}* envía un audio:`);
+    }
+    const resultado = await whatsapp.enviarMedia(contacto.telefono_e164, tipo, urlTemporal, {
+      nombreArchivo: req.file.originalname, caption: `*${req.user.nombre}*`,
+    });
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar el adjunto a WhatsApp: ${resultado.motivo || 'error desconocido'}` });
     }
