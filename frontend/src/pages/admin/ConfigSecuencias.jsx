@@ -8,7 +8,7 @@ const CANAL_LABEL = { correo: 'correo', whatsapp: 'whatsapp', llamada: 'llamada'
 // services/secuencias.js#PLANTILLAS_WHATSAPP).
 const PLANTILLAS_WHATSAPP = {
   envio_cotizacion: 'Envío de cotización',
-  vencimiento_coti: 'Vencimiento de cotización',
+  vencimiento_cotizacion: 'Vencimiento de cotización',
   seguimiento_coti: 'Seguimiento de cotización',
 };
 const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '', etapa_destino_id: '', causa_no_cierre_id: '', whatsapp_template: '' });

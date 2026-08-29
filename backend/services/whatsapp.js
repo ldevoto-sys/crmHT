@@ -145,10 +145,15 @@ async function enviarPlantilla(telefonoE164, nombrePlantilla, parametros, idioma
           template: {
             name: nombrePlantilla,
             language: { code: idioma },
-            components: [{
-              type: 'body',
-              parameters: parametros.map(p => ({ type: 'text', parameter_name: p.nombre, text: String(p.valor) })),
-            }],
+            // Sin variables, Meta espera el objeto "template" sin "components"
+            // en absoluto — mandar un componente "body" con parameters: []
+            // lo rechaza como inválido.
+            ...(parametros.length ? {
+              components: [{
+                type: 'body',
+                parameters: parametros.map(p => ({ type: 'text', parameter_name: p.nombre, text: String(p.valor) })),
+              }],
+            } : {}),
           },
         }),
       }

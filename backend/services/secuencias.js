@@ -45,7 +45,7 @@ const PLANTILLAS_WHATSAPP = {
       { nombre: 'coti_id', valor: cot.numero },
     ],
   },
-  vencimiento_coti: {
+  vencimiento_cotizacion: {
     label: 'Vencimiento de cotización',
     parametros: (contacto, cot) => [
       { nombre: 'customer_name', valor: nombreCompleto(contacto) },

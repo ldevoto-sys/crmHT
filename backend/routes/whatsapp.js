@@ -216,4 +216,37 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
   }
 });
 
+// Debe coincidir exactamente con el nombre de la plantilla (sin variables)
+// aprobada en el Administrador de WhatsApp de Meta para reabrir conversaciones
+// cerradas (fuera de la ventana de 24 h de servicio al cliente).
+const PLANTILLA_REABRIR = 'reabrir_conversacion';
+
+// POST /api/whatsapp/conversaciones/:contactoId/reabrir-plantilla — envía la
+// plantilla de reapertura a una conversación cerrada. No reabre la ventana de
+// 24h por sí sola: eso ocurre recién cuando el cliente responda (ver
+// services/whatsapp_mensajes.js#registrar).
+router.post('/conversaciones/:contactoId/reabrir-plantilla', async (req, res) => {
+  try {
+    const { permitido, lead } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para responder esta conversación' });
+
+    const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
+    if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
+
+    const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, PLANTILLA_REABRIR, []);
+    if (!resultado.enviado) {
+      return res.status(502).json({ error: `No se pudo enviar la plantilla: ${resultado.motivo || 'error desconocido'}` });
+    }
+
+    await mensajes.registrar({
+      contacto_id: req.params.contactoId, lead_id: lead?.id ?? null, direccion: 'saliente',
+      texto: '[plantilla] Reabrir conversación', enviado_por_id: req.user.id,
+    });
+    res.status(201).json({ message: 'Plantilla enviada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/reabrir-plantilla]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
