@@ -230,10 +230,11 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
   }
 });
 
-// Debe coincidir exactamente con el nombre de la plantilla (sin variables)
-// aprobada en el Administrador de WhatsApp de Meta para reabrir conversaciones
-// cerradas (fuera de la ventana de 24 h de servicio al cliente).
-const PLANTILLA_REABRIR = 'reabrir_conversacion';
+// Debe coincidir exactamente con el nombre de la plantilla aprobada en el
+// Administrador de WhatsApp de Meta para reabrir conversaciones cerradas
+// (fuera de la ventana de 24 h de servicio al cliente). Tiene una variable,
+// customer_name, en el cuerpo del mensaje.
+const PLANTILLA_REABRIR = 'retomar_conversacion';
 
 // POST /api/whatsapp/conversaciones/:contactoId/reabrir-plantilla — envía la
 // plantilla de reapertura a una conversación cerrada. No reabre la ventana de
@@ -244,10 +245,13 @@ router.post('/conversaciones/:contactoId/reabrir-plantilla', async (req, res) =>
     const { permitido, lead } = await accesoConversacion(req, req.params.contactoId);
     if (!permitido) return res.status(403).json({ error: 'Sin permiso para responder esta conversación' });
 
-    const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
+    const contacto = await db.get('SELECT nombre, apellido, telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
     if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
-    const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, PLANTILLA_REABRIR, []);
+    const nombreCompleto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
+    const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, PLANTILLA_REABRIR, [
+      { nombre: 'customer_name', valor: nombreCompleto },
+    ]);
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar la plantilla: ${resultado.motivo || 'error desconocido'}` });
     }

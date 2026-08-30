@@ -504,7 +504,17 @@ router.post('/:id/enviar', async (req, res) => {
   }
 });
 
-// POST /api/cotizaciones/:id/enviar-whatsapp — envía el PDF por WhatsApp al contacto
+// Debe coincidir exactamente con el nombre de la plantilla aprobada en el
+// Administrador de WhatsApp de Meta (envio_cotizacion quedó con el formato
+// de catálogo mal elegido y no se pudo corregir — Meta reserva el nombre
+// eliminado hasta 4 semanas — así que esta versión nueva usa otro nombre).
+// Variables del cuerpo: customer_name, coti_id, link.
+const PLANTILLA_ENVIO_COTIZACION = 'envio_cotizacion_v2';
+
+// POST /api/cotizaciones/:id/enviar-whatsapp — envía la cotización por
+// WhatsApp con una plantilla aprobada (funciona aunque la conversación esté
+// cerrada, a diferencia de un documento libre) con el link público de la
+// cotización — no adjunta el PDF en el mensaje mismo.
 router.post('/:id/enviar-whatsapp', async (req, res) => {
   try {
     const data = await fetchCompleta({ id: req.params.id });
@@ -516,10 +526,13 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
       return res.status(400).json({ error: 'Sube el documento final (PDF) antes de enviar esta cotización.' });
     }
 
-    const nombreArchivo = `${numeroCompleto(data.cot.numero, data.cot.version)}.pdf`;
-    const urlPdf = `${process.env.APP_URL || ''}/api/public/cotizacion/${data.cot.token_publico}/pdf`;
-    const emisor = await db.get('SELECT mensaje_cotizacion_whatsapp FROM config_empresa WHERE id = 1');
-    const resultado = await whatsapp.enviarDocumento(data.cliente.contacto_telefono, urlPdf, nombreArchivo, emisor?.mensaje_cotizacion_whatsapp);
+    const nombreCompleto = [data.cliente.contacto_nombre, data.cliente.contacto_apellido].filter(Boolean).join(' ');
+    const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
+    const resultado = await whatsapp.enviarPlantilla(data.cliente.contacto_telefono, PLANTILLA_ENVIO_COTIZACION, [
+      { nombre: 'customer_name', valor: nombreCompleto },
+      { nombre: 'coti_id', valor: data.cot.numero },
+      { nombre: 'link', valor: linkPublico },
+    ]);
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar por WhatsApp: ${resultado.motivo || 'error desconocido'}` });
     }
