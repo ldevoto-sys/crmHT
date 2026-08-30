@@ -11,6 +11,7 @@ const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
 const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
 const { sincronizarSiCorresponde: sincronizarSoftlandSiCorresponde } = require('./services/softlandSync');
+const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -131,6 +132,13 @@ if (require.main === module) {
       // botón "Actualizar" del reporte.
       setInterval(() => {
         sincronizarSoftlandSiCorresponde().catch(err => console.error('[softlandSync] Error:', err));
+      }, QUINCE_MIN);
+      // Memoria de conversaciones de WhatsApp: dispara a las 3am hora Chile,
+      // una vez por día (ver tabla whatsapp_memoria_envios), sobre el día
+      // anterior ya cerrado. Corre igual en staging que en producción — no
+      // envía nada afuera, solo escribe resúmenes internos.
+      setInterval(() => {
+        generarMemoriaSiCorresponde().catch(err => console.error('[whatsappMemoria] Error:', err));
       }, QUINCE_MIN);
     })
     .catch((err) => {

@@ -1791,6 +1791,36 @@ async function initDb() {
     )
   `);
 
+  // === Memoria de conversaciones de WhatsApp (visión a futuro discutida en
+  // HT-AP-03, punto 3) ===
+  // Diario: un resumen corto por contacto y día, generado por el LLM
+  // procesando solo los mensajes de ESE día (nunca relee el historial
+  // completo). Maestro: memoria acumulada por contacto, que se actualiza
+  // fusionando cada resumen diario nuevo con la memoria existente — no se
+  // recalcula entera cada vez, para que no crezca sin control.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_resumen_diario (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      fecha DATE NOT NULL,
+      resumen TEXT NOT NULL,
+      cantidad_mensajes INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT now(),
+      UNIQUE (contacto_id, fecha)
+    )
+  `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_memoria (
+      contacto_id INTEGER PRIMARY KEY REFERENCES contactos(id),
+      memoria TEXT NOT NULL,
+      ultima_fecha_incorporada DATE NOT NULL,
+      actualizado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+  // Control de ejecución diaria (mismo patrón que informe_diario_envios):
+  // evita generar dos veces los resúmenes del mismo día.
+  await db.run(`CREATE TABLE IF NOT EXISTS whatsapp_memoria_envios (fecha DATE PRIMARY KEY)`);
+
   console.log('[DB] Base de datos lista.');
 }
 

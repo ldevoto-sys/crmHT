@@ -8,6 +8,8 @@ const { authenticate } = require('../middleware/auth');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
 const r2 = require('../services/r2');
+const { generarMemoriaDelDia } = require('../services/whatsappMemoria');
+const { diaAnterior, fechaChileHoy } = require('../services/informeDiario');
 
 // Límite de 16 MB: el máximo que acepta WhatsApp para documentos/video.
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
@@ -257,6 +259,24 @@ router.post('/conversaciones/:contactoId/reabrir-plantilla', async (req, res) =>
     res.status(201).json({ message: 'Plantilla enviada' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/reabrir-plantilla]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/memoria/generar-ahora — dispara el resumen diario y la
+// actualización de la memoria maestra fuera de su horario programado (3am),
+// para poder probarlo. Por defecto usa el día anterior; ?fecha=YYYY-MM-DD
+// fuerza otro día. Requiere ANTHROPIC_API_KEY configurada.
+router.post('/memoria/generar-ahora', async (req, res) => {
+  if (!['administrador', 'jefe_comercial', 'gerencia'].includes(req.user.rol)) {
+    return res.status(403).json({ error: 'Sin permiso' });
+  }
+  try {
+    const fecha = req.query.fecha || diaAnterior(fechaChileHoy());
+    const resultado = await generarMemoriaDelDia(fecha);
+    res.json({ fecha, ...resultado });
+  } catch (err) {
+    console.error('[whatsapp/memoria/generar-ahora]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
