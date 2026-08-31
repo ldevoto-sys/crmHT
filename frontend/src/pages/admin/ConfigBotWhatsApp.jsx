@@ -16,12 +16,15 @@ export default function ConfigBotWhatsApp() {
   const [horaInicio, setHoraInicio] = useState('09:15');
   const [horaFin, setHoraFin] = useState('17:15');
 
-  const [botActivo, setBotActivo] = useState(true);
+  const [activoFueraHorario, setActivoFueraHorario] = useState(true);
   const [mensajeFueraHorario, setMensajeFueraHorario] = useState('');
+  const [activoCategorizacion, setActivoCategorizacion] = useState(true);
   const [mensajeCategorizacion, setMensajeCategorizacion] = useState('');
   const [opciones, setOpciones] = useState([opcionVacia()]);
+  const [activoConfirmacion, setActivoConfirmacion] = useState(true);
   const [mensajeConfirmacion, setMensajeConfirmacion] = useState('');
   const [bandejaAcceso, setBandejaAcceso] = useState('todos');
+  const [activoRecontacto, setActivoRecontacto] = useState(true);
   const [recontactoRespetaHorario, setRecontactoRespetaHorario] = useState(true);
   const [pasosRecontacto, setPasosRecontacto] = useState([pasoVacio()]);
 
@@ -31,12 +34,15 @@ export default function ConfigBotWhatsApp() {
         setDiasHabiles(h.data.dias_habiles);
         setHoraInicio(h.data.hora_inicio.slice(0, 5));
         setHoraFin(h.data.hora_fin.slice(0, 5));
-        setBotActivo(w.data.bot_activo);
+        setActivoFueraHorario(w.data.activo_fuera_horario);
         setMensajeFueraHorario(w.data.mensaje_fuera_horario);
+        setActivoCategorizacion(w.data.activo_categorizacion);
         setMensajeCategorizacion(w.data.mensaje_categorizacion);
         setOpciones(w.data.opciones_categorizacion.length ? w.data.opciones_categorizacion : [opcionVacia()]);
+        setActivoConfirmacion(w.data.activo_confirmacion);
         setMensajeConfirmacion(w.data.mensaje_confirmacion);
         setBandejaAcceso(w.data.bandeja_acceso);
+        setActivoRecontacto(w.data.activo_recontacto);
         setRecontactoRespetaHorario(w.data.recontacto_respeta_horario);
         setPasosRecontacto(w.data.pasos_recontacto.map(p => ({ tiempo_espera_horas: p.tiempo_espera_horas, mensaje: p.mensaje })));
       })
@@ -60,12 +66,15 @@ export default function ConfigBotWhatsApp() {
     try {
       await api.put('/config/horario-atencion', { dias_habiles: diasHabiles, hora_inicio: horaInicio, hora_fin: horaFin });
       await api.put('/config/whatsapp-bot', {
-        bot_activo: botActivo,
+        activo_fuera_horario: activoFueraHorario,
         mensaje_fuera_horario: mensajeFueraHorario,
+        activo_categorizacion: activoCategorizacion,
         mensaje_categorizacion: mensajeCategorizacion,
         opciones_categorizacion: opciones,
+        activo_confirmacion: activoConfirmacion,
         mensaje_confirmacion: mensajeConfirmacion,
         bandeja_acceso: bandejaAcceso,
+        activo_recontacto: activoRecontacto,
         recontacto_respeta_horario: recontactoRespetaHorario,
         pasos_recontacto: pasosRecontacto,
       });
@@ -88,23 +97,6 @@ export default function ConfigBotWhatsApp() {
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
 
       <form onSubmit={guardar} className="space-y-6 max-w-3xl">
-        <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-2">
-          <label className="flex items-center gap-2 text-sm font-medium text-ht-navy">
-            <input type="checkbox" checked={botActivo} onChange={e => setBotActivo(e.target.checked)} />
-            Bot activo
-          </label>
-          <p className="text-xs text-gray-400">
-            Si lo desactivas, ningún mensaje entrante recibe respuesta automática (ni fuera de horario, ni
-            categorización, ni recontacto) — los mensajes se siguen registrando en la Bandeja WhatsApp para
-            atención manual.
-          </p>
-          {!botActivo && (
-            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-              El bot está desactivado: los clientes que escriban no reciben ninguna respuesta automática.
-            </p>
-          )}
-        </section>
-
         <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
           <h2 className="font-semibold text-ht-navy">Horario de atención</h2>
           <div>
@@ -133,13 +125,36 @@ export default function ConfigBotWhatsApp() {
         </section>
 
         <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
-          <h2 className="font-semibold text-ht-navy">Mensaje fuera de horario</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-ht-navy">Mensaje fuera de horario</h2>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={activoFueraHorario} onChange={e => setActivoFueraHorario(e.target.checked)} />
+              Activo
+            </label>
+          </div>
+          {!activoFueraHorario && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+              Desactivado: fuera de horario el mensaje del cliente se registra igual, pero no recibe esta respuesta.
+            </p>
+          )}
           <textarea required rows={3} value={mensajeFueraHorario} onChange={e => setMensajeFueraHorario(e.target.value)}
             className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         </section>
 
         <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
-          <h2 className="font-semibold text-ht-navy">Categorización (en horario hábil)</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-ht-navy">Categorización (en horario hábil)</h2>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={activoCategorizacion} onChange={e => setActivoCategorizacion(e.target.checked)} />
+              Activo
+            </label>
+          </div>
+          {!activoCategorizacion && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+              Desactivado: en horario hábil el mensaje se registra igual, pero no se pregunta la categoría — el lead
+              queda "nuevo" para asignación manual desde la Cola de asignación.
+            </p>
+          )}
           <div>
             <label className="block text-sm text-gray-700 mb-1">Mensaje de la pregunta</label>
             <textarea required rows={2} value={mensajeCategorizacion} onChange={e => setMensajeCategorizacion(e.target.value)}
@@ -168,7 +183,13 @@ export default function ConfigBotWhatsApp() {
             <button type="button" onClick={agregarOpcion} className="text-sm text-ht-accent hover:underline">+ Agregar opción</button>
           </div>
           <div>
-            <label className="block text-sm text-gray-700 mb-1">Mensaje de confirmación (al elegir una opción)</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm text-gray-700">Mensaje de confirmación (al elegir una opción)</label>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={activoConfirmacion} onChange={e => setActivoConfirmacion(e.target.checked)} />
+                Activo
+              </label>
+            </div>
             <textarea required rows={2} value={mensajeConfirmacion} onChange={e => setMensajeConfirmacion(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
@@ -186,7 +207,19 @@ export default function ConfigBotWhatsApp() {
         </section>
 
         <section className="bg-white border border-gray-200 rounded-lg p-5 space-y-3">
-          <h2 className="font-semibold text-ht-navy">Secuencia de recontacto (si no responde a la categorización)</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-ht-navy">Secuencia de recontacto (si no responde a la categorización)</h2>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input type="checkbox" checked={activoRecontacto} onChange={e => setActivoRecontacto(e.target.checked)} />
+              Activo
+            </label>
+          </div>
+          {!activoRecontacto && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
+              Desactivado: un lead que no responda a la categorización se queda esperando, sin reintentos ni cierre
+              automático — hay que atenderlo a mano.
+            </p>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-600">
             <input type="checkbox" checked={recontactoRespetaHorario} onChange={e => setRecontactoRespetaHorario(e.target.checked)} />
             Respetar horario hábil (no reintentar fuera de horario)

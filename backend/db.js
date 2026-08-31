@@ -1238,10 +1238,14 @@ async function initDb() {
   }
   await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS mensaje_confirmacion TEXT NOT NULL DEFAULT ''`);
   await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS bandeja_acceso TEXT NOT NULL DEFAULT 'todos'`);
-  // Apaga las respuestas automáticas (fuera de horario, categorización,
-  // confirmación y recontacto): los mensajes entrantes se siguen registrando
-  // en la Bandeja para atención manual, pero el bot no contesta nada.
-  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS bot_activo BOOLEAN NOT NULL DEFAULT true`);
+  // Apaga cada tipo de respuesta automática por separado: el mensaje
+  // entrante se sigue registrando en la Bandeja para atención manual, pero
+  // el bot no contesta el tipo que esté desactivado.
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_fuera_horario BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_categorizacion BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_confirmacion BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_recontacto BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config DROP COLUMN IF EXISTS bot_activo`);
   await db.run(
     `UPDATE whatsapp_bot_config SET mensaje_confirmacion=$1 WHERE id=1 AND mensaje_confirmacion=''`,
     ['Te estamos asignando un ejecutivo, por favor espéranos un momento 🙂']
