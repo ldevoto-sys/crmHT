@@ -56,7 +56,8 @@ router.get('/conversaciones', async (req, res) => {
               em.razon_social AS empresa_razon_social,
               l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
-              COALESCE(abierta.abierta, false) AS abierta, COALESCE(wc.archivada, false) AS archivada
+              COALESCE(abierta.abierta, false) AS abierta, COALESCE(wc.archivada, false) AS archivada,
+              (ult.direccion = 'entrante' AND (wc.leido_en IS NULL OR ult.created_at > wc.leido_en)) AS no_leido
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
        JOIN contactos c ON c.id = base.contacto_id
        LEFT JOIN empresas em ON em.id = c.empresa_id
@@ -85,6 +86,37 @@ router.get('/conversaciones', async (req, res) => {
   }
 });
 
+// GET /api/whatsapp/no-leidos/cantidad — contador liviano para el badge del
+// menú lateral (Layout.jsx), independiente de si la Bandeja está abierta.
+router.get('/no-leidos/cantidad', async (req, res) => {
+  try {
+    const verTodo = await puedeVerTodo(req);
+    const clauses = [`COALESCE(wc.archivada, false) = false`,
+      `ult.direccion = 'entrante'`, `(wc.leido_en IS NULL OR ult.created_at > wc.leido_en)`];
+    const params = [];
+    if (!verTodo) { clauses.push(`l.vendedor_id = $1`); params.push(req.user.id); }
+
+    const fila = await db.get(
+      `SELECT COUNT(*)::int AS cantidad
+       FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
+       JOIN contactos c ON c.id = base.contacto_id
+       LEFT JOIN LATERAL (
+         SELECT * FROM leads WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
+       ) l ON true
+       LEFT JOIN LATERAL (
+         SELECT direccion, created_at FROM whatsapp_mensajes WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
+       ) ult ON true
+       LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
+       WHERE ${clauses.join(' AND ')}`,
+      params
+    );
+    res.json({ cantidad: fila.cantidad });
+  } catch (err) {
+    console.error('[whatsapp/GET /no-leidos/cantidad]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 async function accesoConversacion(req, contactoId) {
   const lead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contactoId]);
   const verTodo = await puedeVerTodo(req);
@@ -108,6 +140,24 @@ router.get('/conversaciones/:contactoId/mensajes', async (req, res) => {
     res.json(hilo);
   } catch (err) {
     console.error('[whatsapp/GET /conversaciones/:id/mensajes]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/marcar-leido — se llama al
+// abrir una conversación desde la Bandeja, para apagar su indicador de no leído.
+router.post('/conversaciones/:contactoId/marcar-leido', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para ver esta conversación' });
+    await db.run(
+      `INSERT INTO whatsapp_conversaciones (contacto_id, leido_en) VALUES ($1, now())
+       ON CONFLICT (contacto_id) DO UPDATE SET leido_en = now()`,
+      [req.params.contactoId]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/marcar-leido]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

@@ -200,8 +200,14 @@ async function procesarMensaje(m) {
 
   const tipoMedia = MEDIA_TIPOS[m.type];
   const mediaId = tipoMedia ? m[m.type]?.id : null;
-  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title
-    ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : '[mensaje no soportado]');
+  // Reacción con emoji a un mensaje anterior (type: 'reaction'): no es un
+  // mensaje de texto/media, así que se maneja aparte. m.reaction.emoji viene
+  // vacío si el cliente quitó una reacción que había puesto antes.
+  const textoReaccion = m.type === 'reaction'
+    ? (m.reaction?.emoji ? `Reaccionó: ${m.reaction.emoji}` : 'Quitó su reacción')
+    : null;
+  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? textoReaccion
+    ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : `[tipo no soportado: ${m.type}]`);
   const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
   const ultimoLead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
 
