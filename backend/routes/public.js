@@ -205,6 +205,19 @@ async function procesarMensaje(m) {
   const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
   const ultimoLead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
 
+  // Bot desactivado (Configuración → Bot de WhatsApp): el mensaje se registra
+  // igual en la Bandeja para atención manual, pero no se envía ninguna
+  // respuesta automática (ni fuera de horario, ni categorización).
+  if (!cfg.bot_activo) {
+    let leadId = ultimoLead?.id;
+    if (!leadId) {
+      const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
+      leadId = r.rows[0].id;
+    }
+    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante });
+    return;
+  }
+
   // El bot ya entregó esta conversación a un vendedor: no vuelve a intervenir,
   // solo se registra el mensaje para que se vea en la Bandeja de WhatsApp.
   if (ultimoLead && ultimoLead.bot_estado === 'derivado') {
