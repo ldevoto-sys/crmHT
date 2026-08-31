@@ -1806,6 +1806,40 @@ async function initDb() {
     )
   `);
 
+  // === Cobranzas — Fase 2 (ingesta: documentos pendientes desde Softland +
+  // cartolas bancarias) ===
+  // Documentos (facturas) con saldo pendiente de pago, según la consulta
+  // validada del skill HT-IN-01 §4.7 (WG_vsnpCartolaCliente). Se reemplaza
+  // por completo en cada "Actualizar desde Softland" — no queda historial de
+  // versiones, la tabla siempre refleja el estado vigente a la última
+  // sincronización (folio pagado = ya no aparece en la siguiente corrida).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_documentos (
+      id SERIAL PRIMARY KEY,
+      folio TEXT NOT NULL UNIQUE,
+      codigo_cliente TEXT,
+      rut_cliente TEXT,
+      nombre_cliente TEXT,
+      monto_total NUMERIC(14,2) NOT NULL,
+      saldo_pendiente NUMERIC(14,2) NOT NULL,
+      fecha_emision DATE,
+      fecha_vencimiento DATE,
+      vendedor_codigo TEXT,
+      vendedor_nombre TEXT,
+      actualizado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Movimientos bancarios ya tenía la tabla desde Fase 1 (cobranza_movimientos_bancarios);
+  // acá solo se agrega el registro de quién y cuándo se importó cada cartola,
+  // para poder mostrarlo en la pantalla sin adivinar.
+  await db.run(`ALTER TABLE cobranza_movimientos_bancarios ADD COLUMN IF NOT EXISTS archivo_nombre TEXT`);
+  // Distingue movimientos con el mismo monto/glosa/fecha (ej. 3 transferencias
+  // idénticas el mismo día) al reimportar una cartola: el saldo resultante
+  // (Banco de Chile) o el N° de movimiento del banco (Santander), ver
+  // services/cobranzaCartolas.js.
+  await db.run(`ALTER TABLE cobranza_movimientos_bancarios ADD COLUMN IF NOT EXISTS referencia_banco TEXT`);
+
   // === Memoria de conversaciones de WhatsApp (visión a futuro discutida en
   // HT-AP-03, punto 3) ===
   // Diario: un resumen corto por contacto y día, generado por el LLM

@@ -44,6 +44,7 @@ import ConfigOperaciones from './pages/admin/ConfigOperaciones';
 import ConfigFormasPago from './pages/admin/ConfigFormasPago';
 import ConfigCausasNoCierre from './pages/admin/ConfigCausasNoCierre';
 import ConfigCobranza from './pages/admin/ConfigCobranza';
+import Cobranza from './pages/cobranza/Cobranza';
 import ServicioTecnico from './pages/servicio_tecnico/ServicioTecnico';
 import ConfigServicioTecnicoEtapas from './pages/servicio_tecnico/ConfigServicioTecnicoEtapas';
 import Novedades from './pages/admin/Novedades';
@@ -193,6 +194,11 @@ export default function App() {
             } />
             <Route path="config/cobranza" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigCobranza /></ProtectedRoute>
+            } />
+            {/* Cobranza — Fase 2 (documentos por cobrar + cartolas bancarias). Solo
+                encargado de cobranza, administrador y gerencia (no jefe_comercial/vendedor). */}
+            <Route path="cobranza" element={
+              <ProtectedRoute roles={['administrador', 'gerencia']} flag="es_encargado_cobranza"><Cobranza /></ProtectedRoute>
             } />
             <Route path="config/novedades" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><Novedades /></ProtectedRoute>

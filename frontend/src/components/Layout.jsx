@@ -17,6 +17,7 @@ const menuByRole = {
     { label: 'Reportes', to: '/reportes' },
     { label: 'Postventa', to: '/postventa' },
     { label: 'Despacho', to: '/despacho' },
+    { label: 'Cobranza', to: '/cobranza' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
   jefe_comercial: [
@@ -60,6 +61,7 @@ const menuByRole = {
     { label: 'Pipeline', to: '/pipeline' },
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Reportes', to: '/reportes' },
+    { label: 'Cobranza', to: '/cobranza' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
   // Rol dedicado: solo ve Servicio Técnico, nada más (HT-AP-03).
@@ -166,6 +168,9 @@ const IconDespacho = navIcon(<>
   <rect x="1" y="3" width="15" height="13" /><polygon points="16 8 20 8 23 11 23 16 16 16 16 8" />
   <circle cx="5.5" cy="18.5" r="2.5" /><circle cx="18.5" cy="18.5" r="2.5" />
 </>);
+const IconCobranza = navIcon(<>
+  <line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+</>);
 const IconServicioTecnico = navIcon(<>
   <circle cx="12" cy="12" r="3" />
   <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
@@ -176,7 +181,7 @@ const ICONO_POR_RUTA = {
   '/tareas': IconTareas, '/bandeja': IconBandeja, '/cola': IconCola,
   '/empresas': IconEmpresas, '/contactos': IconContactos, '/productos': IconProductos, '/reportes': IconReportes,
   '/reportes/softland': IconReportes,
-  '/postventa': IconPostventa, '/despacho': IconDespacho, '/servicio-tecnico': IconServicioTecnico,
+  '/postventa': IconPostventa, '/despacho': IconDespacho, '/cobranza': IconCobranza, '/servicio-tecnico': IconServicioTecnico,
 };
 
 export default function Layout() {
@@ -186,10 +191,12 @@ export default function Layout() {
   // call center o gerencia), si el usuario tiene el atributo marcado.
   const tienePostventaEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/postventa');
   const tieneDespachoEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/despacho');
+  const tieneCobranzaEnMenu = (menuByRole[user?.rol] || []).some(i => i.to === '/cobranza');
   const menu = [
     ...(menuByRole[user?.rol] || []),
     ...(user?.es_encargado_postventa && !tienePostventaEnMenu ? [{ label: 'Postventa', to: '/postventa' }] : []),
     ...(user?.es_encargado_despacho && !tieneDespachoEnMenu ? [{ label: 'Despacho', to: '/despacho' }] : []),
+    ...(user?.es_encargado_cobranza && !tieneCobranzaEnMenu ? [{ label: 'Cobranza', to: '/cobranza' }] : []),
   ];
   const tieneConfigPostventa = (configByRole[user?.rol] || []).some(i => i.to === '/config/postventa-etapas');
   const tieneConfigDespacho = (configByRole[user?.rol] || []).some(i => i.to === '/config/lugares-despacho');

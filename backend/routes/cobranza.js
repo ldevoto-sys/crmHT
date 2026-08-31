@@ -1,11 +1,28 @@
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
+const { actualizarDocumentosPendientes } = require('../services/cobranzaSoftland');
+const { detectarYParsear } = require('../services/cobranzaCartolas');
+const { fechaChileHoy } = require('../services/informeDiario');
 
 router.use(authenticate);
 
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+
 const TIPOS_AJUSTE = ['anticipo', 'garantia', 'fluctuacion', 'redondeo', 'indemnizacion'];
+
+// === Fase 2 — operación del día a día (documentos pendientes, cartolas).
+// Distinto del permiso de configuración de arriba (administrador/jefe
+// comercial): acá es administrador, gerencia, o el encargado de cobranza. ===
+function puedeGestionar(user) {
+  return user.rol === 'administrador' || user.rol === 'gerencia' || user.es_encargado_cobranza === true;
+}
+function requiereGestionCobranza(req, res, next) {
+  if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
+  next();
+}
 
 // === Configuración de cuentas contables (Fase 1 — HT-DO-XX especificación
 // módulo Cobranzas, sección 2.4). Solo administrador/jefe comercial: son
@@ -108,6 +125,129 @@ router.delete('/config/cuentas-bancarias/:id', authorize('administrador', 'jefe_
   } catch (err) {
     console.error('[cobranza/config/cuentas-bancarias DELETE]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// === Fase 2 — Documentos (facturas con saldo pendiente, sincronizadas desde
+// Softland) ===
+
+// GET /api/cobranza/documentos — listado + KPIs (total por cobrar, a
+// tiempo, atrasado <15 días, vencido >15 días, hora de Chile).
+router.get('/documentos', requiereGestionCobranza, async (req, res) => {
+  try {
+    const hoy = fechaChileHoy();
+    const documentos = await db.all(
+      `SELECT *,
+              CASE
+                WHEN fecha_vencimiento >= $1::date THEN 'a_tiempo'
+                WHEN $1::date - fecha_vencimiento <= 15 THEN 'atrasado'
+                ELSE 'vencido'
+              END AS estado
+       FROM cobranza_documentos
+       ORDER BY fecha_vencimiento ASC`,
+      [hoy]
+    );
+    const kpis = documentos.reduce(
+      (acc, d) => {
+        const saldo = Number(d.saldo_pendiente);
+        acc.total_por_cobrar += saldo;
+        acc[d.estado] += saldo;
+        return acc;
+      },
+      { total_por_cobrar: 0, a_tiempo: 0, atrasado: 0, vencido: 0 }
+    );
+    const ultima = await db.get('SELECT MAX(actualizado_en) AS ultima FROM cobranza_documentos');
+    res.json({ documentos, kpis, ultima_actualizacion: ultima?.ultima || null });
+  } catch (err) {
+    console.error('[cobranza/documentos GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/documentos/actualizar — corre la consulta validada
+// contra Softland (skill HT-IN-01 §4.7) y reemplaza la tabla completa.
+router.post('/documentos/actualizar', requiereGestionCobranza, async (req, res) => {
+  try {
+    const resultado = await actualizarDocumentosPendientes();
+    res.json({ message: `Documentos actualizados desde Softland (${resultado.total}).`, total: resultado.total });
+  } catch (err) {
+    console.error('[cobranza/documentos/actualizar POST]', err);
+    res.status(502).json({ error: `No se pudo actualizar desde Softland: ${err.message || 'error desconocido'}` });
+  }
+});
+
+// === Fase 2 — Movimientos bancarios (cartolas subidas) ===
+
+// GET /api/cobranza/movimientos?estado=pendiente|preconciliado|conciliado|archivado
+router.get('/movimientos', requiereGestionCobranza, async (req, res) => {
+  try {
+    const { estado } = req.query;
+    const params = [];
+    let where = '';
+    if (estado) { params.push(estado); where = 'WHERE m.estado = $1'; }
+    const movimientos = await db.all(
+      `SELECT m.*, u.nombre AS cargado_por_nombre
+       FROM cobranza_movimientos_bancarios m
+       LEFT JOIN users u ON u.id = m.cargado_por_id
+       ${where}
+       ORDER BY m.fecha DESC, m.id DESC`,
+      params
+    );
+    res.json(movimientos);
+  } catch (err) {
+    console.error('[cobranza/movimientos GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/movimientos/importar (multipart, campo "archivo") —
+// sube una cartola (Banco de Chile .xls o Banco Santander .xlsx, detectado
+// por la forma del contenido) y registra sus abonos como movimientos
+// pendientes. Si la misma cartola se sube dos veces, no duplica: se
+// considera el mismo movimiento si banco+cuenta+fecha+monto+glosa calzan.
+router.post('/movimientos/importar', requiereGestionCobranza, upload.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Debes adjuntar un archivo' });
+    let resultado;
+    try {
+      resultado = detectarYParsear(req.file.buffer);
+    } catch (err) {
+      console.error('[cobranza/movimientos/importar] Error leyendo el archivo:', err);
+      return res.status(400).json({ error: 'No se pudo leer el archivo — ¿es una cartola bancaria válida?' });
+    }
+    if (!resultado) {
+      return res.status(400).json({ error: 'No se reconoce el formato del archivo (se esperaba una cartola de Banco de Chile o Banco Santander).' });
+    }
+
+    let insertados = 0;
+    for (const m of resultado.movimientos) {
+      // La referencia del banco (saldo resultante en Banco de Chile, N° de
+      // movimiento en Santander) es lo que distingue dos movimientos
+      // idénticos en monto/glosa/fecha (ej. 3 transferencias iguales el
+      // mismo día) — sin ella, reimportar la misma cartola los colapsaría.
+      const existe = await db.get(
+        `SELECT id FROM cobranza_movimientos_bancarios
+         WHERE banco = $1 AND cuenta_bancaria = $2 AND fecha = $3 AND monto = $4 AND glosa_original = $5
+           AND referencia_banco IS NOT DISTINCT FROM $6`,
+        [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.referencia_banco]
+      );
+      if (existe) continue;
+      await db.run(
+        `INSERT INTO cobranza_movimientos_bancarios
+           (banco, cuenta_bancaria, fecha, monto, glosa_original, numero_documento, referencia_banco, cargado_por_id, archivo_nombre)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.numero_documento, m.referencia_banco, req.user.id, req.file.originalname]
+      );
+      insertados++;
+    }
+    res.status(201).json({
+      message: `Cartola de ${resultado.banco} (cuenta ${resultado.cuentaBancaria || '—'}) procesada: ${insertados} movimiento(s) nuevo(s) de ${resultado.movimientos.length} encontrados.`,
+      banco: resultado.banco, cuenta_bancaria: resultado.cuentaBancaria,
+      total_encontrados: resultado.movimientos.length, insertados,
+    });
+  } catch (err) {
+    console.error('[cobranza/movimientos/importar POST]', err);
+    res.status(500).json({ error: 'Error interno al procesar la cartola' });
   }
 });
 
