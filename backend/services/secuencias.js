@@ -7,8 +7,13 @@
 // cual se definieron al configurar la secuencia. Si el contacto no tiene
 // correo o el envío falla, cae a una tarea manual (nunca se pierde el
 // paso en silencio).
-// Canales 'whatsapp'/'llamada'/'tarea': siguen generando una TAREA para que
-// el vendedor lo ejecute a mano — pendiente conectar WhatsApp más adelante.
+// Canal 'whatsapp' (26-08-2026): se envía solo, vía la Cloud API de Meta,
+// con una plantilla aprobada elegida al configurar el paso — WhatsApp exige
+// plantilla para mensajes que inicia la empresa fuera de la ventana de 24h
+// de servicio, no admite texto libre como el canal correo. Igual que correo,
+// si el contacto no tiene teléfono o el envío falla, cae a una tarea manual.
+// Canales 'llamada'/'tarea': siguen generando una TAREA para que el
+// vendedor lo ejecute a mano.
 // El "detector de respuesta" tampoco existe todavía por canal: la pausa se
 // hace a mano con /marcar-respondido, endpoint que también podrá invocarse
 // desde un webhook de Graph/WhatsApp el día que existan.
@@ -16,7 +21,46 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const timeline = require('./timeline');
 const email = require('./email');
+const whatsapp = require('./whatsapp');
 const { esHorarioHabil } = require('./horario');
+
+// Plantillas de WhatsApp aprobadas por Meta que puede usar un paso de
+// secuencia — el nombre de cada clave debe coincidir exactamente con el
+// nombre de la plantilla en el Administrador de WhatsApp. `parametros`
+// arma los valores reales a partir del contacto y la última cotización del
+// negocio, en el mismo orden/nombre de variables definido en la plantilla.
+function nombreCompleto(contacto) {
+  return [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
+}
+function fechaVencimientoCotizacion(cot) {
+  const base = new Date(cot.fecha_envio || cot.created_at);
+  base.setDate(base.getDate() + (cot.validez_dias || 15));
+  return base.toLocaleDateString('es-CL');
+}
+const PLANTILLAS_WHATSAPP = {
+  envio_cotizacion: {
+    label: 'Envío de cotización',
+    parametros: (contacto, cot) => [
+      { nombre: 'customer_name', valor: nombreCompleto(contacto) },
+      { nombre: 'coti_id', valor: cot.numero },
+    ],
+  },
+  vencimiento_cotizacion: {
+    label: 'Vencimiento de cotización',
+    parametros: (contacto, cot) => [
+      { nombre: 'customer_name', valor: nombreCompleto(contacto) },
+      { nombre: 'coti_id', valor: cot.numero },
+      { nombre: 'coti_vig', valor: fechaVencimientoCotizacion(cot) },
+    ],
+  },
+  seguimiento_coti: {
+    label: 'Seguimiento de cotización',
+    parametros: (contacto, cot) => [
+      { nombre: 'customer_name', valor: nombreCompleto(contacto) },
+      { nombre: 'coti_id', valor: cot.numero },
+    ],
+  },
+};
 
 async function pasoSiguiente(secuenciaId, orden) {
   return db.get(
@@ -46,10 +90,29 @@ async function intentarEnviarCorreo(ns, paso) {
   return { enviado: true, destinatario: contacto.email };
 }
 
-async function crearTareaSeguimiento(ns, paso, totalPasos, motivoSinCorreo) {
+// Intenta enviar el paso 'whatsapp' solo, vía la Cloud API de Meta, usando
+// la plantilla aprobada que se eligió al configurar el paso. Igual que
+// intentarEnviarCorreo, nunca lanza: devuelve {enviado, motivo} para que el
+// llamador decida si cae a tarea manual.
+async function intentarEnviarWhatsapp(ns, paso) {
+  if (!ns.contacto_id) return { enviado: false, motivo: 'el negocio no tiene contacto asociado' };
+  const contacto = await db.get('SELECT nombre, apellido, telefono_e164 FROM contactos WHERE id = $1', [ns.contacto_id]);
+  if (!contacto?.telefono_e164) return { enviado: false, motivo: 'el contacto no tiene teléfono registrado' };
+  const ultimaCot = await db.get(
+    'SELECT numero, validez_dias, fecha_envio, created_at FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+  );
+  if (!ultimaCot) return { enviado: false, motivo: 'el negocio no tiene ninguna cotización registrada' };
+  const plantilla = PLANTILLAS_WHATSAPP[paso.whatsapp_template];
+  if (!plantilla) return { enviado: false, motivo: `plantilla de WhatsApp "${paso.whatsapp_template}" desconocida` };
+  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
+  if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el WhatsApp' };
+  return { enviado: true, destinatario: contacto.telefono_e164 };
+}
+
+async function crearTareaSeguimiento(ns, paso, totalPasos, motivoSinEnvio, descripcionOverride) {
   const tituloBase = `Seguimiento "${ns.secuencia_nombre}" — paso ${paso.orden}/${totalPasos} (${paso.canal})`;
-  const titulo = motivoSinCorreo ? `${tituloBase} — no se pudo enviar el correo (${motivoSinCorreo})` : tituloBase;
-  const descripcion = paso.asunto ? `Asunto: ${paso.asunto}\n\n${paso.mensaje}` : paso.mensaje;
+  const titulo = motivoSinEnvio ? `${tituloBase} — no se pudo enviar (${motivoSinEnvio})` : tituloBase;
+  const descripcion = descripcionOverride || (paso.asunto ? `Asunto: ${paso.asunto}\n\n${paso.mensaje}` : paso.mensaje);
   const tarea = await db.run(
     `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
      VALUES ($1,$2,now(),$3,$3,$4,$5,$6) RETURNING id`,
@@ -179,6 +242,15 @@ async function avanzarPasosPendientes() {
         tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n, resultado.motivo);
         descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (correo — no se pudo enviar: ${resultado.motivo})`;
       }
+    } else if (paso.canal === 'whatsapp') {
+      const resultado = await intentarEnviarWhatsapp(ns, paso);
+      if (resultado.enviado) {
+        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" enviado por WhatsApp automáticamente a ${resultado.destinatario} (plantilla "${paso.whatsapp_template}")`;
+      } else {
+        const plantillaLabel = PLANTILLAS_WHATSAPP[paso.whatsapp_template]?.label || paso.whatsapp_template;
+        tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n, resultado.motivo, `Enviar por WhatsApp la plantilla "${plantillaLabel}" a este contacto.`);
+        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (whatsapp — no se pudo enviar: ${resultado.motivo})`;
+      }
     } else {
       tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n);
       descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" generó tarea de seguimiento (${paso.canal})`;
@@ -296,4 +368,4 @@ async function alCambiarEtapa({ negocio, etapaAnterior, etapaNueva, usuarioId, c
   }
 }
 
-module.exports = { avanzarPasosPendientes, alCambiarEtapa };
+module.exports = { avanzarPasosPendientes, alCambiarEtapa, PLANTILLAS_WHATSAPP };

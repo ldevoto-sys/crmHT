@@ -1109,6 +1109,13 @@ async function initDb() {
   await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS etapa_destino_id INTEGER REFERENCES pipeline_etapas(id)`);
   await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS causa_no_cierre_id INTEGER REFERENCES causas_no_cierre(id)`);
 
+  // Canal "whatsapp" con envío automático (26-08-2026): WhatsApp exige una
+  // plantilla aprobada por Meta para mensajes que inicia la empresa fuera de
+  // la ventana de 24h de servicio — no texto libre como el canal correo. El
+  // nombre guardado acá coincide con el nombre de la plantilla en Meta (ver
+  // services/secuencias.js#PLANTILLAS_WHATSAPP).
+  await db.run(`ALTER TABLE secuencia_pasos ADD COLUMN IF NOT EXISTS whatsapp_template TEXT`);
+
   await db.run(`
     CREATE TABLE IF NOT EXISTS negocio_secuencias (
       id SERIAL PRIMARY KEY,
@@ -1609,6 +1616,36 @@ async function initDb() {
     await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('monto_estimado_neto_v1.26')`);
     console.log(`[DB] Backfill monto_estimado → neto aplicado (${resultado.rowCount} negocio(s) actualizados).`);
   }
+
+  // === Memoria de conversaciones de WhatsApp (visión a futuro discutida en
+  // HT-AP-03, punto 3) ===
+  // Diario: un resumen corto por contacto y día, generado por el LLM
+  // procesando solo los mensajes de ESE día (nunca relee el historial
+  // completo). Maestro: memoria acumulada por contacto, que se actualiza
+  // fusionando cada resumen diario nuevo con la memoria existente — no se
+  // recalcula entera cada vez, para que no crezca sin control.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_resumen_diario (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      fecha DATE NOT NULL,
+      resumen TEXT NOT NULL,
+      cantidad_mensajes INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT now(),
+      UNIQUE (contacto_id, fecha)
+    )
+  `);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_memoria (
+      contacto_id INTEGER PRIMARY KEY REFERENCES contactos(id),
+      memoria TEXT NOT NULL,
+      ultima_fecha_incorporada DATE NOT NULL,
+      actualizado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+  // Control de ejecución diaria (mismo patrón que informe_diario_envios):
+  // evita generar dos veces los resúmenes del mismo día.
+  await db.run(`CREATE TABLE IF NOT EXISTS whatsapp_memoria_envios (fecha DATE PRIMARY KEY)`);
 
   console.log('[DB] Base de datos lista.');
 }

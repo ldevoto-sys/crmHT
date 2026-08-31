@@ -8,6 +8,8 @@ const { authenticate } = require('../middleware/auth');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
 const r2 = require('../services/r2');
+const { generarMemoriaDelDia } = require('../services/whatsappMemoria');
+const { diaAnterior, fechaChileHoy } = require('../services/informeDiario');
 
 // Límite de 16 MB: el máximo que acepta WhatsApp para documentos/video.
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
@@ -48,11 +50,13 @@ router.get('/conversaciones', async (req, res) => {
 
     const conversaciones = await db.all(
       `SELECT c.id AS contacto_id, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido, c.telefono_e164,
+              em.razon_social AS empresa_razon_social,
               l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
               COALESCE(abierta.abierta, false) AS abierta
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
        JOIN contactos c ON c.id = base.contacto_id
+       LEFT JOIN empresas em ON em.id = c.empresa_id
        LEFT JOIN LATERAL (
          SELECT * FROM leads WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
        ) l ON true
@@ -122,7 +126,11 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
     if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
-    const resultado = await whatsapp.enviar(contacto.telefono_e164, texto.trim());
+    // El cliente ve el nombre de quien le escribe delante del mensaje; en el
+    // hilo interno del CRM se guarda el texto tal cual (el nombre ya se
+    // muestra aparte, sobre la burbuja) para no duplicarlo con asteriscos.
+    const textoConFirma = `*${req.user.nombre}:*\n${texto.trim()}`;
+    const resultado = await whatsapp.enviar(contacto.telefono_e164, textoConFirma);
     if (!resultado.enviado) {
       // No se guarda en el hilo como si se hubiera mandado: evita que la
       // Bandeja muestre un mensaje que en realidad nunca llegó al cliente.
@@ -197,7 +205,15 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
     if (!subida.subido) return res.status(502).json({ error: `No se pudo subir el archivo: ${subida.motivo || 'error desconocido'}` });
 
     const urlTemporal = await r2.urlFirmada(key);
-    const resultado = await whatsapp.enviarMedia(contacto.telefono_e164, tipo, urlTemporal, { nombreArchivo: req.file.originalname });
+    // El caption no existe para audio en la API de Meta (ver enviarMedia), así
+    // que ahí la firma va como un mensaje de texto corto justo antes del audio
+    // — no bloquea el envío del adjunto si ese aviso llegara a fallar.
+    if (tipo === 'audio') {
+      await whatsapp.enviar(contacto.telefono_e164, `*${req.user.nombre}* envía un audio:`);
+    }
+    const resultado = await whatsapp.enviarMedia(contacto.telefono_e164, tipo, urlTemporal, {
+      nombreArchivo: req.file.originalname, caption: `*${req.user.nombre}*`,
+    });
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar el adjunto a WhatsApp: ${resultado.motivo || 'error desconocido'}` });
     }
@@ -210,6 +226,61 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
     res.status(201).json({ message: 'Adjunto enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/adjuntos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Debe coincidir exactamente con el nombre de la plantilla aprobada en el
+// Administrador de WhatsApp de Meta para reabrir conversaciones cerradas
+// (fuera de la ventana de 24 h de servicio al cliente). Tiene una variable,
+// customer_name, en el cuerpo del mensaje.
+const PLANTILLA_REABRIR = 'retomar_conversacion';
+
+// POST /api/whatsapp/conversaciones/:contactoId/reabrir-plantilla — envía la
+// plantilla de reapertura a una conversación cerrada. No reabre la ventana de
+// 24h por sí sola: eso ocurre recién cuando el cliente responda (ver
+// services/whatsapp_mensajes.js#registrar).
+router.post('/conversaciones/:contactoId/reabrir-plantilla', async (req, res) => {
+  try {
+    const { permitido, lead } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para responder esta conversación' });
+
+    const contacto = await db.get('SELECT nombre, apellido, telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
+    if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
+
+    const nombreCompleto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
+    const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, PLANTILLA_REABRIR, [
+      { nombre: 'customer_name', valor: nombreCompleto },
+    ]);
+    if (!resultado.enviado) {
+      return res.status(502).json({ error: `No se pudo enviar la plantilla: ${resultado.motivo || 'error desconocido'}` });
+    }
+
+    await mensajes.registrar({
+      contacto_id: req.params.contactoId, lead_id: lead?.id ?? null, direccion: 'saliente',
+      texto: '[plantilla] Reabrir conversación', enviado_por_id: req.user.id,
+    });
+    res.status(201).json({ message: 'Plantilla enviada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/reabrir-plantilla]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/memoria/generar-ahora — dispara el resumen diario y la
+// actualización de la memoria maestra fuera de su horario programado (3am),
+// para poder probarlo. Por defecto usa el día anterior; ?fecha=YYYY-MM-DD
+// fuerza otro día. Requiere ANTHROPIC_API_KEY configurada.
+router.post('/memoria/generar-ahora', async (req, res) => {
+  if (!['administrador', 'jefe_comercial', 'gerencia'].includes(req.user.rol)) {
+    return res.status(403).json({ error: 'Sin permiso' });
+  }
+  try {
+    const fecha = req.query.fecha || diaAnterior(fechaChileHoy());
+    const resultado = await generarMemoriaDelDia(fecha);
+    res.json({ fecha, ...resultado });
+  } catch (err) {
+    console.error('[whatsapp/memoria/generar-ahora]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

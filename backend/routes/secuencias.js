@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
+const { PLANTILLAS_WHATSAPP } = require('../services/secuencias');
 
 const PUEDE_CONFIGURAR = ['administrador', 'jefe_comercial'];
 
@@ -24,6 +25,8 @@ async function validarPasos(pasos) {
       const etapa = await db.get('SELECT id, tipo FROM pipeline_etapas WHERE id = $1', [p.etapa_destino_id]);
       if (!etapa) return 'La etapa destino de un paso "cambiar etapa" no existe';
       if (etapa.tipo === 'perdida' && !p.causa_no_cierre_id) return 'Si la etapa destino es de tipo "perdida", el paso requiere una causa de no cierre';
+    } else if (p.canal === 'whatsapp') {
+      if (!p.whatsapp_template || !PLANTILLAS_WHATSAPP[p.whatsapp_template]) return 'El paso "whatsapp" requiere elegir una plantilla aprobada';
     } else if (!p.mensaje || !p.mensaje.trim()) {
       return 'Cada paso requiere un mensaje';
     }
@@ -79,13 +82,14 @@ router.post('/', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id, whatsapp_template)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [secuenciaId, orden++, p.dias_espera, p.horas_espera || 0, p.canal,
          p.canal === 'cambiar_etapa' ? null : (p.asunto || null),
-         p.canal === 'cambiar_etapa' ? null : p.mensaje.trim(),
+         (p.canal === 'cambiar_etapa' || p.canal === 'whatsapp') ? null : p.mensaje.trim(),
          p.canal === 'cambiar_etapa' ? p.etapa_destino_id : null,
-         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null]
+         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null,
+         p.canal === 'whatsapp' ? p.whatsapp_template : null]
       );
     }
     await client.query('COMMIT');
@@ -121,13 +125,14 @@ router.put('/:id', authorize(...PUEDE_CONFIGURAR), async (req, res) => {
     let orden = 1;
     for (const p of pasos) {
       await client.query(
-        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        `INSERT INTO secuencia_pasos (secuencia_id, orden, dias_espera, horas_espera, canal, asunto, mensaje, etapa_destino_id, causa_no_cierre_id, whatsapp_template)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [req.params.id, orden++, p.dias_espera, p.horas_espera || 0, p.canal,
          p.canal === 'cambiar_etapa' ? null : (p.asunto || null),
-         p.canal === 'cambiar_etapa' ? null : p.mensaje.trim(),
+         (p.canal === 'cambiar_etapa' || p.canal === 'whatsapp') ? null : p.mensaje.trim(),
          p.canal === 'cambiar_etapa' ? p.etapa_destino_id : null,
-         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null]
+         p.canal === 'cambiar_etapa' ? (p.causa_no_cierre_id || null) : null,
+         p.canal === 'whatsapp' ? p.whatsapp_template : null]
       );
     }
     await client.query('COMMIT');

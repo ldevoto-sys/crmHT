@@ -135,9 +135,13 @@ export default function DetalleCotizacion() {
 
   const [enviando, setEnviando] = useState(false);
   const [canalCorreo, setCanalCorreo] = useState(true);
+  const [canalWhatsapp, setCanalWhatsapp] = useState(true);
   const [mensajeCorreo, setMensajeCorreo] = useState('');
   useEffect(() => {
     if (cot) setCanalCorreo(!!cot.contacto_email);
+  }, [cot?.id]);
+  useEffect(() => {
+    if (cot) setCanalWhatsapp(!!cot.contacto_telefono);
   }, [cot?.id]);
   // Precarga con el default configurado en Configuración → Datos de empresa;
   // el vendedor puede ajustarlo para este envío puntual sin cambiar el default.
@@ -149,6 +153,10 @@ export default function DetalleCotizacion() {
     if (canalCorreo) {
       try { const { data } = await api.post(`/cotizaciones/${id}/enviar`, { mensaje: mensajeCorreo }); mensajes.push(data.message); }
       catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar el correo.'); }
+    }
+    if (canalWhatsapp) {
+      try { const { data } = await api.post(`/cotizaciones/${id}/enviar-whatsapp`); mensajes.push(data.message); }
+      catch (err) { errores.push(err.response?.data?.error || 'No se pudo enviar por WhatsApp.'); }
     }
     if (mensajes.length) setMsg(mensajes.join(' · '));
     if (errores.length) setError(errores.join(' · '));
@@ -312,7 +320,12 @@ export default function DetalleCotizacion() {
                       className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
                   </div>
                 )}
-                <button onClick={enviarCotizacion} disabled={enviando || !canalCorreo || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
+                <label className={`flex items-center gap-2 text-sm ${cot.contacto_telefono ? 'text-gray-700' : 'text-gray-300'}`}>
+                  <input type="checkbox" checked={canalWhatsapp} disabled={!cot.contacto_telefono}
+                    onChange={e => setCanalWhatsapp(e.target.checked)} />
+                  WhatsApp
+                </label>
+                <button onClick={enviarCotizacion} disabled={enviando || (!canalCorreo && !canalWhatsapp) || (cot.tipo_plantilla !== 'ninguna' && !cot.documento_final_url)}
                   className="w-full text-sm px-3 py-2 rounded border border-ht-accent text-ht-navy hover:bg-ht-accent/5 disabled:opacity-50 mt-1">
                   {enviando ? 'Enviando…' : 'Enviar cotización'}
                 </button>

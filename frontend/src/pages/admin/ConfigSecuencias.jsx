@@ -3,7 +3,15 @@ import api from '../../api';
 
 const CANALES = ['correo', 'whatsapp', 'llamada', 'tarea', 'cambiar_etapa'];
 const CANAL_LABEL = { correo: 'correo', whatsapp: 'whatsapp', llamada: 'llamada', tarea: 'tarea', cambiar_etapa: 'cambiar etapa' };
-const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '', etapa_destino_id: '', causa_no_cierre_id: '' });
+// Plantillas de WhatsApp aprobadas por Meta — deben coincidir exactamente
+// con el nombre en el Administrador de WhatsApp (ver backend
+// services/secuencias.js#PLANTILLAS_WHATSAPP).
+const PLANTILLAS_WHATSAPP = {
+  envio_cotizacion: 'Envío de cotización',
+  vencimiento_cotizacion: 'Vencimiento de cotización',
+  seguimiento_coti: 'Seguimiento de cotización',
+};
+const pasoVacio = () => ({ dias_espera: 1, horas_espera: 0, canal: 'correo', asunto: '', mensaje: '', etapa_destino_id: '', causa_no_cierre_id: '', whatsapp_template: '' });
 
 export default function ConfigSecuencias() {
   const [secuencias, setSecuencias] = useState([]);
@@ -42,6 +50,7 @@ export default function ConfigSecuencias() {
         dias_espera: p.dias_espera, horas_espera: p.horas_espera || 0, canal: p.canal,
         asunto: p.asunto || '', mensaje: p.mensaje || '',
         etapa_destino_id: p.etapa_destino_id || '', causa_no_cierre_id: p.causa_no_cierre_id || '',
+        whatsapp_template: p.whatsapp_template || '',
       })));
       setShowForm(true);
     } catch { setError('No se pudo cargar la secuencia.'); }
@@ -70,9 +79,10 @@ export default function ConfigSecuencias() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Secuencias de seguimiento</h1>
       <p className="text-gray-500 text-sm mb-4">
-        Un paso de canal "correo" se envía solo, sin que nadie lo redacte a mano (si el contacto no tiene correo o el
-        envío falla, cae a una tarea para el vendedor). Los canales "whatsapp", "llamada" y "tarea" siguen
-        generando una tarea para que el vendedor lo ejecute — por ahora, hasta conectar WhatsApp. El canal
+        Los pasos de canal "correo" y "whatsapp" se envían solos, sin que nadie los redacte a mano (si el contacto no
+        tiene correo/teléfono o el envío falla, caen a una tarea para el vendedor). WhatsApp exige elegir una
+        plantilla aprobada por Meta — no admite texto libre para mensajes que inicia la empresa. Los canales
+        "llamada" y "tarea" siguen generando una tarea para que el vendedor lo ejecute a mano. El canal
         "cambiar etapa" no envía nada: mueve el negocio a la etapa que elijas (ej. Perdido, con causa "Sin respuesta")
         — útil como último paso de una secuencia, si el cliente no respondió a ninguno de los anteriores.
         Para que una secuencia se inicie sola al entrar un negocio a una etapa del pipeline (ej. Cotizado), asígnala
@@ -189,6 +199,17 @@ export default function ConfigSecuencias() {
                       </div>
                     )}
                   </>
+                ) : p.canal === 'whatsapp' ? (
+                  <div className="flex-1 min-w-[220px]">
+                    <label className="block text-xs text-gray-500 mb-1">Plantilla aprobada</label>
+                    <select required value={p.whatsapp_template} onChange={e => cambiarPaso(i, 'whatsapp_template', e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2 text-base">
+                      <option value="">Selecciona una plantilla…</option>
+                      {Object.entries(PLANTILLAS_WHATSAPP).map(([nombre, label]) => (
+                        <option key={nombre} value={nombre}>{label} ({nombre})</option>
+                      ))}
+                    </select>
+                  </div>
                 ) : (
                   <div className="flex-1 min-w-[280px] basis-full">
                     <label className="block text-xs text-gray-500 mb-1">
