@@ -32,11 +32,13 @@ async function puedeVerTodo(req) {
   return cfg?.bandeja_acceso !== 'asignado';
 }
 
-// GET /api/whatsapp/conversaciones?vendedor_id=&estado=&abierta=true|false
+// GET /api/whatsapp/conversaciones?vendedor_id=&estado=&abierta=true|false&archivadas=true
+// Por defecto NO muestra las archivadas (quedan ocultas de la Bandeja); pasar
+// archivadas=true para ver solo esas en vez de las demás.
 router.get('/conversaciones', async (req, res) => {
   try {
     const verTodo = await puedeVerTodo(req);
-    const { vendedor_id, estado, abierta } = req.query;
+    const { vendedor_id, estado, abierta, archivadas } = req.query;
     const clauses = [];
     const params = [];
     let i = 1;
@@ -46,6 +48,7 @@ router.get('/conversaciones', async (req, res) => {
     if (estado) { clauses.push(`l.estado = $${i++}`); params.push(estado); }
     if (abierta === 'true') clauses.push(`abierta.abierta = true`);
     else if (abierta === 'false') clauses.push(`abierta.abierta = false`);
+    clauses.push(archivadas === 'true' ? `COALESCE(wc.archivada, false) = true` : `COALESCE(wc.archivada, false) = false`);
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     const conversaciones = await db.all(
@@ -53,7 +56,7 @@ router.get('/conversaciones', async (req, res) => {
               em.razon_social AS empresa_razon_social,
               l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
-              COALESCE(abierta.abierta, false) AS abierta
+              COALESCE(abierta.abierta, false) AS abierta, COALESCE(wc.archivada, false) AS archivada
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
        JOIN contactos c ON c.id = base.contacto_id
        LEFT JOIN empresas em ON em.id = c.empresa_id
@@ -157,6 +160,34 @@ router.post('/conversaciones/:contactoId/cerrar', async (req, res) => {
     res.json({ message: 'Conversación cerrada' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/cerrar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/archivar — oculta la
+// conversación de la Bandeja (se desarchiva sola si el cliente vuelve a
+// escribir, ver whatsapp_mensajes.registrar).
+router.post('/conversaciones/:contactoId/archivar', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para archivar esta conversación' });
+    await mensajes.archivarManual(req.params.contactoId, req.user.id);
+    res.json({ message: 'Conversación archivada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/archivar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/desarchivar
+router.post('/conversaciones/:contactoId/desarchivar', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para desarchivar esta conversación' });
+    await mensajes.desarchivarManual(req.params.contactoId);
+    res.json({ message: 'Conversación desarchivada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/desarchivar]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

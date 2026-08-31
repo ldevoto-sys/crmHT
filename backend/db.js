@@ -1308,6 +1308,13 @@ async function initDb() {
       cerrada_por_id INTEGER REFERENCES users(id)
     )
   `);
+  // Archivar: oculta la conversación de la Bandeja (a diferencia de "cerrar",
+  // que solo bloquea el texto libre pero la sigue mostrando). Mismo criterio
+  // de reaparición que cerrada_manual: si el cliente vuelve a escribir, se
+  // desarchiva sola (ver services/whatsapp_mensajes.js).
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
 
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta

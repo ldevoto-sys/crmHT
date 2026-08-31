@@ -12,12 +12,14 @@ async function registrar({
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
     [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime]
   );
-  // Un mensaje nuevo del cliente reabre la conversación, aunque se hubiera
-  // cerrado a mano antes.
+  // Un mensaje nuevo del cliente reabre y desarchiva la conversación, aunque
+  // se hubiera cerrado o archivado a mano antes.
   if (direccion === 'entrante') {
     await db.run(
-      `INSERT INTO whatsapp_conversaciones (contacto_id, cerrada_manual) VALUES ($1, false)
-       ON CONFLICT (contacto_id) DO UPDATE SET cerrada_manual = false, cerrada_en = NULL, cerrada_por_id = NULL`,
+      `INSERT INTO whatsapp_conversaciones (contacto_id, cerrada_manual, archivada) VALUES ($1, false, false)
+       ON CONFLICT (contacto_id) DO UPDATE SET
+         cerrada_manual = false, cerrada_en = NULL, cerrada_por_id = NULL,
+         archivada = false, archivada_en = NULL, archivada_por_id = NULL`,
       [contacto_id]
     );
   }
@@ -48,4 +50,22 @@ async function cerrarManual(contacto_id, usuario_id) {
   );
 }
 
-module.exports = { registrar, ventanaAbierta, cerrarManual };
+// Archivar oculta la conversación de la Bandeja (ver GET /conversaciones);
+// se desarchiva sola si el cliente vuelve a escribir (mismo criterio que
+// cerrarManual, ver registrar() arriba).
+async function archivarManual(contacto_id, usuario_id) {
+  await db.run(
+    `INSERT INTO whatsapp_conversaciones (contacto_id, archivada, archivada_en, archivada_por_id) VALUES ($1, true, now(), $2)
+     ON CONFLICT (contacto_id) DO UPDATE SET archivada = true, archivada_en = now(), archivada_por_id = $2`,
+    [contacto_id, usuario_id]
+  );
+}
+
+async function desarchivarManual(contacto_id) {
+  await db.run(
+    `UPDATE whatsapp_conversaciones SET archivada = false, archivada_en = NULL, archivada_por_id = NULL WHERE contacto_id = $1`,
+    [contacto_id]
+  );
+}
+
+module.exports = { registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual };

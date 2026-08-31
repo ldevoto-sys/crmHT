@@ -15,6 +15,7 @@ export default function BandejaWhatsApp() {
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
+  const [verArchivadas, setVerArchivadas] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
@@ -38,6 +39,7 @@ export default function BandejaWhatsApp() {
       if (filtroVendedor) params.vendedor_id = filtroVendedor;
       if (filtroEstado !== 'todos') params.estado = filtroEstado;
       if (filtroAbierta !== 'todas') params.abierta = filtroAbierta === 'abiertas';
+      if (verArchivadas) params.archivadas = true;
       const { data } = await api.get('/whatsapp/conversaciones', { params });
       setConversaciones(data);
     } catch { setError('No se pudieron cargar las conversaciones.'); }
@@ -49,13 +51,13 @@ export default function BandejaWhatsApp() {
   };
 
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
-  useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta]);
+  useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
 
   // Refresco periódico simple: lista cada 15s, hilo abierto cada 8s.
   useEffect(() => {
     const t = setInterval(cargarConversaciones, 15000);
     return () => clearInterval(t);
-  }, [filtroVendedor, filtroEstado, filtroAbierta]);
+  }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
 
   useEffect(() => {
     setBusquedaHilo('');
@@ -200,6 +202,23 @@ export default function BandejaWhatsApp() {
     } catch (err) { setError(err.response?.data?.error || 'No se pudo cerrar la conversación.'); }
   };
 
+  const archivarConversacion = async () => {
+    if (!window.confirm('¿Archivar esta conversación? Se oculta de la Bandeja y se desarchiva sola si el cliente vuelve a escribir.')) return;
+    try {
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/archivar`);
+      setSeleccionada(null);
+      cargarConversaciones();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo archivar la conversación.'); }
+  };
+
+  const desarchivarConversacion = async () => {
+    try {
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/desarchivar`);
+      setSeleccionada(null);
+      cargarConversaciones();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo desarchivar la conversación.'); }
+  };
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-4">Bandeja WhatsApp</h1>
@@ -226,6 +245,10 @@ export default function BandejaWhatsApp() {
               className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
           ))}
         </div>
+        <button onClick={() => { setSeleccionada(null); setVerArchivadas(v => !v); }}
+          className={`text-sm px-3 py-1.5 rounded ${verArchivadas ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {verArchivadas ? '✓ Archivadas' : 'Archivadas'}
+        </button>
       </div>
 
       <div className="flex gap-4 bg-white border border-gray-200 rounded-lg overflow-hidden" style={{ height: '65vh' }}>
@@ -277,9 +300,18 @@ export default function BandejaWhatsApp() {
                     className="text-xs text-ht-navy border border-ht-accent rounded px-2 py-1 hover:bg-ht-accent/5">
                     Crear cotización ↗
                   </a>
-                  {conversacionActual?.abierta && (
+                  {conversacionActual?.abierta && !verArchivadas && (
                     <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
                       Cerrar conversación
+                    </button>
+                  )}
+                  {verArchivadas ? (
+                    <button onClick={desarchivarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                      Desarchivar
+                    </button>
+                  ) : (
+                    <button onClick={archivarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                      Archivar
                     </button>
                   )}
                 </div>
