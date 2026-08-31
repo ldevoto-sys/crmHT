@@ -276,6 +276,13 @@ export default function Layout() {
     return () => { cancelado = true; clearInterval(t); };
   }, [user]);
 
+  // Título de la pestaña: se ve el aviso aunque el CRM esté en otra pestaña
+  // o minimizado, sin depender de que la notificación de escritorio esté
+  // permitida.
+  useEffect(() => {
+    document.title = noLeidosWhatsApp > 0 ? `(${noLeidosWhatsApp > 99 ? '99+' : noLeidosWhatsApp}) Ventas HT` : 'Ventas HT';
+  }, [noLeidosWhatsApp]);
+
   const handleLogout = () => { logout(); navigate('/login'); };
   const go = to => { setOpen(false); navigate(to); };
 
