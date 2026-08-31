@@ -326,6 +326,7 @@ router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async 
   const {
     mensaje_fuera_horario, mensaje_categorizacion, opciones_categorizacion, recontacto_respeta_horario,
     mensaje_confirmacion, bandeja_acceso, pasos_recontacto,
+    activo_fuera_horario, activo_categorizacion, activo_confirmacion, activo_recontacto,
   } = req.body;
   if (!mensaje_fuera_horario || !mensaje_fuera_horario.trim()) return res.status(400).json({ error: 'El mensaje fuera de horario es requerido' });
   if (!mensaje_categorizacion || !mensaje_categorizacion.trim()) return res.status(400).json({ error: 'El mensaje de categorización es requerido' });
@@ -350,9 +351,11 @@ router.put('/whatsapp-bot', authorize('administrador', 'jefe_comercial'), async 
     await client.query('BEGIN');
     await client.query(
       `UPDATE whatsapp_bot_config SET mensaje_fuera_horario=$1, mensaje_categorizacion=$2, opciones_categorizacion=$3,
-              recontacto_respeta_horario=$4, mensaje_confirmacion=$5, bandeja_acceso=$6 WHERE id=1`,
+              recontacto_respeta_horario=$4, mensaje_confirmacion=$5, bandeja_acceso=$6,
+              activo_fuera_horario=$7, activo_categorizacion=$8, activo_confirmacion=$9, activo_recontacto=$10 WHERE id=1`,
       [mensaje_fuera_horario.trim(), mensaje_categorizacion.trim(), JSON.stringify(opciones_categorizacion),
-       recontacto_respeta_horario !== false, mensaje_confirmacion.trim(), bandeja_acceso]
+       recontacto_respeta_horario !== false, mensaje_confirmacion.trim(), bandeja_acceso,
+       activo_fuera_horario !== false, activo_categorizacion !== false, activo_confirmacion !== false, activo_recontacto !== false]
     );
     await client.query('DELETE FROM whatsapp_recontacto_pasos');
     let orden = 1;

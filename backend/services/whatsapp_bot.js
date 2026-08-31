@@ -20,7 +20,8 @@ async function avanzarRecontactosPendientes() {
   );
   if (!pendientes.length) return { procesados: 0, enviados: 0, cerrados: 0 };
 
-  const cfg = await db.get('SELECT recontacto_respeta_horario FROM whatsapp_bot_config WHERE id = 1');
+  const cfg = await db.get('SELECT recontacto_respeta_horario, activo_recontacto FROM whatsapp_bot_config WHERE id = 1');
+  if (!cfg?.activo_recontacto) return { procesados: 0, enviados: 0, cerrados: 0 };
   const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
   const dentroDeHorario = cfg?.recontacto_respeta_horario ? await esHorarioHabil() : true;
 

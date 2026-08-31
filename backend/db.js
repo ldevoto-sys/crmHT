@@ -1238,6 +1238,14 @@ async function initDb() {
   }
   await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS mensaje_confirmacion TEXT NOT NULL DEFAULT ''`);
   await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS bandeja_acceso TEXT NOT NULL DEFAULT 'todos'`);
+  // Apaga cada tipo de respuesta automática por separado: el mensaje
+  // entrante se sigue registrando en la Bandeja para atención manual, pero
+  // el bot no contesta el tipo que esté desactivado.
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_fuera_horario BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_categorizacion BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_confirmacion BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config ADD COLUMN IF NOT EXISTS activo_recontacto BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`ALTER TABLE whatsapp_bot_config DROP COLUMN IF EXISTS bot_activo`);
   await db.run(
     `UPDATE whatsapp_bot_config SET mensaje_confirmacion=$1 WHERE id=1 AND mensaje_confirmacion=''`,
     ['Te estamos asignando un ejecutivo, por favor espéranos un momento 🙂']
@@ -1308,6 +1316,13 @@ async function initDb() {
       cerrada_por_id INTEGER REFERENCES users(id)
     )
   `);
+  // Archivar: oculta la conversación de la Bandeja (a diferencia de "cerrar",
+  // que solo bloquea el texto libre pero la sigue mostrando). Mismo criterio
+  // de reaparición que cerrada_manual: si el cliente vuelve a escribir, se
+  // desarchiva sola (ver services/whatsapp_mensajes.js).
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
 
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta

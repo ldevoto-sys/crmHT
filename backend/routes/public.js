@@ -238,7 +238,7 @@ async function procesarMensaje(m) {
       }
       await db.run(`INSERT INTO lead_respuestas (lead_id, campo, valor, capturado_por) VALUES ($1,'categoria',$2,'bot')`, [lead.id, elegida.categoria]);
       await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante });
-      if (cfg.mensaje_confirmacion) {
+      if (cfg.activo_confirmacion && cfg.mensaje_confirmacion) {
         await whatsapp.enviar(telefono_e164, cfg.mensaje_confirmacion);
         await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'saliente', texto: cfg.mensaje_confirmacion });
       }
@@ -248,18 +248,31 @@ async function procesarMensaje(m) {
 
   const enHorario = await esHorarioHabil();
   if (!enHorario) {
-    await whatsapp.enviar(telefono_e164, cfg.mensaje_fuera_horario);
     let leadId = lead?.id;
     if (!leadId) {
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadId = r.rows[0].id;
     }
     await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante });
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'saliente', texto: cfg.mensaje_fuera_horario });
+    if (cfg.activo_fuera_horario) {
+      await whatsapp.enviar(telefono_e164, cfg.mensaje_fuera_horario);
+      await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'saliente', texto: cfg.mensaje_fuera_horario });
+    }
     return;
   }
 
   if (!lead) {
+    if (!cfg.activo_categorizacion) {
+      // Categorización desactivada: se registra un lead 'nuevo' normal, sin
+      // pregunta ni bot_estado — queda para asignación manual desde la Cola
+      // de asignación, el recontacto no lo toca porque no está "esperando".
+      const r = await db.run(
+        `INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`,
+        [contacto.id]
+      );
+      await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante });
+      return;
+    }
     const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
     const primerPaso = pasos[0];
     const r = await db.run(
