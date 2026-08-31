@@ -63,6 +63,10 @@ export default function BandejaWhatsApp() {
     setBusquedaHilo('');
     if (!seleccionada) return;
     cargarHilo(seleccionada);
+    // Marca la conversación como leída (apaga su indicador de no leído) —
+    // optimista en la lista local, y confirmado en el próximo refresco.
+    setConversaciones(cs => cs.map(c => c.contacto_id === seleccionada ? { ...c, no_leido: false } : c));
+    api.post(`/whatsapp/conversaciones/${seleccionada}/marcar-leido`).catch(() => {});
     const t = setInterval(() => cargarHilo(seleccionada), 8000);
     return () => clearInterval(t);
   }, [seleccionada]);
@@ -257,7 +261,8 @@ export default function BandejaWhatsApp() {
             <button key={c.contacto_id} onClick={() => setSeleccionada(c.contacto_id)}
               className={`w-full text-left p-3 border-b border-gray-100 hover:bg-slate-50 ${seleccionada === c.contacto_id ? 'bg-ht-accent/10' : ''}`}>
               <div className="flex justify-between items-start">
-                <div className="font-medium text-ht-navy text-sm">
+                <div className={`text-sm flex items-center gap-1.5 ${c.no_leido ? 'font-bold text-ht-navy' : 'font-medium text-ht-navy'}`}>
+                  {c.no_leido && <span className="h-2 w-2 rounded-full bg-ht-accent flex-shrink-0" title="No leído" />}
                   {c.contacto_nombre} {c.contacto_apellido || ''}
                   {c.empresa_razon_social && <span className="text-gray-400 font-normal"> · {c.empresa_razon_social}</span>}
                 </div>
@@ -266,7 +271,7 @@ export default function BandejaWhatsApp() {
                 </span>
               </div>
               <div className="text-xs text-gray-500">{c.telefono_e164}</div>
-              <div className="text-xs text-gray-400 mt-1 truncate">{c.ultimo_direccion === 'saliente' ? '↑ ' : '↓ '}{c.ultimo_mensaje}</div>
+              <div className={`text-xs mt-1 truncate ${c.no_leido ? 'text-ht-navy font-medium' : 'text-gray-400'}`}>{c.ultimo_direccion === 'saliente' ? '↑ ' : '↓ '}{c.ultimo_mensaje}</div>
               <div className="flex justify-between text-[11px] text-gray-400 mt-1">
                 <span>{c.vendedor_nombre || 'Sin asignar'} · {c.lead_estado}</span>
                 <span>{fecha(c.ultimo_at)}</span>

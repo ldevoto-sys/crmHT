@@ -1323,6 +1323,10 @@ async function initDb() {
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
+  // Marca de lectura, por conversación (no por usuario) — mismo criterio que
+  // archivada/cerrada_manual. "No leído" = el último mensaje es entrante y es
+  // más nuevo que leido_en (o leido_en nunca se ha marcado).
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS leido_en TIMESTAMP`);
 
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta

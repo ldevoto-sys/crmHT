@@ -2,6 +2,27 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import BannerAmbiente from './BannerAmbiente';
+import api from '../api';
+
+// Beep corto generado con Web Audio (sin archivo de audio que alojar) para
+// avisar de mensajes nuevos de WhatsApp sin leer.
+function reproducirBeepWhatsApp() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+    osc.onended = () => ctx.close();
+  } catch { /* navegador sin Web Audio, o bloqueado — se ignora */ }
+}
 
 // Sidebar operativo por rol (HT-AP-03 §11). La configuración va en el engranaje.
 const menuByRole = {
@@ -207,13 +228,53 @@ export default function Layout() {
   ];
   const [open, setOpen] = useState(false);
   const [sidebarAbierto, setSidebarAbierto] = useState(false);
+  const [noLeidosWhatsApp, setNoLeidosWhatsApp] = useState(0);
   const ref = useRef(null);
+  const noLeidosPrevRef = useRef(0);
+  const primeraCargaNoLeidosRef = useRef(true);
 
   useEffect(() => {
     const onClick = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
+
+  // Contador global de conversaciones de WhatsApp sin leer — se consulta
+  // periódicamente sin importar en qué pantalla del CRM esté el usuario, para
+  // que el badge del menú y el aviso (sonido + notificación de escritorio) no
+  // dependan de tener la Bandeja abierta.
+  useEffect(() => {
+    if (!user || !menu.some(m => m.to === '/bandeja')) return;
+    let cancelado = false;
+    const consultar = async () => {
+      try {
+        const { data } = await api.get('/whatsapp/no-leidos/cantidad');
+        if (cancelado) return;
+        const anterior = noLeidosPrevRef.current;
+        setNoLeidosWhatsApp(data.cantidad);
+        noLeidosPrevRef.current = data.cantidad;
+        // Solo avisa cuando el conteo SUBE (mensaje nuevo), nunca al cargar la
+        // página por primera vez (evita ruido con lo que ya estaba pendiente).
+        if (!primeraCargaNoLeidosRef.current && data.cantidad > anterior) {
+          reproducirBeepWhatsApp();
+          if ('Notification' in window) {
+            if (Notification.permission === 'default') Notification.requestPermission();
+            if (Notification.permission === 'granted' && (document.hidden || window.location.pathname !== '/bandeja')) {
+              const n = new Notification('Bandeja WhatsApp', {
+                body: `Tienes ${data.cantidad} conversación${data.cantidad === 1 ? '' : 'es'} sin leer.`,
+                icon: '/Hidrotecnica.jpg',
+              });
+              n.onclick = () => { window.focus(); window.location.href = '/bandeja'; };
+            }
+          }
+        }
+        primeraCargaNoLeidosRef.current = false;
+      } catch { /* silencioso — no bloquea el resto del CRM */ }
+    };
+    consultar();
+    const t = setInterval(consultar, 20000);
+    return () => { cancelado = true; clearInterval(t); };
+  }, [user]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const go = to => { setOpen(false); navigate(to); };
@@ -237,7 +298,12 @@ export default function Layout() {
                   `flex items-center gap-3 px-5 py-2.5 text-sm font-medium border-l-2 transition-colors ${
                     isActive ? 'bg-ht-accent/10 border-ht-accent text-ht-navy' : 'border-transparent text-gray-600 hover:text-ht-navy hover:bg-gray-50'}`}>
                 {Icon && <Icon />}
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.to === '/bandeja' && noLeidosWhatsApp > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[1.25rem] px-1 flex items-center justify-center flex-shrink-0">
+                    {noLeidosWhatsApp > 99 ? '99+' : noLeidosWhatsApp}
+                  </span>
+                )}
               </NavLink>
             );
           })}
