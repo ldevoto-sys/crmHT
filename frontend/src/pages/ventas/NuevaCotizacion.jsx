@@ -66,12 +66,16 @@ export default function NuevaCotizacion() {
   const modoEdicion = !!cotizacionId;
   // Un negocio solo puede tener un hilo de cotización (26-08-2026, ver nota
   // de cambio): crear una cotización SIEMPRE crea su propio negocio nuevo,
-  // nunca se cuelga de uno existente — evita que dos cotizaciones
-  // independientes terminen compartiendo etapa/resultado sin que nadie lo
-  // haya elegido a propósito. negocioId en la URL, cuando viene, es solo el
-  // origen del contacto para precargar los datos (ej. desde la ficha de un
-  // negocio ya cotizado) — nunca el destino.
-  const modoNegocioNuevo = !modoEdicion;
+  // salvo un caso: cuando se llega desde un negocio que TODAVÍA no tiene
+  // ninguna cotización (ej. el botón "+ Cotizar" en su propia ficha, que
+  // solo aparece justamente en ese caso) — ahí la cotización se cuelga de
+  // ESE negocio, no de uno nuevo, porque el usuario ya lo creó a propósito
+  // para esto. Si el negocio de origen ya tiene una cotización, sí se crea
+  // uno nuevo (evita que dos cotizaciones terminen compartiendo etapa/
+  // resultado sin que nadie lo haya elegido). Arranca en `true` (mismo
+  // comportamiento de siempre) y se corrige a `false` en el useEffect de
+  // abajo apenas se confirma que el negocio de origen está sin cotizar.
+  const [modoNegocioNuevo, setModoNegocioNuevo] = useState(!modoEdicion);
   // Autoguardado de borrador (HT-AP-03 nota v1.25): una sesión larga
   // armando una cotización se pierde por completo si algo interrumpe la
   // página (sesión expirada, refresh, cierre accidental) antes de apretar
@@ -233,12 +237,22 @@ export default function NuevaCotizacion() {
         api.get(`/contactos/${contactoIdNuevo}`).then(r => { cargarDatosContacto(r.data); setCargando(false); })
           .catch(() => { setError('No se pudo cargar el contacto.'); setCargando(false); });
       } else {
-        // Origen = un negocio ya existente: se usa solo para saber de qué
-        // contacto se trata, nunca como destino de la cotización.
-        api.get(`/negocios/${negocioId}`)
-          .then(rn => api.get(`/contactos/${rn.data.contacto_id}`))
-          .then(r => { cargarDatosContacto(r.data); setCargando(false); })
-          .catch(() => { setError('No se pudo cargar el negocio.'); setCargando(false); });
+        // Origen = un negocio ya existente: por defecto solo se usa para
+        // saber de qué contacto se trata (no como destino) — salvo que ese
+        // negocio todavía no tenga ninguna cotización, en cuyo caso SÍ es
+        // el destino (ver nota en modoNegocioNuevo más arriba). Se resuelve
+        // ANTES de mostrar el formulario (no en paralelo) para que no exista
+        // una ventana donde se pueda guardar con el modo todavía sin corregir.
+        (async () => {
+          try {
+            const rn = await api.get(`/negocios/${negocioId}`);
+            const rc = await api.get('/cotizaciones', { params: { negocio_id: negocioId } });
+            setModoNegocioNuevo(rc.data.length > 0);
+            const r = await api.get(`/contactos/${rn.data.contacto_id}`);
+            cargarDatosContacto(r.data);
+            setCargando(false);
+          } catch { setError('No se pudo cargar el negocio.'); setCargando(false); }
+        })();
       }
     }
   }, [negocioId, cotizacionId, modoEdicion, contactoIdNuevo]);
