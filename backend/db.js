@@ -1323,10 +1323,21 @@ async function initDb() {
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
-  // Marca de lectura, por conversación (no por usuario) — mismo criterio que
-  // archivada/cerrada_manual. "No leído" = el último mensaje es entrante y es
-  // más nuevo que leido_en (o leido_en nunca se ha marcado).
-  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS leido_en TIMESTAMP`);
+  // "Leído" quedó mal modelado como columna compartida de la conversación
+  // (igual que archivada/cerrada_manual) — pero a diferencia de esas dos, si
+  // una conversación está leída depende de QUIÉN mira, no es un estado único
+  // de la conversación (si un administrador la abre, no debería apagarle la
+  // alerta al vendedor asignado, y viceversa). Se reemplaza por
+  // whatsapp_conversaciones_leido, una fila por (conversación, usuario).
+  await db.run(`ALTER TABLE whatsapp_conversaciones DROP COLUMN IF EXISTS leido_en`);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_conversaciones_leido (
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      usuario_id INTEGER NOT NULL REFERENCES users(id),
+      leido_en TIMESTAMP NOT NULL DEFAULT now(),
+      PRIMARY KEY (contacto_id, usuario_id)
+    )
+  `);
 
   // === Etapa 3C — Encuesta post-cierre ===
   // Supuesto de alcance (a validar con Gerencia, nota de cambio v1.7): encuesta

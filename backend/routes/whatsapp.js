@@ -40,8 +40,8 @@ router.get('/conversaciones', async (req, res) => {
     const verTodo = await puedeVerTodo(req);
     const { vendedor_id, estado, abierta, archivadas } = req.query;
     const clauses = [];
-    const params = [];
-    let i = 1;
+    const params = [req.user.id]; // $1 para wl.usuario_id (marca de leído propia, ver LEFT JOIN)
+    let i = 2;
 
     if (!verTodo) { clauses.push(`l.vendedor_id = $${i++}`); params.push(req.user.id); }
     else if (vendedor_id) { clauses.push(`l.vendedor_id = $${i++}`); params.push(vendedor_id); }
@@ -57,7 +57,7 @@ router.get('/conversaciones', async (req, res) => {
               l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
               COALESCE(abierta.abierta, false) AS abierta, COALESCE(wc.archivada, false) AS archivada,
-              (ult.direccion = 'entrante' AND (wc.leido_en IS NULL OR ult.created_at > wc.leido_en)) AS no_leido
+              (ult.direccion = 'entrante' AND (wl.leido_en IS NULL OR ult.created_at > wl.leido_en)) AS no_leido
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
        JOIN contactos c ON c.id = base.contacto_id
        LEFT JOIN empresas em ON em.id = c.empresa_id
@@ -69,6 +69,9 @@ router.get('/conversaciones', async (req, res) => {
          SELECT texto, direccion, created_at FROM whatsapp_mensajes WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
        ) ult ON true
        LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
+       -- Marca de leído propia de quien consulta (no de la conversación): si
+       -- otro usuario la abrió, a mí me sigue apareciendo sin leer.
+       LEFT JOIN whatsapp_conversaciones_leido wl ON wl.contacto_id = c.id AND wl.usuario_id = $1
        LEFT JOIN LATERAL (
          SELECT EXISTS (
            SELECT 1 FROM whatsapp_mensajes
@@ -92,9 +95,9 @@ router.get('/no-leidos/cantidad', async (req, res) => {
   try {
     const verTodo = await puedeVerTodo(req);
     const clauses = [`COALESCE(wc.archivada, false) = false`,
-      `ult.direccion = 'entrante'`, `(wc.leido_en IS NULL OR ult.created_at > wc.leido_en)`];
-    const params = [];
-    if (!verTodo) { clauses.push(`l.vendedor_id = $1`); params.push(req.user.id); }
+      `ult.direccion = 'entrante'`, `(wl.leido_en IS NULL OR ult.created_at > wl.leido_en)`];
+    const params = [req.user.id]; // $1 para wl.usuario_id
+    if (!verTodo) { clauses.push(`l.vendedor_id = $2`); params.push(req.user.id); }
 
     const fila = await db.get(
       `SELECT COUNT(*)::int AS cantidad
@@ -107,6 +110,7 @@ router.get('/no-leidos/cantidad', async (req, res) => {
          SELECT direccion, created_at FROM whatsapp_mensajes WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
        ) ult ON true
        LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
+       LEFT JOIN whatsapp_conversaciones_leido wl ON wl.contacto_id = c.id AND wl.usuario_id = $1
        WHERE ${clauses.join(' AND ')}`,
       params
     );
@@ -150,10 +154,12 @@ router.post('/conversaciones/:contactoId/marcar-leido', async (req, res) => {
   try {
     const { permitido } = await accesoConversacion(req, req.params.contactoId);
     if (!permitido) return res.status(403).json({ error: 'Sin permiso para ver esta conversación' });
+    // Se marca leída solo para quien la abrió — no afecta el indicador de
+    // ningún otro usuario que también tenga acceso a esta conversación.
     await db.run(
-      `INSERT INTO whatsapp_conversaciones (contacto_id, leido_en) VALUES ($1, now())
-       ON CONFLICT (contacto_id) DO UPDATE SET leido_en = now()`,
-      [req.params.contactoId]
+      `INSERT INTO whatsapp_conversaciones_leido (contacto_id, usuario_id, leido_en) VALUES ($1, $2, now())
+       ON CONFLICT (contacto_id, usuario_id) DO UPDATE SET leido_en = now()`,
+      [req.params.contactoId, req.user.id]
     );
     res.json({ ok: true });
   } catch (err) {
