@@ -2,14 +2,20 @@ import { useEffect, useRef, useState } from 'react';
 import EmojiPicker from 'emoji-picker-react';
 import Recorder from 'opus-recorder';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 import { formatFechaHora } from '../../utils/fecha';
 
 const fecha = formatFechaHora;
 const ESTADOS = ['todos', 'nuevo', 'asignado', 'convertido', 'descartado'];
 const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
 const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+// Mismo criterio que el backend (routes/leads.js POST /:id/asignar): estos
+// roles pueden asignar el lead a cualquier vendedor; un vendedor solo puede
+// asignárselo a sí mismo (ver botón "Asignarme" más abajo).
+const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callcenter'];
 
 export default function BandejaWhatsApp() {
+  const { user } = useAuth();
   const [conversaciones, setConversaciones] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [filtroVendedor, setFiltroVendedor] = useState('');
@@ -43,6 +49,15 @@ export default function BandejaWhatsApp() {
       const { data } = await api.get('/whatsapp/conversaciones', { params });
       setConversaciones(data);
     } catch { setError('No se pudieron cargar las conversaciones.'); }
+  };
+
+  const asignarLead = async (leadId, vendedorId) => {
+    if (!leadId || !vendedorId) return;
+    setError('');
+    try {
+      await api.post(`/leads/${leadId}/asignar`, { vendedor_id: Number(vendedorId) });
+      cargarConversaciones();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo asignar la conversación.'); }
   };
 
   const cargarHilo = async (contactoId) => {
@@ -292,9 +307,30 @@ export default function BandejaWhatsApp() {
               <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <button onClick={() => setSeleccionada(null)} className="md:hidden text-ht-navy shrink-0" title="Volver a conversaciones">←</button>
-                  <div className="text-sm text-ht-navy font-medium truncate">
-                    {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
-                    <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm text-ht-navy font-medium truncate">
+                      {conversacionActual?.contacto_nombre} {conversacionActual?.contacto_apellido || ''}
+                      <span className="text-gray-400 font-normal ml-2">{conversacionActual?.telefono_e164}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs mt-0.5">
+                      <span className="text-gray-400">Asignado a:</span>
+                      {ROLES_REASIGNAN_A_CUALQUIERA.includes(user?.rol) ? (
+                        <select value={conversacionActual?.vendedor_id || ''}
+                          onChange={e => e.target.value && asignarLead(conversacionActual?.lead_id, e.target.value)}
+                          className="border border-gray-300 rounded px-1 py-0.5 text-xs">
+                          <option value="">Sin asignar</option>
+                          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                        </select>
+                      ) : (
+                        <span className={conversacionActual?.vendedor_id ? 'text-ht-navy font-medium' : 'text-gray-500'}>
+                          {conversacionActual?.vendedor_nombre || 'Sin asignar'}
+                        </span>
+                      )}
+                      {user?.rol === 'vendedor' && !conversacionActual?.vendedor_id && (
+                        <button onClick={() => asignarLead(conversacionActual?.lead_id, user.id)}
+                          className="text-ht-accent hover:underline">Asignarme</button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

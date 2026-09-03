@@ -620,6 +620,18 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     }
     await sincronizarMontoEstimado(client, negocio_id, neto);
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
+    // Si el negocio viene de un lead de WhatsApp sin vendedor asignado (nunca
+    // completó el menú de categorización del bot), mandarle una cotización es
+    // justo el momento en que un vendedor lo toma — se asigna acá también, no
+    // solo al responder mensajes (02-09-2026, mismo caso reportado). No pisa
+    // una asignación ya existente.
+    if (req.user.rol === 'vendedor') {
+      await client.query(
+        `UPDATE leads SET vendedor_id = $2, estado = 'asignado', asignacion_modo = 'tomada_en_bandeja'
+         WHERE id = (SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1) AND vendedor_id IS NULL`,
+        [negocio.contacto_id, req.user.id]
+      );
+    }
     await client.query('COMMIT');
     res.status(201).json({ id: cotId, numero, version: 1 });
   } catch (err) {
