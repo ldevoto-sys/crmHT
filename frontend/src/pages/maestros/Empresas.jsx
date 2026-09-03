@@ -33,11 +33,18 @@ export default function Empresas() {
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
 
   const abrirNuevo = () => { setForm(vacio); setEditId(null); setError(''); setMsg(''); setShowForm(true); };
-  const abrirEditar = e => {
+  // Carga el registro completo antes de editar (mismo criterio que
+  // Contactos.jsx) — la fila de la lista (GET /empresas) no trae giro,
+  // dirección ni teléfono, así que armar el formulario directo desde ahí
+  // dejaba esos campos vacíos y el guardado (reemplazo completo) los borraba
+  // sin que el usuario lo notara (reportado 03-09-2026: empresas que perdían
+  // teléfono/dirección al volver a revisarlas).
+  const abrirEditar = async e => {
+    const { data } = await api.get(`/empresas/${e.id}`);
     setEditId(e.id);
-    setForm({ razon_social: e.razon_social || '', rut: e.rut || '', dominio_correo: e.dominio_correo || '',
-      giro: e.giro || '', direccion: e.direccion || '', comuna: e.comuna || '', ciudad: e.ciudad || '',
-      telefono: e.telefono_e164 || '', vendedor_id: e.vendedor_id || '' });
+    setForm({ razon_social: data.razon_social || '', rut: data.rut || '', dominio_correo: data.dominio_correo || '',
+      giro: data.giro || '', direccion: data.direccion || '', comuna: data.comuna || '', ciudad: data.ciudad || '',
+      telefono: data.telefono_e164 || '', vendedor_id: data.vendedor_id || '' });
     setError(''); setMsg(''); setShowForm(true);
   };
 
