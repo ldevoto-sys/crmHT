@@ -985,18 +985,14 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
-  // Un lead de WhatsApp solo se asignaba si el cliente completaba el menú de
-  // categorización del bot — si eso está desactivado (o el cliente nunca lo
-  // completa), el lead queda "Sin asignar" para siempre aunque un vendedor
-  // ya esté respondiendo o mandando cotizaciones desde la Bandeja (02-09-
-  // 2026, reportado por un vendedor: el filtro por vendedor de la Bandeja no
-  // mostraba nada porque el lead nunca quedó asignado). Se agrega
-  // 'tomada_en_bandeja' para distinguir esta asignación implícita (primera
-  // respuesta/cotización) de una asignación explícita ('manual', hecha desde
-  // Cola de Asignación).
-  await db.run(`ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_asignacion_modo_check`);
-  await db.run(`ALTER TABLE leads ADD CONSTRAINT leads_asignacion_modo_check
-    CHECK (asignacion_modo IN ('sugerida_confirmada','sugerida_cambiada','automatica_apertura','manual','tomada_en_bandeja'))`);
+  // El CHECK de asignacion_modo se amplía más abajo (ver nota junto a
+  // 'tomada_en_bandeja'/'asignacion_retroactiva', cerca de migraciones_
+  // aplicadas) — un solo lugar, no dos, para evitar que un ALTER más
+  // restrictivo pise en un arranque posterior lo que otro más amplio ya dejó
+  // guardado (pasó en desarrollo: el DROP+ADD de acá corría de nuevo en cada
+  // boot y volvía a angostar el constraint antes de que el de abajo lo
+  // ampliara, rompiendo el arranque en cuanto ya existía al menos una fila
+  // con el valor nuevo).
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS lead_respuestas (
@@ -1657,6 +1653,49 @@ async function initDb() {
     `);
     await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('monto_estimado_neto_v1.26')`);
     console.log(`[DB] Backfill monto_estimado → neto aplicado (${resultado.rowCount} negocio(s) actualizados).`);
+  }
+
+  // Backfill (03-09-2026): antes del fix de asignación automática de la
+  // Bandeja WhatsApp, un lead solo quedaba asignado si el cliente completaba
+  // el menú de categorización del bot — así que muchos leads de WhatsApp
+  // quedaron "Sin asignar" para siempre aunque un vendedor ya los hubiera
+  // trabajado (respondiendo mensajes o mandando una cotización). Se asigna
+  // acá, una sola vez, con el mismo criterio que el fix en vivo: el vendedor
+  // que primero actuó sobre ese contacto (el mensaje saliente o la
+  // cotización más antigua entre los dos), sin importar si hubo otros
+  // vendedores después. Nunca toca un lead que ya tuviera vendedor_id.
+  await db.run(`ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_asignacion_modo_check`);
+  await db.run(`ALTER TABLE leads ADD CONSTRAINT leads_asignacion_modo_check
+    CHECK (asignacion_modo IN ('sugerida_confirmada','sugerida_cambiada','automatica_apertura','manual','tomada_en_bandeja','asignacion_retroactiva'))`);
+  const backfillAsignacionAplicado = await db.get(
+    `SELECT 1 FROM migraciones_aplicadas WHERE nombre = 'asignacion_retroactiva_leads_whatsapp_v1'`
+  );
+  if (!backfillAsignacionAplicado) {
+    const resultado = await db.run(`
+      WITH candidatos AS (
+        SELECT l.id AS lead_id, ev.vendedor_id, ev.momento,
+               ROW_NUMBER() OVER (PARTITION BY l.id ORDER BY ev.momento ASC) AS rn
+        FROM leads l
+        JOIN LATERAL (
+          SELECT wm.enviado_por_id AS vendedor_id, wm.created_at AS momento
+          FROM whatsapp_mensajes wm
+          JOIN users u ON u.id = wm.enviado_por_id AND u.rol = 'vendedor'
+          WHERE wm.contacto_id = l.contacto_id AND wm.direccion = 'saliente'
+          UNION ALL
+          SELECT c.creado_por_id, c.created_at
+          FROM negocios n
+          JOIN cotizaciones c ON c.negocio_id = n.id
+          JOIN users u ON u.id = c.creado_por_id AND u.rol = 'vendedor'
+          WHERE n.contacto_id = l.contacto_id
+        ) ev ON true
+        WHERE l.vendedor_id IS NULL
+      )
+      UPDATE leads SET vendedor_id = candidatos.vendedor_id, estado = 'asignado', asignacion_modo = 'asignacion_retroactiva'
+      FROM candidatos
+      WHERE leads.id = candidatos.lead_id AND candidatos.rn = 1
+    `);
+    await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('asignacion_retroactiva_leads_whatsapp_v1')`);
+    console.log(`[DB] Backfill asignación retroactiva de leads WhatsApp aplicado (${resultado.rowCount} lead(s) asignados).`);
   }
 
   // === Memoria de conversaciones de WhatsApp (visión a futuro discutida en
