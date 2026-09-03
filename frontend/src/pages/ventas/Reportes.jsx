@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const money = v => `$${Number(v || 0).toLocaleString('es-CL')}`;
 const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_VER_COTIZACIONES_DIA = ['administrador', 'jefe_comercial'];
+const PUEDE_EXPORTAR_DETALLE = ['administrador', 'gerencia'];
 const fecha = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('es-CL') : '';
 
 export default function Reportes() {
@@ -99,6 +100,23 @@ export default function Reportes() {
       a.href = url; a.download = `reporte_${tipo}.csv`; a.click();
       URL.revokeObjectURL(url);
     } catch { setError('No se pudo exportar el reporte.'); }
+  };
+
+  const [detalleDesde, setDetalleDesde] = useState('');
+  const [detalleHasta, setDetalleHasta] = useState('');
+  const [exportandoDetalle, setExportandoDetalle] = useState(false);
+  const exportarDetalle = async () => {
+    setExportandoDetalle(true); setError('');
+    try {
+      const { data } = await api.get('/reportes/exportar-cotizaciones-detalle', {
+        params: { desde: detalleDesde || undefined, hasta: detalleHasta || undefined }, responseType: 'blob',
+      });
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url; a.download = `detalle_cotizaciones${detalleDesde ? '_' + detalleDesde : ''}${detalleHasta ? '_a_' + detalleHasta : ''}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { setError('No se pudo exportar el detalle de cotizaciones.'); }
+    finally { setExportandoDetalle(false); }
   };
 
   const toggleDia = async c => {
@@ -354,6 +372,23 @@ export default function Reportes() {
           </tbody>
         </table>
       </Seccion>
+
+      {PUEDE_EXPORTAR_DETALLE.includes(user?.rol) && (
+        <div className="mb-6 bg-white border border-gray-200 rounded-lg p-4">
+          <h2 className="font-semibold text-ht-navy mb-1">Exportar datos</h2>
+          <p className="text-sm text-gray-500 mb-3">
+            Excel con una fila por ítem cotizado (cliente, vendedor, producto, cantidad, precio, resultado del negocio) — para explorar libremente o cruzar con otra herramienta.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <RangoFechas label="Fecha de la cotización" desde={detalleDesde} hasta={detalleHasta}
+              onDesde={setDetalleDesde} onHasta={setDetalleHasta} />
+            <button onClick={exportarDetalle} disabled={exportandoDetalle}
+              className="bg-ht-accent text-ht-navy px-4 py-1.5 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+              {exportandoDetalle ? 'Generando…' : 'Exportar detalle de cotizaciones (Excel)'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,12 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const XLSX = require('@e965/xlsx');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
-const { toCSV } = require('../utils/csv');
+const { toCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { enviarInformeDiario, diaAnterior, fechaChileHoy } = require('../services/informeDiario');
 
 const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor'];
+// Exportación granular (Excel) — a diferencia de los reportes agregados de
+// arriba, expone cada ítem cotizado en crudo. Se acota a gerencia/
+// administrador: es detalle comercial fila por fila, no un resumen.
+const PUEDE_EXPORTAR_DETALLE = ['administrador', 'gerencia'];
 
 router.use(authenticate);
 router.use(authorize(...PUEDE_VER));
@@ -326,6 +331,88 @@ router.post('/informe-diario/enviar-ahora', async (req, res) => {
     res.json({ fecha, ...resultado });
   } catch (err) {
     console.error('[reportes/informe-diario]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/reportes/exportar-cotizaciones-detalle?desde=&hasta= — un Excel
+// con una fila por ítem cotizado (no un resumen), para que gerencia lo
+// explore libremente en Excel o se lo pase a otra herramienta de análisis.
+// Cuenta cada cotización una sola vez (su última versión), mismo criterio
+// que GET /cotizaciones — así no se duplica el monto de una cotización que
+// se volvió a versionar.
+router.get('/exportar-cotizaciones-detalle', async (req, res) => {
+  if (!PUEDE_EXPORTAR_DETALLE.includes(req.user.rol)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    const { desde, hasta } = req.query;
+    const condiciones = [
+      `c.version = (SELECT MAX(c2.version) FROM cotizaciones c2 WHERE c2.negocio_id = c.negocio_id AND c2.numero = c.numero)`,
+    ];
+    const params = [];
+    let i = 1;
+    if (desde) { condiciones.push(`c.created_at >= $${i++}`); params.push(desde); }
+    if (hasta) { condiciones.push(`c.created_at < ($${i++}::date + interval '1 day')`); params.push(hasta); }
+
+    const filas = await db.all(
+      `SELECT
+         c.numero, c.version, c.estado AS estado_cotizacion,
+         c.created_at AS fecha_cotizacion, c.moneda, c.total AS total_cotizacion,
+         n.titulo AS negocio_titulo, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo,
+         n.fecha_cierre, cnc.nombre AS causa_no_cierre, n.causa_no_cierre_detalle,
+         ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido,
+         em.razon_social AS empresa_nombre, u.nombre AS vendedor_nombre,
+         COALESCE(p.nombre, ci.descripcion) AS item_descripcion,
+         p.sku, p.categoria, p.marca,
+         ci.cantidad, ci.precio_unitario, ci.total_linea
+       FROM cotizaciones c
+       JOIN negocios n ON n.id = c.negocio_id
+       LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+       LEFT JOIN causas_no_cierre cnc ON cnc.id = n.causa_no_cierre_id
+       JOIN contactos ct ON ct.id = n.contacto_id
+       LEFT JOIN empresas em ON em.id = n.empresa_id
+       JOIN users u ON u.id = n.vendedor_id
+       JOIN cotizacion_items ci ON ci.cotizacion_id = c.id
+       LEFT JOIN productos p ON p.id = ci.producto_id
+       WHERE ${condiciones.join(' AND ')}
+       ORDER BY c.created_at, c.numero, c.version, ci.id`,
+      params
+    );
+
+    const columnas = [
+      ['numero', 'N° cotización'], ['version', 'Versión'], ['estado_cotizacion', 'Estado cotización'],
+      ['fecha_cotizacion', 'Fecha cotización'], ['moneda', 'Moneda'], ['total_cotizacion', 'Total cotización'],
+      ['contacto_nombre', 'Nombre contacto'], ['contacto_apellido', 'Apellido contacto'], ['empresa_nombre', 'Empresa'],
+      ['vendedor_nombre', 'Vendedor'], ['negocio_titulo', 'Negocio'], ['etapa_nombre', 'Etapa'], ['etapa_tipo', 'Resultado'],
+      ['fecha_cierre', 'Fecha cierre'], ['causa_no_cierre', 'Causa de no cierre'], ['causa_no_cierre_detalle', 'Detalle causa'],
+      ['item_descripcion', 'Producto/ítem'], ['sku', 'SKU'], ['categoria', 'Categoría'], ['marca', 'Marca'],
+      ['cantidad', 'Cantidad'], ['precio_unitario', 'Precio unitario'], ['total_linea', 'Total línea'],
+    ];
+    // fecha_cierre se guarda como fecha calendario, sin hora con significado
+    // (mismo criterio que el resto del CRM, ver fechaDDMMAAAA/negocios.js) —
+    // formatearla con zona horaria de Chile corría el día hacia atrás. Solo
+    // fecha_cotizacion es un timestamp real (created_at), ahí sí corresponde
+    // convertir a hora de Chile.
+    const filasParaExcel = filas.map(f => {
+      const fila = {};
+      for (const [campo, encabezado] of columnas) {
+        let v = f[campo];
+        if (campo === 'fecha_cierre') v = fechaDDMMAAAA(v);
+        else if (v instanceof Date) v = v.toLocaleDateString('es-CL', { timeZone: 'America/Santiago' });
+        fila[encabezado] = v ?? '';
+      }
+      return fila;
+    });
+
+    const hoja = XLSX.utils.json_to_sheet(filasParaExcel, { header: columnas.map(c => c[1]) });
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Detalle cotizaciones');
+    const buffer = XLSX.write(libro, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="detalle_cotizaciones${desde ? '_' + desde : ''}${hasta ? '_a_' + hasta : ''}.xlsx"`);
+    res.send(buffer);
+  } catch (err) {
+    console.error('[reportes/exportar-cotizaciones-detalle]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
