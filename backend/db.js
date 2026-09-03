@@ -985,6 +985,18 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT now()
     )
   `);
+  // Un lead de WhatsApp solo se asignaba si el cliente completaba el menú de
+  // categorización del bot — si eso está desactivado (o el cliente nunca lo
+  // completa), el lead queda "Sin asignar" para siempre aunque un vendedor
+  // ya esté respondiendo o mandando cotizaciones desde la Bandeja (02-09-
+  // 2026, reportado por un vendedor: el filtro por vendedor de la Bandeja no
+  // mostraba nada porque el lead nunca quedó asignado). Se agrega
+  // 'tomada_en_bandeja' para distinguir esta asignación implícita (primera
+  // respuesta/cotización) de una asignación explícita ('manual', hecha desde
+  // Cola de Asignación).
+  await db.run(`ALTER TABLE leads DROP CONSTRAINT IF EXISTS leads_asignacion_modo_check`);
+  await db.run(`ALTER TABLE leads ADD CONSTRAINT leads_asignacion_modo_check
+    CHECK (asignacion_modo IN ('sugerida_confirmada','sugerida_cambiada','automatica_apertura','manual','tomada_en_bandeja'))`);
 
   await db.run(`
     CREATE TABLE IF NOT EXISTS lead_respuestas (

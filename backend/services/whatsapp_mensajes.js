@@ -68,4 +68,19 @@ async function desarchivarManual(contacto_id) {
   );
 }
 
-module.exports = { registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual };
+// Un lead solo se asignaba solo si el cliente completaba el menú de
+// categorización del bot — si eso está desactivado (o nunca lo completa), el
+// lead queda "Sin asignar" para siempre aunque un vendedor ya esté
+// respondiendo o mandando cotizaciones desde la Bandeja. Se llama al enviar
+// un mensaje/adjunto/cotización a un lead sin dueño: la primera persona que
+// lo trabaja se queda con él. No pisa una asignación ya existente.
+async function asignarSiSinVendedor(lead_id, vendedor_id) {
+  if (!lead_id) return;
+  await db.run(
+    `UPDATE leads SET vendedor_id = $2, estado = 'asignado', asignacion_modo = 'tomada_en_bandeja'
+     WHERE id = $1 AND vendedor_id IS NULL`,
+    [lead_id, vendedor_id]
+  );
+}
+
+module.exports = { registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual, asignarSiSinVendedor };

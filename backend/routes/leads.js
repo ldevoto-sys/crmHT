@@ -90,11 +90,18 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/leads/:id/asignar {vendedor_id} — confirma/cambia sugerencia (call center/admin)
-router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callcenter'), async (req, res) => {
+// POST /api/leads/:id/asignar {vendedor_id} — confirma/cambia sugerencia
+// (admin/jefe_comercial/callcenter, a cualquiera) o un vendedor tomando una
+// conversación sin dueño desde la Bandeja WhatsApp (solo a sí mismo — mismo
+// criterio que la asignación automática al responder, ver
+// services/whatsapp_mensajes.js#asignarSiSinVendedor).
+router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callcenter', 'vendedor'), async (req, res) => {
   try {
     const { vendedor_id } = req.body;
     if (!vendedor_id) return res.status(400).json({ error: 'vendedor_id requerido' });
+    if (req.user.rol === 'vendedor' && Number(vendedor_id) !== req.user.id) {
+      return res.status(403).json({ error: 'Un vendedor solo puede asignarse a sí mismo' });
+    }
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
     const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true AND rol='vendedor'`, [vendedor_id]);

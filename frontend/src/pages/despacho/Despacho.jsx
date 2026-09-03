@@ -126,7 +126,12 @@ export default function Despacho() {
       )}
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Escritorio: tabla de 6 columnas. En pantalla chica no entra, y el
+            scroll horizontal anidado dentro del scroll vertical de la página
+            no es evidente al usuario (se ve como si estuviera "cortada",
+            02-09-2026) — por eso en móvil se usa una lista de tarjetas aparte
+            en vez de forzar el scroll lateral de la tabla. */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full min-w-max text-sm">
             <thead className="bg-slate-50 text-gray-600">
               <tr>
@@ -182,6 +187,37 @@ export default function Despacho() {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Móvil: mismos datos, en tarjetas apiladas (sin scroll lateral). */}
+        <div className="md:hidden divide-y divide-gray-100">
+          {despachos.map(d => (
+            <div key={d.id} onClick={() => abrirDetalle(d)} className="p-3 hover:bg-gray-50 cursor-pointer">
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-ht-navy font-medium text-sm">{d.titulo}</div>
+                <span className={`text-xs px-2 py-0.5 rounded-full capitalize flex-shrink-0 ${badgeEstado(d.estado)}`}>{d.estado.replace('_', ' ')}</span>
+              </div>
+              {d.puntos.length > 0 && (
+                <a href={urlMapsPunto(d.puntos[0])} target="_blank" rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="mt-0.5 inline-flex items-center gap-1 text-xs text-ht-accent hover:underline">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 shrink-0">
+                    <path fillRule="evenodd" d="M10 18s6-5.686 6-10a6 6 0 10-12 0c0 4.314 6 10 6 10zm0-7a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                  </svg>
+                  {d.puntos[0].direccion}, {d.puntos[0].comuna}
+                  {d.puntos.length > 1 && <span className="text-gray-400"> +{d.puntos.length - 1} más</span>}
+                </a>
+              )}
+              <div className="flex items-center justify-between text-xs text-gray-500 mt-1.5">
+                <span>
+                  {fecha(d.primera_fecha)} · {d.puntos.length} {d.puntos.length === 1 ? 'parada' : 'paradas'}
+                  {d.puntos.length > 0 && d.puntos.every(p => p.completado) && <span className="text-green-600"> ✓</span>}
+                </span>
+                <span>{d.creado_por_nombre}</span>
+              </div>
+            </div>
+          ))}
+          {despachos.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">Sin despachos.</div>}
         </div>
       </div>
 

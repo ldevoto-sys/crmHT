@@ -199,6 +199,10 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
       contacto_id: req.params.contactoId, lead_id: lead?.id ?? null,
       direccion: 'saliente', texto: texto.trim(), enviado_por_id: req.user.id,
     });
+    // Solo se auto-asigna a un vendedor (no a quien esté en modo supervisión
+    // — administrador/jefe_comercial/callcenter/gerencia — respondiendo una
+    // conversación de otro): mismo criterio que ya exige /leads/:id/asignar.
+    if (req.user.rol === 'vendedor') await mensajes.asignarSiSinVendedor(lead?.id, req.user.id);
     res.status(201).json({ message: 'Mensaje enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/mensajes]', err);
@@ -310,6 +314,7 @@ router.post('/conversaciones/:contactoId/adjuntos', upload.single('archivo'), as
       texto: `[${tipo}] ${req.file.originalname}`, enviado_por_id: req.user.id,
       tipo, archivo_key: key, archivo_nombre: req.file.originalname, archivo_mime: req.file.mimetype,
     });
+    if (req.user.rol === 'vendedor') await mensajes.asignarSiSinVendedor(lead?.id, req.user.id);
     res.status(201).json({ message: 'Adjunto enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/adjuntos]', err);
@@ -347,6 +352,7 @@ router.post('/conversaciones/:contactoId/reabrir-plantilla', async (req, res) =>
       contacto_id: req.params.contactoId, lead_id: lead?.id ?? null, direccion: 'saliente',
       texto: '[plantilla] Reabrir conversación', enviado_por_id: req.user.id,
     });
+    if (req.user.rol === 'vendedor') await mensajes.asignarSiSinVendedor(lead?.id, req.user.id);
     res.status(201).json({ message: 'Plantilla enviada' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/reabrir-plantilla]', err);
