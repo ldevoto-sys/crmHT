@@ -136,6 +136,7 @@ const { esHorarioHabil } = require('../services/horario');
 const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
 const r2 = require('../services/r2');
+const whatsappCuentas = require('../config/whatsappCuentas');
 
 const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document: 'documento' };
 
@@ -143,12 +144,12 @@ const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document:
 // lo descarga de Meta (URL temporal, requiere el token) y lo sube a R2 antes
 // de guardar la referencia. Si algo falla en la descarga/subida, igual se
 // registra el mensaje (con su texto/caption) para no perder el hilo.
-async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante }) {
+async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, cuenta = whatsappCuentas.VENTAS }) {
   if (!tipoMedia || !mediaId) {
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante });
     return;
   }
-  const descarga = await whatsapp.descargarMedia(mediaId);
+  const descarga = await whatsapp.descargarMedia(mediaId, cuenta);
   if (!descarga) {
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia });
     return;
@@ -185,7 +186,7 @@ function firmaValida(req) {
 // en horario hábil pregunta la categoría (lista de opciones); si el mensaje es
 // la respuesta a esa lista, asigna vendedor con el mismo motor que usa el
 // canal web (sugerirVendedor) y entrega la conversación (deja de "hablar").
-async function procesarMensaje(m) {
+async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
   const telefono_e164 = normalizarTelefono('+' + m.from);
   if (!telefono_e164) return;
 
@@ -208,6 +209,22 @@ async function procesarMensaje(m) {
     : null;
   const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? textoReaccion
     ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : `[tipo no soportado: ${m.type}]`);
+
+  // Cuentas que no son la de Ventas (ej. el número oficial de la empresa)
+  // todavía no tienen bot propio: se registra el contacto y el mensaje para
+  // que se vea en la Bandeja, sin categorización ni asignación automática —
+  // mismo tratamiento que "categorización desactivada" más abajo.
+  if (cuenta.ambito !== 'ventas') {
+    const ultimoLeadCuenta = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
+    let leadIdCuenta = ultimoLeadCuenta?.id;
+    if (!leadIdCuenta) {
+      const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
+      leadIdCuenta = r.rows[0].id;
+    }
+    await registrarEntrante({ contacto, leadId: leadIdCuenta, tipoMedia, mediaId, textoEntrante, cuenta });
+    return;
+  }
+
   const cfg = await db.get('SELECT * FROM whatsapp_bot_config WHERE id = 1');
   const ultimoLead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contacto.id]);
 
@@ -303,8 +320,10 @@ router.post('/whatsapp/webhook', async (req, res) => {
   res.sendStatus(200); // Meta espera 200 de inmediato; se procesa después.
   try {
     if (!firmaValida(req)) { console.error('[whatsapp/webhook] Firma inválida'); return; }
-    const mensajes = req.body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
-    for (const m of mensajes) await procesarMensaje(m);
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const cuenta = whatsappCuentas.resolverPorPhoneNumberId(value?.metadata?.phone_number_id);
+    const mensajes = value?.messages || [];
+    for (const m of mensajes) await procesarMensaje(m, cuenta);
   } catch (err) {
     console.error('[whatsapp/webhook] Error procesando mensaje:', err);
   }

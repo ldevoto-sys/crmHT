@@ -2,6 +2,12 @@
 // Sin credenciales configuradas, no falla: registra y no hace nada, igual que
 // services/email.js sin BREVO_API_KEY. Se activa cuando existan WHATSAPP_ACCESS_TOKEN
 // y WHATSAPP_PHONE_NUMBER_ID (nota de cambio v1.8 §7 — pendiente de IT/Meta).
+//
+// Soporte multi-cuenta (nota v1.30): cada función recibe opcionalmente una
+// `cuenta` (ver config/whatsappCuentas.js) para elegir con qué número/token
+// enviar. Sin ese argumento, usan la cuenta "Ventas" — el comportamiento de
+// todos los llamadores existentes no cambia.
+const { VENTAS } = require('../config/whatsappCuentas');
 
 // Traduce los errores más comunes de la Cloud API a un mensaje entendible
 // para quien está usando el CRM (no un JSON técnico). Si no reconoce el
@@ -23,17 +29,17 @@ function errorAmigable(bodyText) {
   return err.error_data?.details || err.message || bodyText;
 }
 
-async function enviar(telefonoE164, mensaje) {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function enviar(telefonoE164, mensaje, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
@@ -56,18 +62,18 @@ async function enviar(telefonoE164, mensaje) {
 
 // Mensaje interactivo tipo "lista" (hasta 10 opciones) — se usa para la
 // pregunta de categorización, en vez de interpretar texto libre.
-async function enviarLista(telefonoE164, mensaje, opciones) {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function enviarLista(telefonoE164, mensaje, opciones, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió lista a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
   const rows = opciones.slice(0, 10).map((o, i) => ({ id: String(i), title: o.label.slice(0, 24) }));
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
@@ -91,17 +97,17 @@ async function enviarLista(telefonoE164, mensaje, opciones) {
 // Documento (ej. PDF de una cotización) enviado por link público — no requiere
 // subirlo antes a Meta. Solo funciona dentro de la ventana de 24 h de servicio
 // al cliente (igual que un mensaje de texto libre).
-async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, caption) {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, caption, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió documento a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
@@ -127,17 +133,17 @@ async function enviarDocumento(telefonoE164, urlDocumento, nombreArchivo, captio
 // pasos de secuencias de seguimiento). `parametros` es un arreglo de
 // {nombre, valor} que debe calzar con los parámetros nombrados definidos en
 // la plantilla dentro de Meta (ver services/secuencias.js#PLANTILLAS_WHATSAPP).
-async function enviarPlantilla(telefonoE164, nombrePlantilla, parametros, idioma = 'es_CL') {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function enviarPlantilla(telefonoE164, nombrePlantilla, parametros, idioma = 'es_CL', cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió la plantilla "${nombrePlantilla}" a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
@@ -175,8 +181,8 @@ const TIPO_WHATSAPP = { imagen: 'image', video: 'video', audio: 'audio', documen
 // Envío genérico de media por link público (imagen/video/audio/documento) —
 // usado para adjuntos que sube un vendedor desde la Bandeja. audio no admite
 // caption en la API de Meta.
-async function enviarMedia(telefonoE164, tipo, urlArchivo, { nombreArchivo, caption } = {}) {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN || !process.env.WHATSAPP_PHONE_NUMBER_ID) {
+async function enviarMedia(telefonoE164, tipo, urlArchivo, { nombreArchivo, caption } = {}, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió ${tipo} a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
@@ -187,10 +193,10 @@ async function enviarMedia(telefonoE164, tipo, urlArchivo, { nombreArchivo, capt
   if (caption && tipoApi !== 'audio') media.caption = caption;
   try {
     const resp = await fetch(
-      `https://graph.facebook.com/v19.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
       {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messaging_product: 'whatsapp',
           to: telefonoE164.replace('+', ''),
@@ -214,21 +220,21 @@ async function enviarMedia(telefonoE164, tipo, urlArchivo, { nombreArchivo, capt
 // Descarga un media entrante (foto/audio/video/documento que mandó el
 // cliente): primero se consulta la URL temporal de Meta para ese media id,
 // luego se descarga el binario — ambos pasos requieren el mismo token.
-async function descargarMedia(mediaId) {
-  if (!process.env.WHATSAPP_ACCESS_TOKEN) {
+async function descargarMedia(mediaId, cuenta = VENTAS) {
+  if (!cuenta?.access_token) {
     console.log('[whatsapp] Sin credenciales configuradas; no se descargó el media', mediaId);
     return null;
   }
   try {
     const infoResp = await fetch(`https://graph.facebook.com/v19.0/${mediaId}`, {
-      headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
+      headers: { Authorization: `Bearer ${cuenta.access_token}` },
     });
     if (!infoResp.ok) {
       console.error('[whatsapp] Error consultando media', mediaId, ':', await infoResp.text());
       return null;
     }
     const info = await infoResp.json();
-    const binResp = await fetch(info.url, { headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` } });
+    const binResp = await fetch(info.url, { headers: { Authorization: `Bearer ${cuenta.access_token}` } });
     if (!binResp.ok) {
       console.error('[whatsapp] Error descargando media', mediaId, ':', await binResp.text());
       return null;
