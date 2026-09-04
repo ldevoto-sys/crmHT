@@ -47,3 +47,37 @@ sea la excepción de solo documentación de arriba:
   funcionar), no una mejora — si hay duda, preguntar antes de promover.
 - Si es una corrección de error, sigue aplicando la regla de horario de
   arriba salvo que sea crítico.
+
+## Pendientes (actualizado 04-09-2026)
+
+**Foco actual: migrar el WhatsApp oficial de la empresa a producción.**
+Requiere soporte para múltiples números de teléfono en el CRM — hoy
+`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_ACCESS_TOKEN` son variables de entorno
+únicas (un solo número global) y el webhook (`routes/public.js`) no lee
+`phone_number_id` del mensaje entrante para distinguir de qué número llegó.
+Este trabajo de multi-número sirve dos necesidades a la vez: el número
+oficial de la empresa y, más adelante, el número separado de Operaciones
+(ver abajo).
+
+**Cobranza**: módulo con desarrollo pendiente, acumulado en `staging` sin
+promover a `main` (sigue la regla de arriba — no se promueve por mejoras).
+
+**Operaciones — "Arranque de Trabajos" (Ventas → Operaciones)**: especificación
+funcional revisada y analizada contra el código (ver
+`Especificacion_Tecnica_CRM_Arranque_Trabajos.md`, no forma parte de este
+repo todavía). Decisiones ya tomadas por Luis Devoto:
+- Correos del flujo salen de `operaciones@hidrotecnica.cl`.
+- WhatsApp de Operaciones: número separado del de Ventas, **todavía no
+  dado de alta en Meta** — depende del trabajo de multi-número de arriba.
+- Listado de materiales/herramientas: solo registro en la orden de trabajo,
+  sin integración con Compras ni con el módulo Despacho.
+- Sin firma digital en sitio.
+Queda pendiente como el mayor hueco de diseño: no existe en el código un
+motor de checklist obligatorio configurable por etapa — el único gate
+existente hoy es un `if` puntual en `negocios.js` (causa de no cierre).
+Habría que construirlo desde cero, con una matriz tipo-de-trabajo × etapa
+(Reparación/Rutinario/Lavado/Especial-Proyecto tienen requisitos distintos).
+También sigue abierto si el trabajo "Rutinario" referencia un N° de
+Contrato (no existe esa tabla hoy) o solo N° de cotización.
+No se ha empezado a construir nada de esto — se retoma después de terminar
+la migración del WhatsApp oficial.
