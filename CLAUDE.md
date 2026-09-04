@@ -51,13 +51,31 @@ sea la excepción de solo documentación de arriba:
 ## Pendientes (actualizado 04-09-2026)
 
 **Foco actual: migrar el WhatsApp oficial de la empresa a producción.**
-Requiere soporte para múltiples números de teléfono en el CRM — hoy
-`WHATSAPP_PHONE_NUMBER_ID`/`WHATSAPP_ACCESS_TOKEN` son variables de entorno
-únicas (un solo número global) y el webhook (`routes/public.js`) no lee
-`phone_number_id` del mensaje entrante para distinguir de qué número llegó.
-Este trabajo de multi-número sirve dos necesidades a la vez: el número
-oficial de la empresa y, más adelante, el número separado de Operaciones
-(ver abajo).
+
+- Número actual del CRM (Ventas, ya conectado en Meta): +56 9 8109 8161.
+- Número oficial a migrar (coexistencia — sigue funcionando la app del
+  celular en paralelo): +56 9 8106 2974, cuenta "Ventas Hidrotecnica" en
+  Meta Business (nombre de la cuenta de Meta no se corresponde con el uso
+  real, ojo al configurar). Estado en Meta: sin conexión a la API todavía —
+  pendiente que Luis Devoto haga la migración por coexistencia este fin de
+  semana (04/05-09-2026).
+- **Código ya listo en `staging`** (commit `c12c362`, 04-09-2026): soporte
+  multi-cuenta en `config/whatsappCuentas.js` + `services/whatsapp.js` +
+  `routes/public.js`. Probado con Postgres local: el número de Ventas sigue
+  funcionando exactamente igual; un número nuevo, con sus variables de
+  entorno configuradas, se reconoce solo por `phone_number_id` y registra
+  sus mensajes sin correr el bot de categorización de Ventas.
+- **Falta para terminar** una vez Luis complete la migración en Meta:
+  1. Cargar en Railway `WHATSAPP_PHONE_NUMBER_ID_OFICIAL` y
+     `WHATSAPP_ACCESS_TOKEN_OFICIAL` con los datos que entregue Meta.
+  2. Verificar si el número oficial queda bajo la misma app de Meta que
+     Ventas o una distinta — si es distinta, `firmaValida()` en
+     `routes/public.js` (valida la firma del webhook con un solo
+     `WHATSAPP_APP_SECRET`) también necesita soporte multi-cuenta; no se
+     tocó todavía porque no se sabe cuál de los dos casos aplica.
+  3. Probar de punta a punta con el número real.
+- Sirve dos necesidades a la vez: el número oficial de la empresa y, más
+  adelante, el número separado de Operaciones (ver abajo).
 
 **Cobranza**: módulo con desarrollo pendiente, acumulado en `staging` sin
 promover a `main` (sigue la regla de arriba — no se promueve por mejoras).
