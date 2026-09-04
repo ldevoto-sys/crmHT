@@ -137,6 +137,7 @@ const whatsapp = require('../services/whatsapp');
 const mensajes = require('../services/whatsapp_mensajes');
 const r2 = require('../services/r2');
 const whatsappCuentas = require('../config/whatsappCuentas');
+const privacidad = require('../services/privacidad');
 
 const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document: 'documento' };
 
@@ -209,6 +210,18 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
     : null;
   const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? textoReaccion
     ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : `[tipo no soportado: ${m.type}]`);
+
+  // Ley 21.719 — aplica a cualquier cuenta (Ventas u Oficial), antes de
+  // seguir con el flujo normal. Se calcula con el estado ANTES de registrar
+  // este mensaje (ver privacidad.js#necesitaAvisoPrivacidad).
+  if (await privacidad.necesitaAvisoPrivacidad(contacto.id)) {
+    await whatsapp.enviar(telefono_e164, privacidad.TEXTO_AVISO_PRIVACIDAD, cuenta);
+    await mensajes.registrar({ contacto_id: contacto.id, direccion: 'saliente', texto: privacidad.TEXTO_AVISO_PRIVACIDAD });
+    await privacidad.marcarAvisoPrivacidadEnviado(contacto.id);
+  }
+  if (m.type === 'text' && privacidad.esSolicitudEliminacion(m.text.body)) {
+    await privacidad.registrarSolicitudEliminacion({ contacto_id: contacto.id, origen: 'whatsapp', texto_solicitud: m.text.body });
+  }
 
   // Cuentas que no son la de Ventas (ej. el número oficial de la empresa)
   // todavía no tienen bot propio: se registra el contacto y el mensaje para

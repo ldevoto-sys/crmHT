@@ -48,6 +48,7 @@ import Cobranza from './pages/cobranza/Cobranza';
 import ServicioTecnico from './pages/servicio_tecnico/ServicioTecnico';
 import ConfigServicioTecnicoEtapas from './pages/servicio_tecnico/ConfigServicioTecnicoEtapas';
 import Novedades from './pages/admin/Novedades';
+import SolicitudesEliminacion from './pages/admin/SolicitudesEliminacion';
 
 // Roles previos a la introducción de "tecnico" (HT-AP-03) — se usan para
 // acotar explícitamente las pantallas que antes no tenían restricción de rol
@@ -202,6 +203,9 @@ export default function App() {
             } />
             <Route path="config/novedades" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><Novedades /></ProtectedRoute>
+            } />
+            <Route path="config/privacidad" element={
+              <ProtectedRoute roles={['administrador', 'gerencia']}><SolicitudesEliminacion /></ProtectedRoute>
             } />
             <Route path="config/reglas-asignacion" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ReglasAsignacion /></ProtectedRoute>

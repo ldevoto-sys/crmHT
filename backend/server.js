@@ -12,6 +12,7 @@ const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario')
 const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
 const { sincronizarSiCorresponde: sincronizarSoftlandSiCorresponde } = require('./services/softlandSync');
 const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
+const { purgarInactivosSiCorresponde } = require('./services/privacidad');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -69,6 +70,7 @@ app.use('/api/novedades', require('./routes/novedades'));
 app.use('/api/v1', require('./routes/api_v1')); // integración Cowork (HT-DO-XX) — API key propia, sin JWT
 app.use('/api/softland', require('./routes/softland')); // Reportería Comercial + Softland
 app.use('/api/cobranza', require('./routes/cobranza')); // Módulo Cobranzas (HT-DO-XX, en construcción por fases)
+app.use('/api/privacidad', require('./routes/privacidad')); // Ley 21.719 — solicitudes de eliminación de datos
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
@@ -139,6 +141,12 @@ if (require.main === module) {
       // envía nada afuera, solo escribe resúmenes internos.
       setInterval(() => {
         generarMemoriaSiCorresponde().catch(err => console.error('[whatsappMemoria] Error:', err));
+      }, QUINCE_MIN);
+      // Ley 21.719 — purga/anonimización automática de contactos inactivos:
+      // dispara a las 4am hora Chile, una vez por día (ver tabla
+      // privacidad_purga_ejecuciones).
+      setInterval(() => {
+        purgarInactivosSiCorresponde().catch(err => console.error('[privacidad] Error en purga:', err));
       }, QUINCE_MIN);
     })
     .catch((err) => {

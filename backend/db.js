@@ -1331,6 +1331,12 @@ async function initDb() {
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
+  // Ley 21.719 — solo registro/auditoría de cuándo se mandó el aviso de
+  // privacidad de primer contacto/reapertura (services/privacidad.js). No lo
+  // usa la lógica para decidir si hay que reenviarlo — eso se calcula del
+  // último mensaje entrante en whatsapp_mensajes, para no duplicar la fuente
+  // de verdad.
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS aviso_privacidad_enviado_en TIMESTAMP`);
   // "Leído" quedó mal modelado como columna compartida de la conversación
   // (igual que archivada/cerrada_manual) — pero a diferencia de esas dos, si
   // una conversación está leída depende de QUIÉN mira, no es un estado único
@@ -1344,6 +1350,53 @@ async function initDb() {
       usuario_id INTEGER NOT NULL REFERENCES users(id),
       leido_en TIMESTAMP NOT NULL DEFAULT now(),
       PRIMARY KEY (contacto_id, usuario_id)
+    )
+  `);
+
+  // === Ley 21.719 — Protección de datos personales (services/privacidad.js) ===
+  // Constante compartida por dos reglas de negocio distintas, validadas con
+  // Gerencia (rol DPO): (1) cuántos meses de silencio de un contacto reabren
+  // el aviso de privacidad de WhatsApp, y (2) cuántos meses de inactividad
+  // sin conversión disparan la anonimización automática (purgarInactivos).
+  // Es la misma constante hoy — si algún día divergen, se separa en dos
+  // columnas, no se duplica el número en el código.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_privacidad (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      meses_inactividad INTEGER NOT NULL DEFAULT 12 CHECK (meses_inactividad > 0),
+      CONSTRAINT config_privacidad_unica CHECK (id = 1)
+    )
+  `);
+  await db.run(`INSERT INTO config_privacidad (id, meses_inactividad) VALUES (1, 12) ON CONFLICT (id) DO NOTHING`);
+
+  // Solicitud de eliminación de datos ("eliminar mis datos" por WhatsApp, o
+  // cargada a mano si llega a info@hidrotecnica.cl — no hay integración de
+  // correo entrante). Siempre pasa por revisión humana antes de anonimizar;
+  // tiene_facturas es solo lo que registra quien revisa, no cambia qué anonimiza
+  // el sistema (la contabilidad de Softland no vive en la fila de contactos).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS solicitudes_eliminacion_datos (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      origen TEXT NOT NULL DEFAULT 'whatsapp' CHECK (origen IN ('whatsapp','correo','manual')),
+      texto_solicitud TEXT,
+      estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','anonimizado','rechazada')),
+      tiene_facturas BOOLEAN,
+      resuelta_por_id INTEGER REFERENCES users(id),
+      resuelta_en TIMESTAMP,
+      notas_resolucion TEXT,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_solicitudes_eliminacion_estado ON solicitudes_eliminacion_datos (estado, created_at)`);
+
+  // Control de la purga diaria automática — mismo patrón que
+  // postventa_vencidos_envios: una fila por día ya procesado, para que el
+  // chequeo horario de server.js no la corra dos veces el mismo día.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS privacidad_purga_ejecuciones (
+      fecha DATE PRIMARY KEY,
+      contactos_anonimizados INTEGER NOT NULL DEFAULT 0
     )
   `);
 

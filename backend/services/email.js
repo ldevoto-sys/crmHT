@@ -362,4 +362,24 @@ module.exports = {
       `)
     );
   },
+
+  // services/privacidad.js (registrarSolicitudEliminacion) — aviso al DPO de
+  // que un contacto pidió eliminar sus datos (Ley 21.719). No se anonimiza
+  // nada automáticamente: esto solo notifica que hay que revisarlo.
+  solicitudEliminacionDatos: (usuario, contacto, solicitud) => {
+    const nombreContacto = `${contacto.nombre || ''} ${contacto.apellido || ''}`.trim() || '(sin nombre)';
+    return enviar(
+      usuario.email,
+      'Solicitud de eliminación de datos personales',
+      template('Solicitud de eliminación de datos', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p>Un contacto pidió que eliminemos sus datos personales (Ley 21.719). Queda pendiente de tu revisión antes de anonimizarlo.</p>
+        ${tablaInforme(
+          ['Contacto', 'Teléfono', 'Origen', 'Mensaje'],
+          [filaInforme([nombreContacto, contacto.telefono_e164 || '—', solicitud.origen, solicitud.texto_solicitud || '—'])]
+        )}
+        ${boton(`${APP_URL}/config/privacidad`, 'Revisar solicitud')}
+      `)
+    );
+  },
 };

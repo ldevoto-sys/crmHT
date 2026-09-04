@@ -110,6 +110,7 @@ const configByRole = {
     { label: 'Encuesta post-cierre', to: '/config/encuesta' },
     { label: 'Datos de empresa', to: '/config/empresa' },
   ],
+  gerencia: [],
 };
 // Config Postventa se agrega solo si el usuario está marcado como encargado
 // (además de administrador/jefe comercial, que ya la ven de por sí).
@@ -129,6 +130,8 @@ configByRole.administrador.push({ label: 'Config Servicio Técnico', to: '/confi
 configByRole.jefe_comercial.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
 configByRole.administrador.push({ label: 'Avisar novedades', to: '/config/novedades' });
 configByRole.jefe_comercial.push({ label: 'Avisar novedades', to: '/config/novedades' });
+configByRole.administrador.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad' });
+configByRole.gerencia.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad' });
 
 function GearIcon() {
   return (
