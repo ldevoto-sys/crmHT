@@ -53,12 +53,23 @@ sea la excepción de solo documentación de arriba:
 **Foco actual: migrar el WhatsApp oficial de la empresa a producción.**
 
 - Número actual del CRM (Ventas, ya conectado en Meta): +56 9 8109 8161.
-- Número oficial a migrar (coexistencia — sigue funcionando la app del
-  celular en paralelo): +56 9 8106 2974, cuenta "Ventas Hidrotecnica" en
-  Meta Business (nombre de la cuenta de Meta no se corresponde con el uso
-  real, ojo al configurar). Estado en Meta: sin conexión a la API todavía —
-  pendiente que Luis Devoto haga la migración por coexistencia este fin de
-  semana (04/05-09-2026).
+- Número oficial a migrar: +56 9 8106 2974. Originalmente en la cuenta
+  "Ventas Hidrotecnica" (nombre no se corresponde con el uso real); se
+  reintentó agregarlo bajo la cuenta "Hidrotecnica" (la misma app que ya
+  usa el CRM, para evitar un segundo WHATSAPP_APP_SECRET).
+- **Coexistencia descartada (05-09-2026): Meta no la ofreció en ningún
+  punto del flujo de self-service** (WhatsApp Manager → Agregar número).
+  Al intentar agregarlo, avisó "número ya en uso" (seguía activo en la app
+  de WhatsApp Business de un celular) — sin opción de migrar manteniendo la
+  app. Luis desvinculó el número de la app de WhatsApp Business del celular
+  para liberarlo (migración completa, coincide con la intención original:
+  "Solo CRM", nadie más lo necesita en el celular).
+- **Estado actual (05-09-2026, pausado hasta mañana)**: número ya liberado
+  y aceptado por Meta bajo la cuenta "Hidrotecnica" — llegó a la pantalla
+  de verificación por código (SMS o llamada), pero llegó al límite de
+  reintentos de Meta ("verification code too many times"). Falta:
+  reintentar mañana el código de verificación (probar SMS si la llamada
+  sigue bloqueada), completar el alta del número en Meta.
 - **Código ya listo en `staging`** (commit `c12c362`, 04-09-2026): soporte
   multi-cuenta en `config/whatsappCuentas.js` + `services/whatsapp.js` +
   `routes/public.js`. Probado con Postgres local: el número de Ventas sigue
