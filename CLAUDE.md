@@ -64,12 +64,15 @@ sea la excepción de solo documentación de arriba:
   app. Luis desvinculó el número de la app de WhatsApp Business del celular
   para liberarlo (migración completa, coincide con la intención original:
   "Solo CRM", nadie más lo necesita en el celular).
-- **Estado actual (05-09-2026, pausado hasta mañana)**: número ya liberado
-  y aceptado por Meta bajo la cuenta "Hidrotecnica" — llegó a la pantalla
-  de verificación por código (SMS o llamada), pero llegó al límite de
-  reintentos de Meta ("verification code too many times"). Falta:
-  reintentar mañana el código de verificación (probar SMS si la llamada
-  sigue bloqueada), completar el alta del número en Meta.
+- **Estado actual (05-09-2026, pausado)**: número ya liberado y aceptado
+  por Meta bajo la cuenta "Hidrotecnica" — llegó a la pantalla de
+  verificación por código, pero Meta bloqueó el número por demasiados
+  intentos de código ("verification code too many times"). Bloqueo típico
+  de Meta: mínimo ~24 h de espera sin volver a pedir código (cada intento
+  reinicia el contador); no tocar el número mientras tanto. Retomar:
+  esperar el plazo, pedir el código por **SMS** (no llamada) una sola vez,
+  con el celular con señal. El número +56 9 8109 8161 (Ventas, en
+  producción) no se ve afectado por este bloqueo — no requiere nada.
 - **Código ya listo en `staging`** (commit `c12c362`, 04-09-2026): soporte
   multi-cuenta en `config/whatsappCuentas.js` + `services/whatsapp.js` +
   `routes/public.js`. Probado con Postgres local: el número de Ventas sigue
