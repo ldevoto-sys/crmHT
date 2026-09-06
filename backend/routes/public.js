@@ -200,7 +200,7 @@ function reenvioValido(req) {
 // en horario hábil pregunta la categoría (lista de opciones); si el mensaje es
 // la respuesta a esa lista, asigna vendedor con el mismo motor que usa el
 // canal web (sugerirVendedor) y entrega la conversación (deja de "hablar").
-async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
+async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil = null) {
   const telefono_e164 = normalizarTelefono('+' + m.from);
   if (!telefono_e164) return;
 
@@ -208,9 +208,15 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
   if (!contacto) {
     const r = await db.run(
       `INSERT INTO contactos (nombre, telefono_e164, origen) VALUES ($1,$2,'whatsapp') RETURNING *`,
-      ['(WhatsApp)', telefono_e164]
+      [nombrePerfil || '(WhatsApp)', telefono_e164]
     );
     contacto = r.rows[0];
+  } else if (nombrePerfil && contacto.nombre === '(WhatsApp)') {
+    // Contacto ya existía sin nombre real (se creó antes de leer el
+    // perfil, o nunca llegó el nombre en un mensaje anterior) — lo
+    // completa ahora. No pisa un nombre que ya haya sido editado a mano.
+    await db.run('UPDATE contactos SET nombre = $1 WHERE id = $2', [nombrePerfil, contacto.id]);
+    contacto.nombre = nombrePerfil;
   }
 
   const tipoMedia = MEDIA_TIPOS[m.type];
@@ -377,8 +383,12 @@ router.post('/whatsapp/webhook', async (req, res) => {
     const urlReenvio = whatsappCuentas.urlReenvioSiCorresponde(value?.metadata?.phone_number_id);
     if (urlReenvio) { await reenviarWebhook(req, urlReenvio); return; }
     const cuenta = whatsappCuentas.resolverPorPhoneNumberId(value?.metadata?.phone_number_id);
+    // Meta manda el nombre de perfil de WhatsApp del remitente junto con los
+    // mensajes (value.contacts), no dentro de cada mensaje — se toma una
+    // sola vez acá y se usa para todos los mensajes de esta notificación.
+    const nombrePerfil = value?.contacts?.[0]?.profile?.name?.trim() || null;
     const mensajes = value?.messages || [];
-    for (const m of mensajes) await procesarMensaje(m, cuenta);
+    for (const m of mensajes) await procesarMensaje(m, cuenta, nombrePerfil);
   } catch (err) {
     console.error('[whatsapp/webhook] Error procesando mensaje:', err);
   }
