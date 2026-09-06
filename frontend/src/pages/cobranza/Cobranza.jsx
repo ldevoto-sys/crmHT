@@ -618,6 +618,7 @@ function TabContactos() {
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [expandido, setExpandido] = useState(null);
   const [nuevo, setNuevo] = useState(null); // { nombre, email, telefono_e164 } | null
+  const [importando, setImportando] = useState(false);
 
   const cargar = async () => {
     try { setContactos((await api.get('/cobranza/contactos')).data); }
@@ -646,12 +647,21 @@ function TabContactos() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
 
-      <div className="flex justify-end mb-3">
+      <div className="flex justify-end mb-3 gap-2">
+        <button onClick={() => setImportando(true)}
+          className="border border-gray-300 text-gray-600 px-4 py-2 rounded text-sm font-medium hover:bg-gray-50">
+          Importar CSV
+        </button>
         <button onClick={() => setNuevo({ nombre: '', email: '', telefono_e164: '' })}
           className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
           + Nuevo contacto
         </button>
       </div>
+
+      {importando && (
+        <ModalImportarContactos onClose={() => setImportando(false)}
+          onImportado={async (mensaje) => { setImportando(false); setMsg(mensaje); await cargar(); }} />
+      )}
 
       {nuevo && (
         <form onSubmit={crear} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-wrap gap-2 items-end">
@@ -883,6 +893,142 @@ function TabReportes() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Importación masiva de contactos de cobranza (hoy viven en Buk Finanzas):
+// vista previa antes de confirmar, igual patrón que el importador de
+// contactos comerciales. No crea empresas nuevas — si no matchea una ya
+// existente (por RUT o razón social), el contacto se crea igual sin
+// vínculo, para registrarlo a mano después.
+function ModalImportarContactos({ onClose, onImportado }) {
+  const [archivo, setArchivo] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState('');
+  const [cargando, setCargando] = useState(false);
+
+  const descargarPlantilla = async () => {
+    const { data } = await api.get('/cobranza/contactos/importar/plantilla', { responseType: 'blob' });
+    const url = URL.createObjectURL(new Blob([data], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'plantilla_contactos_cobranza.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const analizar = async () => {
+    if (!archivo) return;
+    setError(''); setPreview(null); setCargando(true);
+    const fd = new FormData(); fd.append('archivo', archivo);
+    try { setPreview((await api.post('/cobranza/contactos/importar/preview', fd)).data); }
+    catch (err) { setError(err.response?.data?.error || 'Error al analizar el archivo.'); }
+    finally { setCargando(false); }
+  };
+
+  const confirmar = async () => {
+    setError(''); setCargando(true);
+    const fd = new FormData(); fd.append('archivo', archivo);
+    try {
+      const { data } = await api.post('/cobranza/contactos/importar/confirmar', fd);
+      await onImportado(`Importación completada: ${data.insertados} nuevo(s), ${data.actualizados} actualizado(s), ${data.vinculos} vínculo(s) a empresa.`);
+    } catch (err) { setError(err.response?.data?.error || 'Error al importar.'); }
+    finally { setCargando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="font-semibold text-ht-navy">Importar contactos de cobranza (Buk)</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+          <p className="text-sm text-gray-500">
+            Columnas: nombre, email, telefono, empresa_rut, empresa_nombre, nivel (Partner/Boss/Superior o par/jefe/superior).
+            Se matchea por teléfono o email; si la empresa no existe en el CRM, el contacto se crea igual, sin vínculo.
+          </p>
+          <button onClick={descargarPlantilla} className="text-sm text-ht-accent hover:underline">Descargar plantilla CSV</button>
+
+          <div className="flex items-center gap-3">
+            <input type="file" accept=".csv" onChange={e => { setArchivo(e.target.files[0]); setPreview(null); }} className="text-sm" />
+            <button onClick={analizar} disabled={!archivo || cargando}
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+              {cargando ? 'Procesando…' : 'Previsualizar'}
+            </button>
+          </div>
+
+          {preview && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <TileImport label="Válidas" val={preview.resumen.total_filas_validas} />
+                <TileImport label="Nuevos" val={preview.resumen.nuevos} />
+                <TileImport label="Actualizar" val={preview.resumen.actualizar} />
+                <TileImport label="Sin empresa" val={preview.resumen.sin_empresa} alerta={preview.resumen.sin_empresa > 0} />
+                <TileImport label="Rechazos" val={preview.resumen.rechazos} alerta={preview.resumen.rechazos > 0} />
+              </div>
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+                <div className="px-3 py-1.5 bg-slate-50 text-xs text-gray-600 font-medium">Muestra (primeras {preview.muestra.length})</div>
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500"><tr>
+                    <th className="text-left px-3 py-1 font-medium">Nombre</th>
+                    <th className="text-left px-3 py-1 font-medium">Email</th>
+                    <th className="text-left px-3 py-1 font-medium">Empresa</th>
+                    <th className="text-left px-3 py-1 font-medium">Nivel</th>
+                    <th className="text-left px-3 py-1 font-medium">Advertencias</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.muestra.map((m, i) => (
+                      <tr key={i} className="border-t border-gray-100">
+                        <td className="px-3 py-1 text-ht-navy">{m.nombre}</td>
+                        <td className="px-3 py-1 text-gray-600">{m.email || '—'}</td>
+                        <td className={`px-3 py-1 ${m.empresa_encontrada ? 'text-gray-600' : 'text-amber-700'}`}>{m.empresa || '—'}</td>
+                        <td className="px-3 py-1 text-gray-600">{NIVEL_LABEL[m.nivel] || m.nivel}</td>
+                        <td className="px-3 py-1 text-amber-700">{m.advertencias.join('; ')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {preview.rechazos.length > 0 && (
+                <div className="border border-amber-200 rounded-lg overflow-hidden">
+                  <div className="px-3 py-1.5 bg-amber-50 text-xs text-amber-800 font-medium">Rechazos ({preview.rechazos.length})</div>
+                  <table className="w-full text-xs">
+                    <tbody>
+                      {preview.rechazos.map((r, i) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="px-3 py-1 text-gray-500 w-16">Fila {r.fila}</td>
+                          <td className="px-3 py-1 text-amber-700">{r.motivo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">Cancelar</button>
+          {preview && (
+            <button onClick={confirmar} disabled={cargando || preview.resumen.total_filas_validas === 0}
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+              {cargando ? 'Importando…' : `Confirmar (${preview.resumen.total_filas_validas})`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TileImport({ label, val, alerta }) {
+  return (
+    <div className={`rounded-lg border p-2.5 ${alerta ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-white'}`}>
+      <div className={`text-xl font-bold ${alerta ? 'text-amber-700' : 'text-ht-navy'}`}>{val}</div>
+      <div className="text-xs text-gray-500">{label}</div>
     </div>
   );
 }

@@ -7,6 +7,10 @@ const { actualizarDocumentosPendientes } = require('../services/cobranzaSoftland
 const { detectarYParsear } = require('../services/cobranzaCartolas');
 const cobranzaTransbank = require('../services/cobranzaTransbank');
 const { fechaChileHoy } = require('../services/informeDiario');
+const { uploadCSV } = require('../middleware/upload');
+const { parseCSV } = require('../utils/csv');
+const { mapearContactos, PLANTILLA_HEADERS: PLANTILLA_CONTACTOS_COBRANZA } = require('../services/import_cobranza_contactos');
+const { validarRut, normalizarRut } = require('../utils/validaciones');
 
 const MARGEN_DIAS_MATCH_TRANSBANK = 5;
 
@@ -247,6 +251,154 @@ router.delete('/contactos/:id/empresas/:empresaId', requiereGestionCobranza, asy
   } catch (err) {
     console.error('[cobranza/contactos/:id/empresas DELETE]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// === Importación masiva de contactos de cobranza (hoy viven en Buk
+// Finanzas) === No se crean empresas nuevas: si no matchea una ya existente
+// (por RUT o, a falta de RUT, por razón social exacta) el contacto se crea
+// igual pero sin vínculo, para que el cobrador lo registre a mano — mismo
+// criterio que la cuenta de paso (sección 9 de la especificación).
+
+// GET /api/cobranza/contactos/importar/plantilla
+router.get('/contactos/importar/plantilla', requiereGestionCobranza, (req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="plantilla_contactos_cobranza.csv"');
+  res.send('﻿' + PLANTILLA_CONTACTOS_COBRANZA.join(',') + '\n');
+});
+
+// Resuelve empresa_id por RUT (normalizado) y, si no hay RUT o no matchea,
+// por razón social exacta (case-insensitive) — nunca crea una empresa nueva.
+async function resolverEmpresasParaContactos(validos) {
+  const ruts = [...new Set(validos.map(v => v.contacto.empresa_rut).filter(Boolean))];
+  const nombres = [...new Set(validos.filter(v => !v.contacto.empresa_rut && v.contacto.empresa_nombre).map(v => v.contacto.empresa_nombre.toLowerCase()))];
+
+  const porRut = new Map();
+  if (ruts.length) {
+    const r = await db.all('SELECT id, rut FROM empresas WHERE rut = ANY($1)', [ruts]);
+    for (const e of r) if (validarRut(e.rut)) porRut.set(normalizarRut(e.rut), e.id);
+  }
+  const porNombre = new Map();
+  if (nombres.length) {
+    const r = await db.all('SELECT id, lower(razon_social) AS n FROM empresas WHERE activo = true AND lower(razon_social) = ANY($1)', [nombres]);
+    for (const e of r) porNombre.set(e.n, e.id);
+  }
+
+  return (c) => {
+    if (c.empresa_rut && porRut.has(c.empresa_rut)) return porRut.get(c.empresa_rut);
+    if (c.empresa_nombre && porNombre.has(c.empresa_nombre.toLowerCase())) return porNombre.get(c.empresa_nombre.toLowerCase());
+    return null;
+  };
+}
+
+// POST /api/cobranza/contactos/importar/preview
+router.post('/contactos/importar/preview', requiereGestionCobranza, uploadCSV.single('archivo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+    const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+    const { validos, rechazos } = mapearContactos(rows);
+    const resolverEmpresa = await resolverEmpresasParaContactos(validos);
+
+    const telefonos = validos.map(v => v.contacto.telefono_e164).filter(Boolean);
+    const emails = validos.map(v => v.contacto.email).filter(Boolean).map(e => e.toLowerCase());
+    let telsExist = new Set(), emailsExist = new Set();
+    if (telefonos.length) {
+      const r = await db.all('SELECT telefono_e164 FROM cobranza_contactos WHERE telefono_e164 = ANY($1)', [telefonos]);
+      telsExist = new Set(r.map(x => x.telefono_e164));
+    }
+    if (emails.length) {
+      const r = await db.all('SELECT DISTINCT lower(email) AS email FROM cobranza_contactos WHERE lower(email) = ANY($1)', [emails]);
+      emailsExist = new Set(r.map(x => x.email));
+    }
+
+    let nuevos = 0, actualizar = 0, sinEmpresa = 0;
+    const muestra = validos.slice(0, 20).map(v => {
+      const { contacto: c, advertencias } = v;
+      const t = c.telefono_e164, e = c.email ? c.email.toLowerCase() : null;
+      const esActualizacion = (t && telsExist.has(t)) || (!t && e && emailsExist.has(e));
+      if (esActualizacion) actualizar++; else nuevos++;
+      const empresaId = resolverEmpresa(c);
+      const adv = [...advertencias];
+      if (!empresaId) { adv.push('empresa no encontrada en el CRM — se crea sin vínculo'); sinEmpresa++; }
+      return {
+        nombre: c.nombre, email: c.email || '', telefono: c.telefono_e164 || '',
+        empresa: c.empresa_nombre || c.empresa_rut || '', nivel: c.nivel,
+        empresa_encontrada: !!empresaId, advertencias: adv,
+      };
+    });
+    // El resto de validos (más allá de la muestra de 20) también cuenta para nuevos/actualizar/sinEmpresa.
+    for (const v of validos.slice(20)) {
+      const { contacto: c } = v;
+      const t = c.telefono_e164, e = c.email ? c.email.toLowerCase() : null;
+      if ((t && telsExist.has(t)) || (!t && e && emailsExist.has(e))) actualizar++; else nuevos++;
+      if (!resolverEmpresa(c)) sinEmpresa++;
+    }
+
+    res.json({
+      resumen: { total_filas_validas: validos.length, nuevos, actualizar, sin_empresa: sinEmpresa, rechazos: rechazos.length },
+      muestra,
+      rechazos: rechazos.slice(0, 200),
+    });
+  } catch (err) {
+    console.error('[cobranza/contactos/importar/preview]', err);
+    res.status(500).json({ error: 'Error al leer el archivo: ' + err.message });
+  }
+});
+
+// POST /api/cobranza/contactos/importar/confirmar
+router.post('/contactos/importar/confirmar', requiereGestionCobranza, uploadCSV.single('archivo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Archivo CSV requerido' });
+  try {
+    const { rows } = parseCSV(req.file.buffer.toString('utf8'));
+    const { validos } = mapearContactos(rows);
+    const resolverEmpresa = await resolverEmpresasParaContactos(validos);
+
+    let insertados = 0, actualizados = 0, vinculos = 0;
+    for (const { contacto: c } of validos) {
+      const t = c.telefono_e164 || null;
+      const e = c.email || null;
+      let existente = null;
+      if (t) existente = await db.get('SELECT id FROM cobranza_contactos WHERE telefono_e164 = $1', [t]);
+      if (!existente && e) existente = await db.get('SELECT id FROM cobranza_contactos WHERE lower(email) = lower($1)', [e]);
+
+      let contactoId;
+      if (existente) {
+        await db.run(
+          'UPDATE cobranza_contactos SET nombre = $1, email = COALESCE(email, $2), telefono_e164 = COALESCE(telefono_e164, $3) WHERE id = $4',
+          [c.nombre, e, t, existente.id]
+        );
+        contactoId = existente.id;
+        actualizados++;
+      } else {
+        const r = await db.run(
+          'INSERT INTO cobranza_contactos (nombre, email, telefono_e164) VALUES ($1,$2,$3) RETURNING id',
+          [c.nombre, e, t]
+        );
+        contactoId = r.rows[0].id;
+        insertados++;
+      }
+
+      const empresaId = resolverEmpresa(c);
+      if (empresaId) {
+        const yaVinculado = await db.get(
+          'SELECT id FROM cobranza_contacto_empresa WHERE contacto_id = $1 AND empresa_id = $2',
+          [contactoId, empresaId]
+        );
+        if (yaVinculado) await db.run('UPDATE cobranza_contacto_empresa SET nivel = $1 WHERE id = $2', [c.nivel, yaVinculado.id]);
+        else {
+          await db.run(
+            'INSERT INTO cobranza_contacto_empresa (contacto_id, empresa_id, nivel) VALUES ($1,$2,$3)',
+            [contactoId, empresaId, c.nivel]
+          );
+        }
+        vinculos++;
+      }
+    }
+
+    res.json({ message: 'Importación completada', insertados, actualizados, vinculos });
+  } catch (err) {
+    console.error('[cobranza/contactos/importar/confirmar]', err);
+    res.status(500).json({ error: 'Error al importar: ' + err.message });
   }
 });
 
