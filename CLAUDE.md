@@ -95,16 +95,16 @@ sea la excepción de solo documentación de arriba:
   Cobranza necesitan cada uno su propio número, mismo mecanismo (otra
   entrada en `whatsappCuentas.js`, no reenvío ni nada especial).
 
-**Herramienta de reenvío entre entornos** (06-09-2026, commit `037deb0` en
-`staging`, no promovida a `main` todavía): `WHATSAPP_REENVIO_PHONE_NUMBER_ID`
-+ `WHATSAPP_REENVIO_URL` reenvían tal cual (mismo cuerpo, misma firma) los
-mensajes de un número al webhook de otro entorno, sin procesarlos ni
-guardar nada localmente. Pensada para probar el número oficial en
-producción sin ensuciar la base de datos real: se ve el flujo completo
-(aviso de privacidad, bot, etc.) en la base de destino. Probada con dos
-instancias locales — funciona, y el número normal de Ventas sigue
-procesando local sin regresión. Falta decidir si se promueve a `main` antes
-de la prueba real con el número oficial, o se prueba directo sin ella.
+**Herramienta de reenvío entre entornos** (06-09-2026, **ya en `main`**,
+commit `429dfb9`): `WHATSAPP_REENVIO_PHONE_NUMBER_ID` + `WHATSAPP_REENVIO_URL`
+reenvían tal cual (mismo cuerpo, misma firma) los mensajes de un número al
+webhook de otro entorno, sin procesarlos ni guardar nada localmente.
+Pensada para probar el número oficial en producción sin ensuciar la base
+de datos real: se ve el flujo completo (aviso de privacidad, bot, etc.) en
+la base de destino. Probada con dos instancias locales — funciona, y el
+número normal de Ventas sigue procesando local sin regresión. Ambas
+variables quedan vacías por defecto (desactivada) — activarla es cargar
+las dos en Railway cuando se quiera usar.
 
 **Ley 21.719 — protección de datos personales**: implementada y **ya en
 `main` (producción)** desde 06-09-2026 (commit `993321a`), validada con
