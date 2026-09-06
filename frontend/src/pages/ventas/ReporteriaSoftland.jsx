@@ -497,7 +497,9 @@ export default function ReporteriaSoftland() {
                   {nvPendientes.map(r => (
                     <tr key={r.nv_numero} className="border-t border-gray-100 hover:bg-slate-50">
                       <td className="px-4 py-2 text-ht-navy">{r.nv_numero}</td>
-                      <td className="px-4 py-2 text-gray-600">{new Date(r.fecha_nv).toLocaleDateString('es-CL')}</td>
+                      {/* fecha_nv es DATE (día calendario, sin hora) — se arma la fecha local
+                          desde YYYY-MM-DD para no correr un día hacia atrás según el huso del navegador. */}
+                      <td className="px-4 py-2 text-gray-600">{new Date(r.fecha_nv.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL')}</td>
                       <td className="px-4 py-2">
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${r.dias > 30 ? 'bg-red-50 text-red-600' : r.dias > 14 ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>{r.dias} d</span>
                       </td>
