@@ -183,6 +183,19 @@ function firmaValida(req) {
   try { return crypto.timingSafeEqual(Buffer.from(firma), Buffer.from(esperado)); } catch { return false; }
 }
 
+// Reenvío entre entornos (ver whatsappCuentas#urlReenvioSiCorresponde): el
+// origen y el destino pueden pertenecer a apps de Meta distintas (secretos
+// distintos), así que la firma original de Meta no sirve para validar acá
+// — se valida con un secreto propio, compartido entre los dos entornos por
+// fuera de Meta. Sin WHATSAPP_REENVIO_SECRETO configurado, esto nunca es
+// válido y el webhook sigue exigiendo la firma de Meta como siempre.
+function reenvioValido(req) {
+  const secreto = process.env.WHATSAPP_REENVIO_SECRETO;
+  const recibido = req.headers['x-reenvio-secreto'];
+  if (!secreto || !recibido) return false;
+  try { return crypto.timingSafeEqual(Buffer.from(recibido), Buffer.from(secreto)); } catch { return false; }
+}
+
 // Procesa un mensaje entrante: fuera de horario solo avisa y registra el lead;
 // en horario hábil pregunta la categoría (lista de opciones); si el mensaje es
 // la respuesta a esa lista, asigna vendedor con el mismo motor que usa el
@@ -328,10 +341,10 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
   }
 }
 
-// Reenvía el webhook tal cual (mismo cuerpo crudo, misma firma) a otro
-// entorno — ver config/whatsappCuentas.js#urlReenvioSiCorresponde. El
-// destino lo recibe como si Meta se lo hubiera mandado directo; acá no se
-// procesa nada más para ese mensaje.
+// Reenvía el webhook tal cual (mismo cuerpo crudo) a otro entorno — ver
+// config/whatsappCuentas.js#urlReenvioSiCorresponde. Además de la firma
+// original de Meta (puede no validar en destino si es una app distinta),
+// manda el secreto propio de reenvío — ver reenvioValido() más arriba.
 async function reenviarWebhook(req, url) {
   try {
     const resp = await fetch(url, {
@@ -339,6 +352,7 @@ async function reenviarWebhook(req, url) {
       headers: {
         'Content-Type': 'application/json',
         ...(req.headers['x-hub-signature-256'] ? { 'x-hub-signature-256': req.headers['x-hub-signature-256'] } : {}),
+        ...(process.env.WHATSAPP_REENVIO_SECRETO ? { 'x-reenvio-secreto': process.env.WHATSAPP_REENVIO_SECRETO } : {}),
       },
       body: req.rawBody,
     });
@@ -352,7 +366,7 @@ async function reenviarWebhook(req, url) {
 router.post('/whatsapp/webhook', async (req, res) => {
   res.sendStatus(200); // Meta espera 200 de inmediato; se procesa después.
   try {
-    if (!firmaValida(req)) { console.error('[whatsapp/webhook] Firma inválida'); return; }
+    if (!reenvioValido(req) && !firmaValida(req)) { console.error('[whatsapp/webhook] Firma inválida'); return; }
     const value = req.body?.entry?.[0]?.changes?.[0]?.value;
     const urlReenvio = whatsappCuentas.urlReenvioSiCorresponde(value?.metadata?.phone_number_id);
     if (urlReenvio) { await reenviarWebhook(req, urlReenvio); return; }
