@@ -73,23 +73,33 @@ sea la excepción de solo documentación de arriba:
   esperar el plazo, pedir el código por **SMS** (no llamada) una sola vez,
   con el celular con señal. El número +56 9 8109 8161 (Ventas, en
   producción) no se ve afectado por este bloqueo — no requiere nada.
-- **Código ya listo en `staging`** (commit `c12c362`, 04-09-2026): soporte
-  multi-cuenta en `config/whatsappCuentas.js` + `services/whatsapp.js` +
-  `routes/public.js`. Probado con Postgres local: el número de Ventas sigue
-  funcionando exactamente igual; un número nuevo, con sus variables de
-  entorno configuradas, se reconoce solo por `phone_number_id` y registra
-  sus mensajes sin correr el bot de categorización de Ventas.
-- **Falta para terminar** una vez Luis complete la migración en Meta:
-  1. Cargar en Railway `WHATSAPP_PHONE_NUMBER_ID_OFICIAL` y
-     `WHATSAPP_ACCESS_TOKEN_OFICIAL` con los datos que entregue Meta.
-  2. Verificar si el número oficial queda bajo la misma app de Meta que
-     Ventas o una distinta — si es distinta, `firmaValida()` en
-     `routes/public.js` (valida la firma del webhook con un solo
-     `WHATSAPP_APP_SECRET`) también necesita soporte multi-cuenta; no se
-     tocó todavía porque no se sabe cuál de los dos casos aplica.
-  3. Probar de punta a punta con el número real.
+- **Código ya en `main` (producción)**, promovido 06-09-2026 (commit
+  `993321a`, junto con Ley 21.719 — ver más abajo): soporte multi-cuenta en
+  `config/whatsappCuentas.js` + `services/whatsapp.js` + `routes/public.js`.
+  Con solo Ventas configurada (como sigue hoy), el comportamiento no cambia
+  — probado con Postgres local (doble arranque, envío por Ventas sin
+  cambios, cuenta nueva simulada sin correr el bot de categorización).
+- **Confirmado 06-09-2026**: el número oficial quedó bajo la misma app de
+  Meta que Ventas (`Identificador de la app: 1840408730668365`, mismo
+  `WhatsApp Business account ID: 1115263817731903`) — **no hace falta**
+  soporte multi-secreto en `firmaValida()`, y el token de acceso ya cargado
+  en Railway para Ventas debería servir también para este número (mismo
+  scope de app, no por número).
+- **Falta para terminar** una vez el número quede "Conectado" en Meta:
+  1. Cargar en Railway `WHATSAPP_PHONE_NUMBER_ID_OFICIAL=1339808529211189`
+     (ya lo tenemos) y `WHATSAPP_ACCESS_TOKEN_OFICIAL` — probar primero si
+     el `WHATSAPP_ACCESS_TOKEN` ya existente alcanza, antes de generar uno nuevo.
+  2. Probar de punta a punta con el número real.
 - Sirve dos necesidades a la vez: el número oficial de la empresa y, más
   adelante, el número separado de Operaciones (ver abajo).
+
+**Ley 21.719 — protección de datos personales**: implementada y **ya en
+`main` (producción)** desde 06-09-2026 (commit `993321a`), validada con
+Gerencia (rol DPO). Aviso automático de privacidad en primer contacto/
+reapertura de WhatsApp, detección de solicitud de eliminación de datos con
+revisión humana en `/config/privacidad`, y purga automática diaria de
+contactos inactivos sin conversión (12 meses, configurable). Ver detalle
+en el commit de staging `af39e0d`.
 
 **Cobranza**: módulo con desarrollo pendiente, acumulado en `staging` sin
 promover a `main` (sigue la regla de arriba — no se promueve por mejoras).
