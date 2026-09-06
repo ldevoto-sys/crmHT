@@ -1965,6 +1965,60 @@ async function initDb() {
   // services/cobranzaCartolas.js.
   await db.run(`ALTER TABLE cobranza_movimientos_bancarios ADD COLUMN IF NOT EXISTS referencia_banco TEXT`);
 
+  // Nota: factura_folio se mantiene como texto libre, sin FK. Se evaluó
+  // agregar un FK real ahora que cobranza_documentos existe, pero esa tabla
+  // se reemplaza por completo (DELETE + reinsert) en cada sincronización con
+  // Softland (ver services/cobranzaSoftland.js) — una factura pagada
+  // legítimamente desaparece de ahí, y un FK rompería ese DELETE apenas
+  // existiera una sola conciliación histórica. El folio queda como referencia
+  // suelta a propósito.
+
+  // === Cobranzas — Transbank (pagos con tarjeta crédito/débito) ===
+  // Transbank entrega dos archivos separados: la Cartola de Movimientos (una
+  // fila por venta o anulación, monto bruto tal como se pagó la factura) y el
+  // Resumen histórico de abonos (depósito neto diario, después de su propia
+  // comisión). Ninguno de los dos trae folio de factura ni RUT del cliente:
+  // el cruce contra cobranza_documentos es por monto+fecha con margen, igual
+  // que las cartolas bancarias normales (ver services/cobranzaTransbank.js).
+  await db.run(`ALTER TABLE cobranza_ajustes DROP CONSTRAINT IF EXISTS cobranza_ajustes_tipo_check`);
+  await db.run(`ALTER TABLE cobranza_ajustes ADD CONSTRAINT cobranza_ajustes_tipo_check CHECK (tipo IN ('anticipo','redondeo','comision_transbank'))`);
+  // Un ajuste "comision_transbank" no tiene empresa ni movimiento asociado
+  // (es un costo del canal completo, no de un cliente puntual) — necesita su
+  // propia fecha para saber a qué día del Resumen de abonos corresponde.
+  await db.run(`ALTER TABLE cobranza_ajustes ADD COLUMN IF NOT EXISTS fecha DATE`);
+
+  // Marca la cuenta bancaria real donde Transbank deposita (separada de la
+  // cuenta operativa, según confirmó el usuario) para no conciliarla contra
+  // facturas como una cartola normal — sus líneas solo se validan contra
+  // cobranza_transbank_abonos_dia (mismo monto+fecha), evitando contar dos
+  // veces la misma plata que ya se explicó vía el archivo de Abonos.
+  await db.run(`ALTER TABLE cobranza_config_cuentas_bancarias ADD COLUMN IF NOT EXISTS es_cuenta_transbank BOOLEAN NOT NULL DEFAULT false`);
+
+  // Marca un movimiento validado automáticamente contra el Resumen de abonos
+  // de Transbank (cuenta separada) — distinto de una conciliación normal
+  // contra una factura puntual, que no aplica acá (el depósito es neto de
+  // muchas ventas a la vez).
+  await db.run(`ALTER TABLE cobranza_movimientos_bancarios ADD COLUMN IF NOT EXISTS validado_transbank_en TIMESTAMP`);
+
+  // Detalle diario del Resumen histórico de abonos de Transbank — fuente de
+  // verdad para (a) el ajuste de comisión de cada día y (b) validar la
+  // cartola real de la cuenta de depósito Transbank sin duplicar el dinero.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_transbank_abonos_dia (
+      fecha DATE PRIMARY KEY,
+      cuenta_deposito TEXT,
+      total_ventas NUMERIC(14,2) NOT NULL DEFAULT 0,
+      comision_transbank_iva NUMERIC(14,2) NOT NULL DEFAULT 0,
+      cobros_servicio NUMERIC(14,2) NOT NULL DEFAULT 0,
+      ventas_anuladas NUMERIC(14,2) NOT NULL DEFAULT 0,
+      devolucion_comision NUMERIC(14,2) NOT NULL DEFAULT 0,
+      total_abono NUMERIC(14,2) NOT NULL DEFAULT 0,
+      numero_ventas INTEGER NOT NULL DEFAULT 0,
+      cargado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
   // === Memoria de conversaciones de WhatsApp (visión a futuro discutida en
   // HT-AP-03, punto 3) ===
   // Diario: un resumen corto por contacto y día, generado por el LLM

@@ -3,7 +3,7 @@ import api from '../../api';
 
 const LABEL_AJUSTE = { anticipo: 'Anticipo', garantia: 'Garantía', fluctuacion: 'Fluctuación', redondeo: 'Redondeo', indemnizacion: 'Indemnización' };
 
-const cuentaVacia = { banco: '', cuenta_bancaria: '', cuenta_contable: '' };
+const cuentaVacia = { banco: '', cuenta_bancaria: '', cuenta_contable: '', es_cuenta_transbank: false };
 
 // Pantalla de configuración de cuentas contables para el archivo de carga a
 // Softland (módulo Cobranzas, Fase 1 — HT-DO-XX especificación sección 2.4).
@@ -57,10 +57,15 @@ export default function ConfigCobranza() {
   const cambiarCuentaContable = (id, cuenta_contable) => {
     setCuentas(cuentas.map(c => c.id === id ? { ...c, cuenta_contable } : c));
   };
+  const cambiarEsCuentaTransbank = (id, es_cuenta_transbank) => {
+    setCuentas(cuentas.map(c => c.id === id ? { ...c, es_cuenta_transbank } : c));
+  };
   const guardarCuenta = async c => {
     setError(''); setMsg('');
-    try { await api.put(`/cobranza/config/cuentas-bancarias/${c.id}`, { cuenta_contable: c.cuenta_contable }); setMsg('Cuenta actualizada.'); }
-    catch (err) { setError(err.response?.data?.error || 'Error al guardar la cuenta.'); }
+    try {
+      await api.put(`/cobranza/config/cuentas-bancarias/${c.id}`, { cuenta_contable: c.cuenta_contable, es_cuenta_transbank: c.es_cuenta_transbank });
+      setMsg('Cuenta actualizada.');
+    } catch (err) { setError(err.response?.data?.error || 'Error al guardar la cuenta.'); }
   };
   const eliminarCuenta = async id => {
     if (!window.confirm('¿Eliminar esta cuenta bancaria del mapeo?')) return;
@@ -221,7 +226,11 @@ export default function ConfigCobranza() {
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mt-6">
         <div className="px-5 py-3 border-b border-gray-100">
           <h2 className="font-semibold text-ht-navy">Cuentas bancarias</h2>
-          <p className="text-xs text-gray-400 mt-1">Una cuenta sin cuenta contable asignada no genera movimientos exportables.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Una cuenta sin cuenta contable asignada no genera movimientos exportables. Marca "Cuenta Transbank" solo en
+            la cuenta separada donde Transbank deposita — sus movimientos se validan contra el Resumen de abonos en
+            vez de conciliarse contra una factura puntual.
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -230,6 +239,7 @@ export default function ConfigCobranza() {
                 <th className="text-left px-4 py-2 font-medium">Banco</th>
                 <th className="text-left px-4 py-2 font-medium">Cuenta bancaria</th>
                 <th className="text-left px-4 py-2 font-medium">Cuenta contable</th>
+                <th className="text-left px-4 py-2 font-medium">Cuenta Transbank</th>
                 <th className="px-4 py-2"></th>
               </tr>
             </thead>
@@ -242,6 +252,10 @@ export default function ConfigCobranza() {
                     <input value={c.cuenta_contable || ''} onChange={e => cambiarCuentaContable(c.id, e.target.value)}
                       className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
                   </td>
+                  <td className="px-4 py-2">
+                    <input type="checkbox" checked={!!c.es_cuenta_transbank}
+                      onChange={e => cambiarEsCuentaTransbank(c.id, e.target.checked)} />
+                  </td>
                   <td className="px-4 py-2 text-right whitespace-nowrap">
                     <button onClick={() => guardarCuenta(c)} className="text-ht-accent hover:underline mr-3">Guardar</button>
                     <button onClick={() => eliminarCuenta(c.id)} className="text-red-500 hover:underline">Eliminar</button>
@@ -249,7 +263,7 @@ export default function ConfigCobranza() {
                 </tr>
               ))}
               {cuentas.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">Sin cuentas bancarias cargadas.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin cuentas bancarias cargadas.</td></tr>
               )}
             </tbody>
           </table>
@@ -272,6 +286,11 @@ export default function ConfigCobranza() {
             <input value={nuevaCuenta.cuenta_contable} onChange={e => setNuevaCuenta({ ...nuevaCuenta, cuenta_contable: e.target.value })}
               className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
+          <label className="flex items-center gap-1.5 text-sm text-gray-700 pb-1.5">
+            <input type="checkbox" checked={nuevaCuenta.es_cuenta_transbank}
+              onChange={e => setNuevaCuenta({ ...nuevaCuenta, es_cuenta_transbank: e.target.checked })} />
+            Cuenta Transbank
+          </label>
           <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
             + Agregar cuenta
           </button>

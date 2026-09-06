@@ -5,7 +5,10 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { actualizarDocumentosPendientes } = require('../services/cobranzaSoftland');
 const { detectarYParsear } = require('../services/cobranzaCartolas');
+const cobranzaTransbank = require('../services/cobranzaTransbank');
 const { fechaChileHoy } = require('../services/informeDiario');
+
+const MARGEN_DIAS_MATCH_TRANSBANK = 5;
 
 router.use(authenticate);
 
@@ -85,7 +88,7 @@ router.put('/config/ajustes/:tipo', authorize('administrador', 'jefe_comercial')
 // POST /api/cobranza/config/cuentas-bancarias — agrega una cuenta bancaria nueva al mapeo.
 router.post('/config/cuentas-bancarias', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
-    const { banco, cuenta_bancaria, cuenta_contable } = req.body;
+    const { banco, cuenta_bancaria, cuenta_contable, es_cuenta_transbank } = req.body;
     if (!banco || !cuenta_bancaria) return res.status(400).json({ error: 'Banco y cuenta bancaria son requeridos' });
     const existe = await db.get(
       'SELECT id FROM cobranza_config_cuentas_bancarias WHERE banco = $1 AND cuenta_bancaria = $2',
@@ -93,8 +96,8 @@ router.post('/config/cuentas-bancarias', authorize('administrador', 'jefe_comerc
     );
     if (existe) return res.status(409).json({ error: 'Esa cuenta ya está registrada' });
     const r = await db.run(
-      'INSERT INTO cobranza_config_cuentas_bancarias (banco, cuenta_bancaria, cuenta_contable) VALUES ($1,$2,$3) RETURNING *',
-      [banco, cuenta_bancaria, cuenta_contable || null]
+      'INSERT INTO cobranza_config_cuentas_bancarias (banco, cuenta_bancaria, cuenta_contable, es_cuenta_transbank) VALUES ($1,$2,$3,$4) RETURNING *',
+      [banco, cuenta_bancaria, cuenta_contable || null, es_cuenta_transbank === true]
     );
     res.status(201).json(r.rows[0]);
   } catch (err) {
@@ -108,8 +111,11 @@ router.put('/config/cuentas-bancarias/:id', authorize('administrador', 'jefe_com
   try {
     const cuenta = await db.get('SELECT id FROM cobranza_config_cuentas_bancarias WHERE id = $1', [req.params.id]);
     if (!cuenta) return res.status(404).json({ error: 'Cuenta no encontrada' });
-    const { cuenta_contable } = req.body;
-    await db.run('UPDATE cobranza_config_cuentas_bancarias SET cuenta_contable = $1 WHERE id = $2', [cuenta_contable || null, req.params.id]);
+    const { cuenta_contable, es_cuenta_transbank } = req.body;
+    await db.run(
+      'UPDATE cobranza_config_cuentas_bancarias SET cuenta_contable = $1, es_cuenta_transbank = $2 WHERE id = $3',
+      [cuenta_contable || null, es_cuenta_transbank === true, req.params.id]
+    );
     res.json({ message: 'Cuenta actualizada' });
   } catch (err) {
     console.error('[cobranza/config/cuentas-bancarias PUT]', err);
@@ -205,49 +211,399 @@ router.get('/movimientos', requiereGestionCobranza, async (req, res) => {
 // por la forma del contenido) y registra sus abonos como movimientos
 // pendientes. Si la misma cartola se sube dos veces, no duplica: se
 // considera el mismo movimiento si banco+cuenta+fecha+monto+glosa calzan.
+//
+// También reconoce (por la misma detección de forma) los dos archivos de
+// Transbank: la Cartola de Movimientos y el Resumen histórico de abonos —
+// ver services/cobranzaTransbank.js y processarTransbankMovimientos/
+// procesarTransbankAbonos más abajo.
 router.post('/movimientos/importar', requiereGestionCobranza, upload.single('archivo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'Debes adjuntar un archivo' });
-    let resultado;
+
+    const resultado = detectarYParsear(req.file.buffer);
+    if (resultado) return await procesarCartolaBancaria(req, res, resultado);
+
+    let transbank;
     try {
-      resultado = detectarYParsear(req.file.buffer);
+      transbank = cobranzaTransbank.detectar(req.file.buffer);
     } catch (err) {
       console.error('[cobranza/movimientos/importar] Error leyendo el archivo:', err);
-      return res.status(400).json({ error: 'No se pudo leer el archivo — ¿es una cartola bancaria válida?' });
+      return res.status(400).json({ error: 'No se pudo leer el archivo — ¿es una cartola o un archivo de Transbank válido?' });
     }
-    if (!resultado) {
-      return res.status(400).json({ error: 'No se reconoce el formato del archivo (se esperaba una cartola de Banco de Chile o Banco Santander).' });
+    if (!transbank) {
+      return res.status(400).json({
+        error: 'No se reconoce el formato del archivo (se esperaba una cartola de Banco de Chile, Banco Santander, o los archivos de Transbank de Movimientos/Abonos).',
+      });
     }
-
-    let insertados = 0;
-    for (const m of resultado.movimientos) {
-      // La referencia del banco (saldo resultante en Banco de Chile, N° de
-      // movimiento en Santander) es lo que distingue dos movimientos
-      // idénticos en monto/glosa/fecha (ej. 3 transferencias iguales el
-      // mismo día) — sin ella, reimportar la misma cartola los colapsaría.
-      const existe = await db.get(
-        `SELECT id FROM cobranza_movimientos_bancarios
-         WHERE banco = $1 AND cuenta_bancaria = $2 AND fecha = $3 AND monto = $4 AND glosa_original = $5
-           AND referencia_banco IS NOT DISTINCT FROM $6`,
-        [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.referencia_banco]
-      );
-      if (existe) continue;
-      await db.run(
-        `INSERT INTO cobranza_movimientos_bancarios
-           (banco, cuenta_bancaria, fecha, monto, glosa_original, numero_documento, referencia_banco, cargado_por_id, archivo_nombre)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.numero_documento, m.referencia_banco, req.user.id, req.file.originalname]
-      );
-      insertados++;
-    }
-    res.status(201).json({
-      message: `Cartola de ${resultado.banco} (cuenta ${resultado.cuentaBancaria || '—'}) procesada: ${insertados} movimiento(s) nuevo(s) de ${resultado.movimientos.length} encontrados.`,
-      banco: resultado.banco, cuenta_bancaria: resultado.cuentaBancaria,
-      total_encontrados: resultado.movimientos.length, insertados,
-    });
+    if (transbank.tipo === 'movimientos') return await procesarTransbankMovimientos(req, res, transbank.data);
+    return await procesarTransbankAbonos(req, res, transbank.data);
   } catch (err) {
     console.error('[cobranza/movimientos/importar POST]', err);
-    res.status(500).json({ error: 'Error interno al procesar la cartola' });
+    res.status(500).json({ error: 'Error interno al procesar el archivo' });
+  }
+});
+
+async function procesarCartolaBancaria(req, res, resultado) {
+  const cuentaCfg = await db.get(
+    'SELECT es_cuenta_transbank FROM cobranza_config_cuentas_bancarias WHERE banco = $1 AND cuenta_bancaria = $2',
+    [resultado.banco, resultado.cuentaBancaria]
+  );
+  const esCuentaTransbank = cuentaCfg?.es_cuenta_transbank === true;
+
+  let insertados = 0, validadosTransbank = 0;
+  for (const m of resultado.movimientos) {
+    // La referencia del banco (saldo resultante en Banco de Chile, N° de
+    // movimiento en Santander) es lo que distingue dos movimientos
+    // idénticos en monto/glosa/fecha (ej. 3 transferencias iguales el
+    // mismo día) — sin ella, reimportar la misma cartola los colapsaría.
+    const existe = await db.get(
+      `SELECT id FROM cobranza_movimientos_bancarios
+       WHERE banco = $1 AND cuenta_bancaria = $2 AND fecha = $3 AND monto = $4 AND glosa_original = $5
+         AND referencia_banco IS NOT DISTINCT FROM $6`,
+      [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.referencia_banco]
+    );
+    if (existe) continue;
+
+    // Cuenta separada donde Transbank deposita: no se concilia contra una
+    // factura puntual (el depósito es neto de muchas ventas a la vez), solo
+    // se valida contra lo que ya informó el Resumen de abonos del mismo día.
+    let estadoInicial = 'pendiente';
+    let validadoEn = null;
+    if (esCuentaTransbank) {
+      const abonoDia = await db.get(
+        'SELECT fecha FROM cobranza_transbank_abonos_dia WHERE fecha = $1 AND total_abono = $2',
+        [m.fecha, m.monto]
+      );
+      if (abonoDia) { estadoInicial = 'conciliado'; validadoEn = new Date(); validadosTransbank++; }
+    }
+
+    await db.run(
+      `INSERT INTO cobranza_movimientos_bancarios
+         (banco, cuenta_bancaria, fecha, monto, glosa_original, numero_documento, referencia_banco, estado, validado_transbank_en, cargado_por_id, archivo_nombre)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [resultado.banco, resultado.cuentaBancaria, m.fecha, m.monto, m.glosa_original, m.numero_documento, m.referencia_banco, estadoInicial, validadoEn, req.user.id, req.file.originalname]
+    );
+    insertados++;
+  }
+  const nota = esCuentaTransbank ? ` (${validadosTransbank} validado(s) automáticamente contra el Resumen de abonos Transbank)` : '';
+  res.status(201).json({
+    message: `Cartola de ${resultado.banco} (cuenta ${resultado.cuentaBancaria || '—'}) procesada: ${insertados} movimiento(s) nuevo(s) de ${resultado.movimientos.length} encontrados${nota}.`,
+    banco: resultado.banco, cuenta_bancaria: resultado.cuentaBancaria,
+    total_encontrados: resultado.movimientos.length, insertados,
+  });
+}
+
+// Cartola de Movimientos Transbank: cada venta se cruza contra facturas por
+// monto+fecha (margen de 5 días); 0 o más de un candidato queda pendiente,
+// sin adivinar. Una anulación se carga como su propio movimiento (no borra
+// el original) y, si la venta original ya está conciliada, genera
+// automáticamente la conciliación espejo (monto en negativo) por el mismo
+// "Código de autorización de la venta".
+async function procesarTransbankMovimientos(req, res, data) {
+  let insertados = 0, conciliadosAuto = 0, anulacionesVinculadas = 0, omitidos = 0;
+  for (const m of data.movimientos) {
+    if (m.tipo === 'venta') {
+      const existe = await db.get(
+        `SELECT id FROM cobranza_movimientos_bancarios WHERE banco = 'Transbank' AND numero_documento = $1 AND monto = $2 AND fecha = $3`,
+        [m.codigo_autorizacion_venta, m.monto, m.fecha]
+      );
+      if (existe) { omitidos++; continue; }
+
+      const ins = await db.run(
+        `INSERT INTO cobranza_movimientos_bancarios (banco, cuenta_bancaria, fecha, monto, glosa_original, numero_documento, cargado_por_id, archivo_nombre)
+         VALUES ('Transbank', 'Transbank', $1, $2, $3, $4, $5, $6) RETURNING id`,
+        [m.fecha, m.monto, m.nombre_local, m.codigo_autorizacion_venta, req.user.id, req.file.originalname]
+      );
+      insertados++;
+      const movimientoId = ins.rows[0].id;
+
+      const candidatos = await db.all(
+        `SELECT folio FROM cobranza_documentos
+         WHERE monto_total = $1
+           AND fecha_emision BETWEEN ($2::date - $3::integer) AND ($2::date + $3::integer)`,
+        [m.monto, m.fecha, MARGEN_DIAS_MATCH_TRANSBANK]
+      );
+      if (candidatos.length === 1) {
+        await db.run(
+          `INSERT INTO cobranza_conciliaciones (movimiento_id, factura_folio, monto_aplicado, automatica) VALUES ($1,$2,$3,true)`,
+          [movimientoId, candidatos[0].folio, m.monto]
+        );
+        await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'preconciliado' WHERE id = $1`, [movimientoId]);
+        conciliadosAuto++;
+      }
+    } else {
+      const existe = await db.get(
+        `SELECT id FROM cobranza_movimientos_bancarios WHERE banco = 'Transbank' AND numero_documento = $1 AND monto = $2 AND fecha = $3`,
+        [m.codigo_autorizacion_venta, -m.monto, m.fecha]
+      );
+      if (existe) { omitidos++; continue; }
+
+      const ins = await db.run(
+        `INSERT INTO cobranza_movimientos_bancarios (banco, cuenta_bancaria, fecha, monto, glosa_original, numero_documento, cargado_por_id, archivo_nombre)
+         VALUES ('Transbank', 'Transbank', $1, $2, $3, $4, $5, $6) RETURNING id`,
+        [m.fecha, -m.monto, `Anulación — ${m.nombre_local}`, m.codigo_autorizacion_venta, req.user.id, req.file.originalname]
+      );
+      insertados++;
+      const anulacionId = ins.rows[0].id;
+
+      const original = await db.get(
+        `SELECT id FROM cobranza_movimientos_bancarios WHERE banco = 'Transbank' AND numero_documento = $1 AND monto > 0 ORDER BY id LIMIT 1`,
+        [m.codigo_autorizacion_venta]
+      );
+      const conciliacionOriginal = original && await db.get(
+        `SELECT factura_folio FROM cobranza_conciliaciones WHERE movimiento_id = $1 AND estado IN ('propuesta','aprobada','modificada') ORDER BY id DESC LIMIT 1`,
+        [original.id]
+      );
+      if (conciliacionOriginal) {
+        await db.run(
+          `INSERT INTO cobranza_conciliaciones (movimiento_id, factura_folio, monto_aplicado, automatica) VALUES ($1,$2,$3,true)`,
+          [anulacionId, conciliacionOriginal.factura_folio, -m.monto]
+        );
+        await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'preconciliado' WHERE id = $1`, [anulacionId]);
+        anulacionesVinculadas++;
+      }
+    }
+  }
+  res.status(201).json({
+    message: `Cartola de Movimientos Transbank procesada: ${insertados} nuevo(s) de ${data.movimientos.length} encontrados (${omitidos} ya cargados), ${conciliadosAuto} venta(s) con match automático, ${anulacionesVinculadas} anulación(es) vinculada(s) a su venta original.`,
+  });
+}
+
+// Resumen histórico de abonos Transbank: un ajuste "comision_transbank" por
+// día, y validación cruzada de la cartola real de la cuenta separada (en
+// cualquiera de los dos órdenes de subida).
+async function procesarTransbankAbonos(req, res, data) {
+  let dias = 0, ajustes = 0, validados = 0;
+  for (const d of data.dias) {
+    if (d.total_ventas === 0 && d.total_abono === 0) continue; // día sin actividad
+
+    await db.run(
+      `INSERT INTO cobranza_transbank_abonos_dia
+         (fecha, cuenta_deposito, total_ventas, comision_transbank_iva, cobros_servicio, ventas_anuladas, devolucion_comision, total_abono, numero_ventas, cargado_por_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (fecha) DO UPDATE SET
+         cuenta_deposito = EXCLUDED.cuenta_deposito, total_ventas = EXCLUDED.total_ventas,
+         comision_transbank_iva = EXCLUDED.comision_transbank_iva, cobros_servicio = EXCLUDED.cobros_servicio,
+         ventas_anuladas = EXCLUDED.ventas_anuladas, devolucion_comision = EXCLUDED.devolucion_comision,
+         total_abono = EXCLUDED.total_abono, numero_ventas = EXCLUDED.numero_ventas`,
+      [d.fecha, d.cuenta_deposito, d.total_ventas, d.comision_transbank_iva, d.cobros_servicio, d.ventas_anuladas, d.devolucion_comision, d.total_abono, d.numero_ventas, req.user.id]
+    );
+    dias++;
+
+    if (d.comision_transbank_iva > 0) {
+      const existeAjuste = await db.get(`SELECT id FROM cobranza_ajustes WHERE tipo = 'comision_transbank' AND fecha = $1`, [d.fecha]);
+      if (existeAjuste) {
+        await db.run('UPDATE cobranza_ajustes SET monto = $1 WHERE id = $2', [d.comision_transbank_iva, existeAjuste.id]);
+      } else {
+        await db.run(`INSERT INTO cobranza_ajustes (tipo, monto, fecha) VALUES ('comision_transbank', $1, $2)`, [d.comision_transbank_iva, d.fecha]);
+      }
+      ajustes++;
+    }
+
+    // Por si la cartola real de la cuenta separada ya se había subido antes
+    // que este archivo de abonos: valida ahora los movimientos que quedaron
+    // pendientes ese día.
+    const r = await db.run(
+      `UPDATE cobranza_movimientos_bancarios m
+         SET estado = 'conciliado', validado_transbank_en = now()
+       WHERE m.estado = 'pendiente' AND m.fecha = $1 AND m.monto = $2
+         AND EXISTS (
+           SELECT 1 FROM cobranza_config_cuentas_bancarias c
+           WHERE c.banco = m.banco AND c.cuenta_bancaria = m.cuenta_bancaria AND c.es_cuenta_transbank = true
+         )`,
+      [d.fecha, d.total_abono]
+    );
+    validados += r.rowCount || 0;
+  }
+  res.status(201).json({
+    message: `Resumen de abonos Transbank procesado: ${dias} día(s), ${ajustes} ajuste(s) de comisión Transbank, ${validados} movimiento(s) de la cuenta separada validado(s) automáticamente.`,
+  });
+}
+
+// === Fase 2 — Conciliación manual y archivado ===
+
+// GET /api/cobranza/movimientos/:id/conciliaciones — detalle de lo ya
+// vinculado a un movimiento (facturas aplicadas + ajuste, si hay).
+router.get('/movimientos/:id/conciliaciones', requiereGestionCobranza, async (req, res) => {
+  try {
+    const conciliaciones = await db.all(
+      `SELECT c.*, d.nombre_cliente, d.codigo_cliente, u.nombre AS resuelto_por_nombre
+       FROM cobranza_conciliaciones c
+       LEFT JOIN cobranza_documentos d ON d.folio = c.factura_folio
+       LEFT JOIN users u ON u.id = c.resuelto_por_id
+       WHERE c.movimiento_id = $1 AND c.estado != 'rechazada'
+       ORDER BY c.id`,
+      [req.params.id]
+    );
+    const ajustes = await db.all('SELECT * FROM cobranza_ajustes WHERE movimiento_id = $1 ORDER BY id', [req.params.id]);
+    res.json({ conciliaciones, ajustes });
+  } catch (err) {
+    console.error('[cobranza/movimientos/:id/conciliaciones GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/movimientos/:id/conciliar-manual — reparte un
+// movimiento entre una o más facturas (de uno o varios códigos de cliente,
+// ej. "Jardines de Providencia"). Si sobra un monto menor al umbral
+// configurado y no se indica un ajuste, se registra como "redondeo"
+// automático; si sobra más que eso, hay que indicar explícitamente el
+// ajuste (normalmente "anticipo").
+// body: { aplicaciones: [{ factura_folio, monto_aplicado }], ajuste?: { tipo, monto } }
+router.post('/movimientos/:id/conciliar-manual', requiereGestionCobranza, async (req, res) => {
+  try {
+    const movimiento = await db.get('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1', [req.params.id]);
+    if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!['pendiente', 'preconciliado'].includes(movimiento.estado)) {
+      return res.status(409).json({ error: `El movimiento ya está ${movimiento.estado} — deshazlo primero si necesitas corregirlo.` });
+    }
+
+    const aplicaciones = Array.isArray(req.body.aplicaciones) ? req.body.aplicaciones : [];
+    if (aplicaciones.length === 0) return res.status(400).json({ error: 'Debes indicar al menos una factura' });
+    for (const a of aplicaciones) {
+      if (!a.factura_folio || !(Number(a.monto_aplicado) > 0)) {
+        return res.status(400).json({ error: 'Cada aplicación necesita un folio de factura y un monto mayor a cero' });
+      }
+    }
+
+    const sumaAplicado = aplicaciones.reduce((acc, a) => acc + Number(a.monto_aplicado), 0);
+    const excedente = Number(movimiento.monto) - sumaAplicado;
+    let ajuste = req.body.ajuste || null;
+
+    if (Math.abs(excedente) > 0.5) {
+      if (excedente < 0) {
+        return res.status(400).json({ error: 'El monto aplicado a las facturas no puede superar el monto del movimiento' });
+      }
+      if (!ajuste) {
+        const cfg = await db.get('SELECT monto_minimo_redondeo FROM cobranza_config WHERE id = 1');
+        const umbral = Number(cfg?.monto_minimo_redondeo || 0);
+        if (excedente <= umbral) {
+          ajuste = { tipo: 'redondeo', monto: excedente };
+        } else {
+          return res.status(400).json({
+            error: `Queda un excedente de $${excedente.toLocaleString('es-CL')} sobre el umbral de redondeo ($${umbral.toLocaleString('es-CL')}) — indica explícitamente a qué ajuste corresponde (ej. anticipo).`,
+          });
+        }
+      } else if (Math.abs(Number(ajuste.monto) - excedente) > 0.5) {
+        return res.status(400).json({ error: 'El monto del ajuste no coincide con el excedente del movimiento' });
+      }
+    }
+
+    // Si el movimiento tenía una sugerencia automática (preconciliado), queda
+    // reemplazada por esta resolución manual.
+    await db.run(
+      `UPDATE cobranza_conciliaciones SET estado = 'rechazada' WHERE movimiento_id = $1 AND estado = 'propuesta'`,
+      [movimiento.id]
+    );
+
+    for (const a of aplicaciones) {
+      await db.run(
+        `INSERT INTO cobranza_conciliaciones (movimiento_id, factura_folio, monto_aplicado, estado, automatica, resuelto_por_id, resuelto_en)
+         VALUES ($1,$2,$3,'aprobada',false,$4,now())`,
+        [movimiento.id, a.factura_folio, a.monto_aplicado, req.user.id]
+      );
+    }
+    if (ajuste) {
+      await db.run(
+        `INSERT INTO cobranza_ajustes (tipo, monto, movimiento_id) VALUES ($1,$2,$3)`,
+        [ajuste.tipo, ajuste.monto, movimiento.id]
+      );
+    }
+    await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'conciliado' WHERE id = $1`, [movimiento.id]);
+
+    res.json({ message: 'Movimiento conciliado correctamente.' });
+  } catch (err) {
+    console.error('[cobranza/movimientos/:id/conciliar-manual POST]', err);
+    res.status(500).json({ error: 'Error interno al conciliar' });
+  }
+});
+
+// POST /api/cobranza/movimientos/:id/deshacer — revierte todo lo conciliado
+// para este movimiento (manual o automático) y lo deja pendiente de nuevo.
+router.post('/movimientos/:id/deshacer', requiereGestionCobranza, async (req, res) => {
+  try {
+    const movimiento = await db.get('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1', [req.params.id]);
+    if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!['preconciliado', 'conciliado'].includes(movimiento.estado)) {
+      return res.status(409).json({ error: `El movimiento está ${movimiento.estado} — no hay nada que deshacer.` });
+    }
+    await db.run(
+      `UPDATE cobranza_conciliaciones SET estado = 'rechazada', resuelto_por_id = $2, resuelto_en = now()
+       WHERE movimiento_id = $1 AND estado != 'rechazada'`,
+      [movimiento.id, req.user.id]
+    );
+    await db.run('DELETE FROM cobranza_ajustes WHERE movimiento_id = $1', [movimiento.id]);
+    await db.run(
+      `UPDATE cobranza_movimientos_bancarios SET estado = 'pendiente', validado_transbank_en = NULL WHERE id = $1`,
+      [movimiento.id]
+    );
+    res.json({ message: 'Conciliación revertida — el movimiento vuelve a quedar pendiente.' });
+  } catch (err) {
+    console.error('[cobranza/movimientos/:id/deshacer POST]', err);
+    res.status(500).json({ error: 'Error interno al deshacer' });
+  }
+});
+
+// POST /api/cobranza/movimientos/:id/archivar — para casos que no se van a
+// conciliar (ej. un depósito que no corresponde a ninguna factura). Motivo
+// obligatorio, según la especificación.
+router.post('/movimientos/:id/archivar', requiereGestionCobranza, async (req, res) => {
+  try {
+    const motivo = String(req.body.motivo || '').trim();
+    if (!motivo) return res.status(400).json({ error: 'Debes indicar un motivo para archivar' });
+    const movimiento = await db.get('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1', [req.params.id]);
+    if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    if (!['pendiente', 'preconciliado'].includes(movimiento.estado)) {
+      return res.status(409).json({ error: `El movimiento ya está ${movimiento.estado}.` });
+    }
+    await db.run(
+      `UPDATE cobranza_conciliaciones SET estado = 'rechazada' WHERE movimiento_id = $1 AND estado = 'propuesta'`,
+      [movimiento.id]
+    );
+    await db.run(
+      `UPDATE cobranza_movimientos_bancarios SET estado = 'archivado', motivo_archivo = $2 WHERE id = $1`,
+      [req.params.id, motivo]
+    );
+    res.json({ message: 'Movimiento archivado.' });
+  } catch (err) {
+    console.error('[cobranza/movimientos/:id/archivar POST]', err);
+    res.status(500).json({ error: 'Error interno al archivar' });
+  }
+});
+
+// POST /api/cobranza/conciliaciones/:id/aprobar — confirma una sugerencia
+// automática (match por monto+fecha) tal como quedó.
+router.post('/conciliaciones/:id/aprobar', requiereGestionCobranza, async (req, res) => {
+  try {
+    const conciliacion = await db.get(`SELECT * FROM cobranza_conciliaciones WHERE id = $1 AND estado = 'propuesta'`, [req.params.id]);
+    if (!conciliacion) return res.status(404).json({ error: 'No hay una sugerencia pendiente con ese id' });
+    await db.run(
+      `UPDATE cobranza_conciliaciones SET estado = 'aprobada', resuelto_por_id = $2, resuelto_en = now() WHERE id = $1`,
+      [conciliacion.id, req.user.id]
+    );
+    await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'conciliado' WHERE id = $1`, [conciliacion.movimiento_id]);
+    res.json({ message: 'Sugerencia aprobada.' });
+  } catch (err) {
+    console.error('[cobranza/conciliaciones/:id/aprobar POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/conciliaciones/:id/rechazar — descarta una sugerencia
+// automática; el movimiento vuelve a quedar pendiente para resolverlo a mano.
+router.post('/conciliaciones/:id/rechazar', requiereGestionCobranza, async (req, res) => {
+  try {
+    const conciliacion = await db.get(`SELECT * FROM cobranza_conciliaciones WHERE id = $1 AND estado = 'propuesta'`, [req.params.id]);
+    if (!conciliacion) return res.status(404).json({ error: 'No hay una sugerencia pendiente con ese id' });
+    await db.run(
+      `UPDATE cobranza_conciliaciones SET estado = 'rechazada', resuelto_por_id = $2, resuelto_en = now() WHERE id = $1`,
+      [conciliacion.id, req.user.id]
+    );
+    await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'pendiente' WHERE id = $1`, [conciliacion.movimiento_id]);
+    res.json({ message: 'Sugerencia rechazada — el movimiento vuelve a quedar pendiente.' });
+  } catch (err) {
+    console.error('[cobranza/conciliaciones/:id/rechazar POST]', err);
+    res.status(500).json({ error: 'Error interno' });
   }
 });
 
