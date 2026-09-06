@@ -3,7 +3,13 @@ import api from '../../api';
 import { formatFechaHora } from '../../utils/fecha';
 
 const fmtMoney = v => `$${Math.round(v || 0).toLocaleString('es-CL')}`;
-const fmtFecha = iso => iso ? new Date(iso).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }) : '—';
+// fecha_emision, fecha_vencimiento y el "fecha" de un movimiento bancario son
+// columnas DATE (un día calendario, sin hora) — Postgres las serializa como
+// medianoche UTC, así que forzar la conversión a America/Santiago (como con
+// una fecha-hora real) las corre un día hacia atrás. Se arma la fecha local
+// directamente desde los primeros 10 caracteres (YYYY-MM-DD), igual que en
+// Pipeline/Reportes/Despacho/Postventa/ServicioTecnico.
+const fmtFecha = iso => iso ? new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '—';
 
 const ESTADO_DOC_LABEL = { a_tiempo: 'A tiempo', atrasado: 'Atrasado (<15 días)', vencido: 'Vencido (>15 días)' };
 const ESTADO_DOC_COLOR = { a_tiempo: 'bg-ht-accent/15 text-ht-navy', atrasado: 'bg-amber-100 text-amber-700', vencido: 'bg-red-100 text-red-700' };
