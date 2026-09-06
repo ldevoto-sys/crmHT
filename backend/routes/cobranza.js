@@ -134,6 +134,122 @@ router.delete('/config/cuentas-bancarias/:id', authorize('administrador', 'jefe_
   }
 });
 
+// === Fase 1 — Contactos de cobranza (independientes de los contactos
+// comerciales: quien compra no es necesariamente quien paga). Un mismo
+// contacto puede estar vinculado a varias empresas, y el nivel (par/jefe/
+// superior) vive en esa relación, no en el contacto. ===
+
+// GET /api/cobranza/contactos — cada contacto con sus empresas vinculadas.
+router.get('/contactos', requiereGestionCobranza, async (req, res) => {
+  try {
+    const contactos = await db.all(`
+      SELECT cc.id, cc.nombre, cc.email, cc.telefono_e164,
+             COALESCE(
+               json_agg(
+                 json_build_object('empresa_id', e.id, 'razon_social', e.razon_social, 'nivel', ce.nivel)
+                 ORDER BY e.razon_social
+               ) FILTER (WHERE e.id IS NOT NULL),
+               '[]'
+             ) AS empresas
+      FROM cobranza_contactos cc
+      LEFT JOIN cobranza_contacto_empresa ce ON ce.contacto_id = cc.id
+      LEFT JOIN empresas e ON e.id = ce.empresa_id
+      GROUP BY cc.id
+      ORDER BY cc.nombre
+    `);
+    res.json(contactos);
+  } catch (err) {
+    console.error('[cobranza/contactos GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/contactos
+router.post('/contactos', requiereGestionCobranza, async (req, res) => {
+  try {
+    const { nombre, email, telefono_e164 } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+    const r = await db.run(
+      'INSERT INTO cobranza_contactos (nombre, email, telefono_e164) VALUES ($1,$2,$3) RETURNING *',
+      [nombre.trim(), email || null, telefono_e164 || null]
+    );
+    res.status(201).json({ ...r.rows[0], empresas: [] });
+  } catch (err) {
+    console.error('[cobranza/contactos POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/cobranza/contactos/:id
+router.put('/contactos/:id', requiereGestionCobranza, async (req, res) => {
+  try {
+    const { nombre, email, telefono_e164 } = req.body;
+    if (!nombre || !nombre.trim()) return res.status(400).json({ error: 'El nombre es requerido' });
+    const r = await db.run(
+      'UPDATE cobranza_contactos SET nombre = $1, email = $2, telefono_e164 = $3 WHERE id = $4 RETURNING id',
+      [nombre.trim(), email || null, telefono_e164 || null, req.params.id]
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Contacto no encontrado' });
+    res.json({ message: 'Contacto actualizado' });
+  } catch (err) {
+    console.error('[cobranza/contactos PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/cobranza/contactos/:id
+router.delete('/contactos/:id', requiereGestionCobranza, async (req, res) => {
+  try {
+    await db.run('DELETE FROM cobranza_contacto_empresa WHERE contacto_id = $1', [req.params.id]);
+    await db.run('DELETE FROM cobranza_contactos WHERE id = $1', [req.params.id]);
+    res.json({ message: 'Contacto eliminado' });
+  } catch (err) {
+    console.error('[cobranza/contactos DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/cobranza/contactos/:id/empresas — vincula el contacto a una
+// empresa con un nivel (par/jefe/superior).
+router.post('/contactos/:id/empresas', requiereGestionCobranza, async (req, res) => {
+  try {
+    const { empresa_id, nivel } = req.body;
+    if (!empresa_id || !['par', 'jefe', 'superior'].includes(nivel)) {
+      return res.status(400).json({ error: 'empresa_id y un nivel válido (par/jefe/superior) son requeridos' });
+    }
+    const existe = await db.get(
+      'SELECT id FROM cobranza_contacto_empresa WHERE contacto_id = $1 AND empresa_id = $2',
+      [req.params.id, empresa_id]
+    );
+    if (existe) {
+      await db.run('UPDATE cobranza_contacto_empresa SET nivel = $1 WHERE id = $2', [nivel, existe.id]);
+    } else {
+      await db.run(
+        'INSERT INTO cobranza_contacto_empresa (contacto_id, empresa_id, nivel) VALUES ($1,$2,$3)',
+        [req.params.id, empresa_id, nivel]
+      );
+    }
+    res.status(201).json({ message: 'Vínculo guardado' });
+  } catch (err) {
+    console.error('[cobranza/contactos/:id/empresas POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/cobranza/contactos/:id/empresas/:empresaId
+router.delete('/contactos/:id/empresas/:empresaId', requiereGestionCobranza, async (req, res) => {
+  try {
+    await db.run(
+      'DELETE FROM cobranza_contacto_empresa WHERE contacto_id = $1 AND empresa_id = $2',
+      [req.params.id, req.params.empresaId]
+    );
+    res.json({ message: 'Vínculo eliminado' });
+  } catch (err) {
+    console.error('[cobranza/contactos/:id/empresas DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // === Fase 4 — Cuenta de cliente propia del CRM ===
 // saldo_app se calcula al vuelo (nunca se guarda una columna sincronizada):
 // monto_total de cada factura del cliente, menos lo conciliado y aprobado en
@@ -207,6 +323,56 @@ router.get('/cuentas-cliente/:codigo/facturas', requiereGestionCobranza, async (
     })));
   } catch (err) {
     console.error('[cobranza/cuentas-cliente/:codigo/facturas GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// Tramos de mora sobre saldo_app (el saldo propio del CRM, no el de
+// Softland — mismo criterio que la cuenta de cliente, sección 9 de la
+// especificación): días de atraso = hoy - fecha_vencimiento.
+const TRAMOS = [
+  { clave: 'al_dia', label: 'Al día', max: 0 },
+  { clave: '1_15', label: '1 a 15 días', max: 15 },
+  { clave: '16_30', label: '16 a 30 días', max: 30 },
+  { clave: '31_60', label: '31 a 60 días', max: 60 },
+  { clave: '61_90', label: '61 a 90 días', max: 90 },
+  { clave: 'mas_90', label: 'Más de 90 días', max: Infinity },
+];
+function tramoDeAtraso(dias) {
+  return TRAMOS.find(t => dias <= t.max).clave;
+}
+
+// GET /api/cobranza/reportes/antiguedad — informe de antigüedad de saldos:
+// una fila por factura con saldo_app > 0, agrupable por tramo de mora.
+router.get('/reportes/antiguedad', requiereGestionCobranza, async (req, res) => {
+  try {
+    const hoy = fechaChileHoy();
+    const filas = await db.all(
+      `WITH conciliado AS (
+        SELECT factura_folio, SUM(monto_aplicado) AS aplicado
+        FROM cobranza_conciliaciones
+        WHERE estado IN ('aprobada', 'modificada')
+        GROUP BY factura_folio
+      )
+      SELECT d.folio, d.codigo_cliente, d.nombre_cliente, d.rut_cliente, d.monto_total, d.fecha_vencimiento,
+             d.monto_total - COALESCE(c.aplicado, 0) AS saldo_app,
+             ($1::date - d.fecha_vencimiento::date)::int AS dias_atraso
+      FROM cobranza_documentos d
+      LEFT JOIN conciliado c ON c.factura_folio = d.folio
+      ORDER BY d.fecha_vencimiento ASC`,
+      [hoy]
+    );
+    const documentos = filas
+      .map(f => ({ ...f, saldo_app: Number(f.saldo_app) }))
+      .filter(f => f.saldo_app > 0.5)
+      .map(f => ({ ...f, tramo: tramoDeAtraso(f.dias_atraso) }));
+
+    const resumen = Object.fromEntries(TRAMOS.map(t => [t.clave, 0]));
+    for (const d of documentos) resumen[d.tramo] += d.saldo_app;
+
+    res.json({ documentos, resumen, tramos: TRAMOS.map(({ clave, label }) => ({ clave, label })) });
+  } catch (err) {
+    console.error('[cobranza/reportes/antiguedad GET]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

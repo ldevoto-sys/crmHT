@@ -24,7 +24,7 @@ export default function Cobranza() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-4">Cobranza</h1>
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios'], ['cuentas', 'Cuentas de cliente']].map(([k, label]) => (
+        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios'], ['cuentas', 'Cuentas de cliente'], ['contactos', 'Contactos'], ['reportes', 'Reportes']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-ht-accent text-ht-navy' : 'border-transparent text-gray-500 hover:text-ht-navy'}`}>
             {label}
@@ -34,6 +34,8 @@ export default function Cobranza() {
       {tab === 'documentos' && <TabDocumentos />}
       {tab === 'movimientos' && <TabMovimientos />}
       {tab === 'cuentas' && <TabCuentasCliente />}
+      {tab === 'contactos' && <TabContactos />}
+      {tab === 'reportes' && <TabReportes />}
     </div>
   );
 }
@@ -603,5 +605,284 @@ function DetalleFacturasCliente({ codigoCliente }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+const NIVEL_LABEL = { par: 'Par', jefe: 'Jefe', superior: 'Superior' };
+
+// Contactos de cobranza (Fase 1): independientes de los contactos
+// comerciales — quien compra no es necesariamente quien paga. Un mismo
+// contacto puede vincularse a varias empresas, cada una con su propio nivel.
+function TabContactos() {
+  const [contactos, setContactos] = useState([]);
+  const [error, setError] = useState(''); const [msg, setMsg] = useState('');
+  const [expandido, setExpandido] = useState(null);
+  const [nuevo, setNuevo] = useState(null); // { nombre, email, telefono_e164 } | null
+
+  const cargar = async () => {
+    try { setContactos((await api.get('/cobranza/contactos')).data); }
+    catch { setError('No se pudieron cargar los contactos.'); }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  const crear = async (e) => {
+    e.preventDefault(); setError(''); setMsg('');
+    try {
+      await api.post('/cobranza/contactos', nuevo);
+      setNuevo(null);
+      await cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo crear el contacto.'); }
+  };
+
+  const eliminar = async (c) => {
+    if (!window.confirm(`¿Eliminar el contacto "${c.nombre}"? También se quitan sus vínculos con empresas.`)) return;
+    setError(''); setMsg('');
+    try { await api.delete(`/cobranza/contactos/${c.id}`); await cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo eliminar.'); }
+  };
+
+  return (
+    <div>
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+      {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+
+      <div className="flex justify-end mb-3">
+        <button onClick={() => setNuevo({ nombre: '', email: '', telefono_e164: '' })}
+          className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
+          + Nuevo contacto
+        </button>
+      </div>
+
+      {nuevo && (
+        <form onSubmit={crear} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-wrap gap-2 items-end">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Nombre</label>
+            <input required value={nuevo.nombre} onChange={e => setNuevo({ ...nuevo, nombre: e.target.value })}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Email</label>
+            <input type="email" value={nuevo.email} onChange={e => setNuevo({ ...nuevo, email: e.target.value })}
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">Teléfono</label>
+            <input value={nuevo.telefono_e164} onChange={e => setNuevo({ ...nuevo, telefono_e164: e.target.value })}
+              placeholder="+56912345678"
+              className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <button type="submit" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
+          <button type="button" onClick={() => setNuevo(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded">Cancelar</button>
+        </form>
+      )}
+
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-gray-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium">Nombre</th>
+              <th className="text-left px-4 py-2 font-medium">Email</th>
+              <th className="text-left px-4 py-2 font-medium">Teléfono</th>
+              <th className="text-left px-4 py-2 font-medium">Empresas</th>
+              <th className="px-4 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {contactos.map(c => (
+              <Fragment key={c.id}>
+                <tr className="border-t border-gray-100 hover:bg-gray-50">
+                  <td className="px-4 py-2 text-ht-navy">{c.nombre}</td>
+                  <td className="px-4 py-2 text-gray-600">{c.email || '—'}</td>
+                  <td className="px-4 py-2 text-gray-600">{c.telefono_e164 || '—'}</td>
+                  <td className="px-4 py-2 text-gray-600">
+                    {c.empresas.length === 0 ? '—' : c.empresas.map(e => `${e.razon_social} (${NIVEL_LABEL[e.nivel]})`).join(', ')}
+                  </td>
+                  <td className="px-4 py-2 text-right whitespace-nowrap text-xs">
+                    <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="text-ht-accent hover:underline mr-3">
+                      {expandido === c.id ? 'Ocultar' : 'Vincular empresa'}
+                    </button>
+                    <button onClick={() => eliminar(c)} className="text-red-500 hover:underline">Eliminar</button>
+                  </td>
+                </tr>
+                {expandido === c.id && (
+                  <tr className="border-t border-gray-100 bg-slate-50">
+                    <td colSpan={5} className="px-4 py-3">
+                      <VincularEmpresaContacto contacto={c} onCambio={cargar} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+            {contactos.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin contactos de cobranza — crea el primero.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function VincularEmpresaContacto({ contacto, onCambio }) {
+  const [busqueda, setBusqueda] = useState('');
+  const [resultados, setResultados] = useState([]);
+  const [nivel, setNivel] = useState('par');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const termino = busqueda.trim();
+    if (!termino) { setResultados([]); return; }
+    const t = setTimeout(() => {
+      api.get('/empresas', { params: { q: termino } }).then(({ data }) => setResultados(data.slice(0, 8))).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [busqueda]);
+
+  const vincular = async (empresa) => {
+    setError('');
+    try {
+      await api.post(`/cobranza/contactos/${contacto.id}/empresas`, { empresa_id: empresa.id, nivel });
+      setBusqueda(''); setResultados([]);
+      await onCambio();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo vincular.'); }
+  };
+
+  const desvincular = async (empresaId) => {
+    setError('');
+    try { await api.delete(`/cobranza/contactos/${contacto.id}/empresas/${empresaId}`); await onCambio(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo desvincular.'); }
+  };
+
+  return (
+    <div className="text-sm space-y-3">
+      {error && <div className="text-red-600 text-xs">{error}</div>}
+      {contacto.empresas.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {contacto.empresas.map(e => (
+            <span key={e.empresa_id} className="inline-flex items-center gap-1.5 bg-white border border-gray-200 rounded-full px-3 py-1 text-xs">
+              {e.razon_social} · {NIVEL_LABEL[e.nivel]}
+              <button onClick={() => desvincular(e.empresa_id)} className="text-red-500 hover:underline">✕</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2 flex-wrap">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-xs text-gray-600 mb-1">Buscar empresa</label>
+          <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Nivel</label>
+          <select value={nivel} onChange={e => setNivel(e.target.value)} className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+            <option value="par">Par</option>
+            <option value="jefe">Jefe</option>
+            <option value="superior">Superior</option>
+          </select>
+        </div>
+      </div>
+      {resultados.length > 0 && (
+        <div className="border border-gray-200 rounded divide-y divide-gray-100 bg-white">
+          {resultados.map(e => (
+            <button key={e.id} onClick={() => vincular(e)} className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+              {e.razon_social} <span className="text-gray-400">{e.rut}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const TRAMO_COLOR = {
+  al_dia: '#34B3DE', '1_15': '#f59e0b', '16_30': '#f97316', '31_60': '#ea580c', '61_90': '#dc2626', mas_90: '#991b1b',
+};
+
+// Reporte de antigüedad de saldos: agrupa saldo_app (el saldo propio del
+// CRM) por tramo de mora — al día, 1-15, 16-30, 31-60, 61-90, +90 días.
+function TabReportes() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [tramoFiltro, setTramoFiltro] = useState('');
+
+  useEffect(() => {
+    api.get('/cobranza/reportes/antiguedad').then(({ data }) => setData(data)).catch(() => setError('No se pudo cargar el reporte.'));
+  }, []);
+
+  if (error) return <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>;
+  if (!data) return <div className="text-gray-400 text-sm">Cargando…</div>;
+
+  const filtrados = tramoFiltro ? data.documentos.filter(d => d.tramo === tramoFiltro) : data.documentos;
+
+  const exportarCsv = () => {
+    const headers = ['Folio', 'Código cliente', 'Cliente', 'RUT', 'Vencimiento', 'Días atraso', 'Tramo', 'Saldo'];
+    const tramoLabel = Object.fromEntries(data.tramos.map(t => [t.clave, t.label]));
+    const filas = filtrados.map(d => [
+      d.folio, d.codigo_cliente || '', d.nombre_cliente || '', d.rut_cliente || '',
+      fmtFecha(d.fecha_vencimiento), d.dias_atraso, tramoLabel[d.tramo], Math.round(d.saldo_app),
+    ]);
+    const csv = [headers, ...filas].map(fila => fila.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `antiguedad_saldos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-3">
+        Antigüedad de saldos según saldo_app (facturas vigentes menos lo conciliado en el CRM), no el saldo de Softland.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-5">
+        {data.tramos.map(t => (
+          <button key={t.clave} onClick={() => setTramoFiltro(tramoFiltro === t.clave ? '' : t.clave)}
+            className={`bg-white border rounded-lg p-3 relative overflow-hidden pl-4 text-left ${tramoFiltro === t.clave ? 'border-ht-navy' : 'border-gray-200'}`}>
+            <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: TRAMO_COLOR[t.clave] }} />
+            <div className="text-xs font-semibold text-gray-400 uppercase mb-1">{t.label}</div>
+            <div className="text-lg font-bold text-ht-navy">{fmtMoney(data.resumen[t.clave])}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex justify-between items-center mb-3">
+        <p className="text-sm text-gray-500">{filtrados.length} factura(s){tramoFiltro ? ` en "${data.tramos.find(t => t.clave === tramoFiltro)?.label}"` : ''}</p>
+        <button onClick={exportarCsv} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
+          Exportar CSV
+        </button>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-gray-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium">Folio</th>
+              <th className="text-left px-4 py-2 font-medium">Cliente</th>
+              <th className="text-left px-4 py-2 font-medium">Vencimiento</th>
+              <th className="text-right px-4 py-2 font-medium">Días atraso</th>
+              <th className="text-right px-4 py-2 font-medium">Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.map(d => (
+              <tr key={d.folio} className="border-t border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-2 text-ht-navy">#{d.folio}</td>
+                <td className="px-4 py-2 text-gray-600">
+                  {d.nombre_cliente}
+                  <div className="text-xs text-gray-400">{d.codigo_cliente}</div>
+                </td>
+                <td className="px-4 py-2 text-gray-600">{fmtFecha(d.fecha_vencimiento)}</td>
+                <td className="px-4 py-2 text-right text-gray-600">{d.dias_atraso}</td>
+                <td className="px-4 py-2 text-right text-ht-navy font-medium">{fmtMoney(d.saldo_app)}</td>
+              </tr>
+            ))}
+            {filtrados.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin facturas en este tramo.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
