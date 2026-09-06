@@ -1337,6 +1337,12 @@ async function initDb() {
   // último mensaje entrante en whatsapp_mensajes, para no duplicar la fuente
   // de verdad.
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS aviso_privacidad_enviado_en TIMESTAMP`);
+  // Evita repetir el aviso de "fuera de horario" en cada mensaje mientras el
+  // cliente sigue escribiendo — se manda una sola vez por racha fuera de
+  // horario. Se limpia sola en cuanto vuelve a procesarse un mensaje en
+  // horario hábil (ver routes/public.js#procesarMensaje), para que la
+  // próxima racha fuera de horario avise de nuevo.
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS fuera_horario_enviado_en TIMESTAMP`);
   // "Leído" quedó mal modelado como columna compartida de la conversación
   // (igual que archivada/cerrada_manual) — pero a diferencia de esas dos, si
   // una conversación está leída depende de QUIÉN mira, no es un estado único
