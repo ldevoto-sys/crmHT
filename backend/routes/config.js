@@ -579,4 +579,29 @@ router.delete('/sinonimos-operaciones/:id', authorize('administrador', 'jefe_com
   }
 });
 
+// --- Ley 21.719: meses de inactividad (aviso de privacidad + purga) ---
+router.get('/privacidad', authorize('administrador', 'gerencia'), async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT meses_inactividad FROM config_privacidad WHERE id = 1');
+    res.json(cfg);
+  } catch (err) {
+    console.error('[config/privacidad GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+router.put('/privacidad', authorize('administrador', 'gerencia'), async (req, res) => {
+  try {
+    const meses = Number(req.body.meses_inactividad);
+    if (!Number.isInteger(meses) || meses <= 0) {
+      return res.status(400).json({ error: 'meses_inactividad debe ser un número entero mayor a 0' });
+    }
+    await db.run('UPDATE config_privacidad SET meses_inactividad = $1 WHERE id = 1', [meses]);
+    res.json({ message: 'Configuración de privacidad actualizada' });
+  } catch (err) {
+    console.error('[config/privacidad PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 module.exports = router;
