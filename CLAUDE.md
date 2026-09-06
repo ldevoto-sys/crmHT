@@ -48,52 +48,40 @@ sea la excepción de solo documentación de arriba:
 - Si es una corrección de error, sigue aplicando la regla de horario de
   arriba salvo que sea crítico.
 
-## Pendientes (actualizado 04-09-2026)
+## Pendientes (actualizado 06-09-2026)
 
-**Foco actual: migrar el WhatsApp oficial de la empresa a producción.**
+**Migración del WhatsApp oficial — COMPLETADA (06-09-2026).**
 
-- Número actual del CRM (Ventas, ya conectado en Meta): +56 9 8109 8161.
-- Número oficial a migrar: +56 9 8106 2974. Originalmente en la cuenta
-  "Ventas Hidrotecnica" (nombre no se corresponde con el uso real); se
-  reintentó agregarlo bajo la cuenta "Hidrotecnica" (la misma app que ya
-  usa el CRM, para evitar un segundo WHATSAPP_APP_SECRET).
-- **Coexistencia descartada (05-09-2026): Meta no la ofreció en ningún
-  punto del flujo de self-service** (WhatsApp Manager → Agregar número).
-  Al intentar agregarlo, avisó "número ya en uso" (seguía activo en la app
-  de WhatsApp Business de un celular) — sin opción de migrar manteniendo la
-  app. Luis desvinculó el número de la app de WhatsApp Business del celular
-  para liberarlo (migración completa, coincide con la intención original:
-  "Solo CRM", nadie más lo necesita en el celular).
-- **Estado actual (05-09-2026, pausado)**: número ya liberado y aceptado
-  por Meta bajo la cuenta "Hidrotecnica" — llegó a la pantalla de
-  verificación por código, pero Meta bloqueó el número por demasiados
-  intentos de código ("verification code too many times"). Bloqueo típico
-  de Meta: mínimo ~24 h de espera sin volver a pedir código (cada intento
-  reinicia el contador); no tocar el número mientras tanto. Retomar:
-  esperar el plazo, pedir el código por **SMS** (no llamada) una sola vez,
-  con el celular con señal. El número +56 9 8109 8161 (Ventas, en
-  producción) no se ve afectado por este bloqueo — no requiere nada.
-- **Código ya en `main` (producción)**, promovido 06-09-2026 (commit
-  `993321a`, junto con Ley 21.719 — ver más abajo): soporte multi-cuenta en
-  `config/whatsappCuentas.js` + `services/whatsapp.js` + `routes/public.js`.
-  Con solo Ventas configurada (como sigue hoy), el comportamiento no cambia
-  — probado con Postgres local (doble arranque, envío por Ventas sin
-  cambios, cuenta nueva simulada sin correr el bot de categorización).
-- **Confirmado 06-09-2026**: el número oficial quedó bajo la misma app de
-  Meta que Ventas (`Identificador de la app: 1840408730668365`, mismo
-  `WhatsApp Business account ID: 1115263817731903`) — **no hace falta**
-  soporte multi-secreto en `firmaValida()`, y el token de acceso ya cargado
-  en Railway para Ventas debería servir también para este número (mismo
-  scope de app, no por número).
-- **Falta para terminar** una vez el número quede "Conectado" en Meta:
-  1. Cargar en Railway `WHATSAPP_PHONE_NUMBER_ID_OFICIAL=1339808529211189`
-     (ya lo tenemos) y `WHATSAPP_ACCESS_TOKEN_OFICIAL` — probar primero si
-     el `WHATSAPP_ACCESS_TOKEN` ya existente alcanza, antes de generar uno nuevo.
-  2. Probar de punta a punta con el número real.
-- Sirve dos necesidades a la vez: el número oficial de la empresa y, más
-  adelante, el número separado de Operaciones (ver abajo) — Operaciones y
-  Cobranza necesitan cada uno su propio número, mismo mecanismo (otra
-  entrada en `whatsappCuentas.js`, no reenvío ni nada especial).
+Estado final en producción:
+- **+56 9 8106 2974 es el número comercial real** (`WHATSAPP_PHONE_NUMBER_ID`
+  en Railway producción = `1339808529211189`). Es el número publicado en el
+  sitio web — recibía ~200 contactos/semana atendidos hasta el 05-09-2026
+  por un chatbot externo (chatbot.saaspro.br); desde ahora los atiende el
+  CRM (bot de categorización, asignación de vendedor, todo el flujo
+  comercial completo).
+- **+56 9 8109 8161** (el número que usaba el CRM hasta esta migración,
+  con historial real de clientes) **pasó a ser el número de pruebas**:
+  se reenvía a `staging` vía `WHATSAPP_REENVIO_PHONE_NUMBER_ID` +
+  `WHATSAPP_REENVIO_URL` + `WHATSAPP_REENVIO_SECRETO` (mismo secreto en
+  ambos entornos). Ya no lo atiende nadie del equipo comercial — solo
+  sirve para pruebas de desarrollo, con base de datos separada (staging).
+- Ambos números viven bajo la misma app de Meta ("Hidrotecnica",
+  `WhatsApp Business account ID: 1115263817731903`) — mismo
+  `WHATSAPP_ACCESS_TOKEN` y `WHATSAPP_APP_SECRET` sirven para los dos, no
+  hizo falta soporte multi-secreto en `firmaValida()`.
+- Probado en ambos sentidos desde el celular real: mensaje a 8106-2974 →
+  aparece completo en Bandeja de producción; mensaje a 8109-8161 → aparece
+  en Bandeja de staging. Confirmado sin cruce entre entornos.
+- Nota interna: el objeto `VENTAS` en `config/whatsappCuentas.js` mantiene
+  ese nombre por herencia del código, aunque ahora corresponde a
+  8106-2974, no a 8109-8161 — es solo una etiqueta de log, no afecta nada
+  funcional. No es necesario renombrarlo, pero puede confundir si se lee
+  el código sin este contexto.
+
+**Para Operaciones y Cobranza** (a futuro, cuando se construyan esos
+módulos): cada uno necesita su propio número — mismo mecanismo que ya está
+probado (otra entrada en `whatsappCuentas.js`, con su propio `ambito`), no
+reenvío ni nada especial.
 
 **Herramienta de reenvío entre entornos** (06-09-2026, **ya en `main`**,
 commit `429dfb9`): `WHATSAPP_REENVIO_PHONE_NUMBER_ID` + `WHATSAPP_REENVIO_URL`
