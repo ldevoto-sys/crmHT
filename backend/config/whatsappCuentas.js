@@ -33,4 +33,21 @@ function resolverPorPhoneNumberId(phoneNumberId) {
   return cuenta;
 }
 
-module.exports = { VENTAS, OFICIAL, CUENTAS, resolverPorPhoneNumberId };
+// Reenvío temporal de un número a otro entorno (ej. staging) mientras se
+// prueba antes de dejarlo definitivo en producción — herramienta de
+// desarrollo, no un mecanismo permanente. Se resuelve ANTES que la cuenta:
+// si el phone_number_id entrante coincide, el webhook ni siquiera lo
+// procesa acá, lo reenvía tal cual (mismo cuerpo, misma firma) al destino,
+// que lo recibe como si Meta se lo hubiera mandado directo. Se desactiva
+// solo con no definir las dos variables.
+const REENVIO_PHONE_NUMBER_ID = process.env.WHATSAPP_REENVIO_PHONE_NUMBER_ID;
+const REENVIO_URL = process.env.WHATSAPP_REENVIO_URL;
+
+function urlReenvioSiCorresponde(phoneNumberId) {
+  if (REENVIO_PHONE_NUMBER_ID && REENVIO_URL && phoneNumberId === REENVIO_PHONE_NUMBER_ID) {
+    return REENVIO_URL;
+  }
+  return null;
+}
+
+module.exports = { VENTAS, OFICIAL, CUENTAS, resolverPorPhoneNumberId, urlReenvioSiCorresponde };
