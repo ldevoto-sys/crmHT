@@ -24,7 +24,7 @@ export default function Cobranza() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-4">Cobranza</h1>
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios']].map(([k, label]) => (
+        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios'], ['cuentas', 'Cuentas de cliente']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-ht-accent text-ht-navy' : 'border-transparent text-gray-500 hover:text-ht-navy'}`}>
             {label}
@@ -33,6 +33,7 @@ export default function Cobranza() {
       </div>
       {tab === 'documentos' && <TabDocumentos />}
       {tab === 'movimientos' && <TabMovimientos />}
+      {tab === 'cuentas' && <TabCuentasCliente />}
     </div>
   );
 }
@@ -464,5 +465,143 @@ function ModalConciliar({ movimiento, documentos, onClose, onConciliado }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// Cuenta de cliente (Fase 4): saldo propio del CRM (saldo_app, calculado a
+// partir de facturas y conciliaciones) versus el saldo que informó la
+// última sincronización con Softland. Una cuenta de paso todavía no tiene
+// empresa vinculada en el CRM — no recibiría recordatorios hasta que se
+// registre (ver especificación §9).
+function TabCuentasCliente() {
+  const [cuentas, setCuentas] = useState([]);
+  const [error, setError] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  const [expandido, setExpandido] = useState(null);
+  const [soloDiferencias, setSoloDiferencias] = useState(false);
+
+  const cargar = async () => {
+    try { setCuentas((await api.get('/cobranza/cuentas-cliente')).data); }
+    catch { setError('No se pudieron cargar las cuentas de cliente.'); }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  const termino = normalizar(busqueda.trim());
+  const filtradas = cuentas
+    .filter(c => !termino || [c.codigo_cliente, c.nombre_cliente, c.rut_cliente].some(v => normalizar(v).includes(termino)))
+    .filter(c => !soloDiferencias || !c.concuerdan);
+
+  return (
+    <div>
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+      <p className="text-xs text-gray-400 mb-3">
+        saldo_app: monto de las facturas vigentes menos lo conciliado en el CRM. saldo_softland: lo que informó la
+        última "Actualizar desde Softland". Si no concuerdan, hay que revisarlo antes de mandar un recordatorio.
+      </p>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por código, nombre o RUT…"
+          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        <label className="flex items-center gap-1.5 text-sm text-gray-600">
+          <input type="checkbox" checked={soloDiferencias} onChange={e => setSoloDiferencias(e.target.checked)} />
+          Solo con diferencias
+        </label>
+      </div>
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-gray-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium">Cliente</th>
+              <th className="text-left px-4 py-2 font-medium">Código</th>
+              <th className="text-right px-4 py-2 font-medium">Saldo app</th>
+              <th className="text-right px-4 py-2 font-medium">Saldo Softland</th>
+              <th className="text-right px-4 py-2 font-medium">Diferencia</th>
+              <th className="text-left px-4 py-2 font-medium">Estado</th>
+              <th className="px-4 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtradas.map(c => (
+              <Fragment key={c.codigo_cliente}>
+                <tr className="border-t border-gray-100 hover:bg-gray-50">
+                  <td className="px-4 py-2 text-ht-navy">
+                    {c.nombre_cliente || '—'}
+                    <div className="text-xs text-gray-400">{c.rut_cliente}</div>
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">{c.codigo_cliente}</td>
+                  <td className="px-4 py-2 text-right text-ht-navy font-medium">{fmtMoney(c.saldo_app)}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">{fmtMoney(c.saldo_softland)}</td>
+                  <td className={`px-4 py-2 text-right font-medium ${c.concuerdan ? 'text-gray-400' : 'text-red-600'}`}>{fmtMoney(c.diferencia)}</td>
+                  <td className="px-4 py-2">
+                    {c.es_cuenta_paso ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">De paso — sin registrar</span>
+                    ) : c.concuerdan ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-ht-accent/15 text-ht-navy">OK</span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Revisar diferencia</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button onClick={() => setExpandido(expandido === c.codigo_cliente ? null : c.codigo_cliente)}
+                      className="text-ht-accent hover:underline text-xs">
+                      {expandido === c.codigo_cliente ? 'Ocultar' : 'Detalle'}
+                    </button>
+                  </td>
+                </tr>
+                {expandido === c.codigo_cliente && (
+                  <tr className="border-t border-gray-100 bg-slate-50">
+                    <td colSpan={7} className="px-4 py-3">
+                      <DetalleFacturasCliente codigoCliente={c.codigo_cliente} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+            {filtradas.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Sin cuentas de cliente.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function DetalleFacturasCliente({ codigoCliente }) {
+  const [facturas, setFacturas] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.get(`/cobranza/cuentas-cliente/${codigoCliente}/facturas`)
+      .then(({ data }) => setFacturas(data))
+      .catch(() => setError('No se pudo cargar el detalle.'));
+  }, [codigoCliente]);
+
+  if (error) return <div className="text-red-600 text-xs">{error}</div>;
+  if (!facturas) return <div className="text-gray-400 text-xs">Cargando…</div>;
+  if (facturas.length === 0) return <div className="text-gray-400 text-xs">Sin facturas vigentes para este cliente.</div>;
+
+  return (
+    <table className="w-full text-xs">
+      <thead className="text-gray-500">
+        <tr>
+          <th className="text-left py-1 font-medium">Folio</th>
+          <th className="text-left py-1 font-medium">Vencimiento</th>
+          <th className="text-right py-1 font-medium">Saldo app</th>
+          <th className="text-right py-1 font-medium">Saldo Softland</th>
+          <th className="text-right py-1 font-medium">Diferencia</th>
+        </tr>
+      </thead>
+      <tbody>
+        {facturas.map(f => (
+          <tr key={f.folio} className="border-t border-gray-200">
+            <td className="py-1">#{f.folio}</td>
+            <td className="py-1">{fmtFecha(f.fecha_vencimiento)}</td>
+            <td className="py-1 text-right text-ht-navy font-medium">{fmtMoney(f.saldo_app)}</td>
+            <td className="py-1 text-right text-gray-600">{fmtMoney(f.saldo_softland)}</td>
+            <td className={`py-1 text-right font-medium ${f.concuerdan ? 'text-gray-400' : 'text-red-600'}`}>{fmtMoney(f.diferencia)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

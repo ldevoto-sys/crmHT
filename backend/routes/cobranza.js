@@ -134,6 +134,83 @@ router.delete('/config/cuentas-bancarias/:id', authorize('administrador', 'jefe_
   }
 });
 
+// === Fase 4 — Cuenta de cliente propia del CRM ===
+// saldo_app se calcula al vuelo (nunca se guarda una columna sincronizada):
+// monto_total de cada factura del cliente, menos lo conciliado y aprobado en
+// cobranza_conciliaciones. Se compara contra saldo_softland (el
+// saldo_pendiente que informó la última sincronización) para detectar
+// diferencias en cualquier dirección — ver especificación §9.
+
+// GET /api/cobranza/cuentas-cliente — una fila por cuenta de cliente, con
+// saldo_app y saldo_softland agregados sobre todas sus facturas vigentes.
+router.get('/cuentas-cliente', requiereGestionCobranza, async (req, res) => {
+  try {
+    const cuentas = await db.all(`
+      WITH conciliado AS (
+        SELECT factura_folio, SUM(monto_aplicado) AS aplicado
+        FROM cobranza_conciliaciones
+        WHERE estado IN ('aprobada', 'modificada')
+        GROUP BY factura_folio
+      ),
+      saldo_por_factura AS (
+        SELECT d.codigo_cliente, d.saldo_pendiente AS saldo_softland,
+               d.monto_total - COALESCE(c.aplicado, 0) AS saldo_app
+        FROM cobranza_documentos d
+        LEFT JOIN conciliado c ON c.factura_folio = d.folio
+      )
+      SELECT cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso,
+             COALESCE(SUM(s.saldo_app), 0) AS saldo_app,
+             COALESCE(SUM(s.saldo_softland), 0) AS saldo_softland,
+             COUNT(s.saldo_softland) AS facturas_vigentes
+      FROM cobranza_cuentas_cliente cc
+      LEFT JOIN saldo_por_factura s ON s.codigo_cliente = cc.codigo_cliente
+      GROUP BY cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso
+      ORDER BY cc.nombre_cliente NULLS LAST
+    `);
+    res.json(cuentas.map(c => ({
+      ...c,
+      saldo_app: Number(c.saldo_app),
+      saldo_softland: Number(c.saldo_softland),
+      diferencia: Number(c.saldo_app) - Number(c.saldo_softland),
+      concuerdan: (Number(c.saldo_app) > 0) === (Number(c.saldo_softland) > 0),
+    })));
+  } catch (err) {
+    console.error('[cobranza/cuentas-cliente GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/cobranza/cuentas-cliente/:codigo/facturas — detalle factura por
+// factura de una cuenta, para explicar de dónde sale la diferencia agregada.
+router.get('/cuentas-cliente/:codigo/facturas', requiereGestionCobranza, async (req, res) => {
+  try {
+    const facturas = await db.all(`
+      WITH conciliado AS (
+        SELECT factura_folio, SUM(monto_aplicado) AS aplicado
+        FROM cobranza_conciliaciones
+        WHERE estado IN ('aprobada', 'modificada')
+        GROUP BY factura_folio
+      )
+      SELECT d.folio, d.monto_total, d.saldo_pendiente AS saldo_softland, d.fecha_emision, d.fecha_vencimiento,
+             d.monto_total - COALESCE(c.aplicado, 0) AS saldo_app
+      FROM cobranza_documentos d
+      LEFT JOIN conciliado c ON c.factura_folio = d.folio
+      WHERE d.codigo_cliente = $1
+      ORDER BY d.fecha_vencimiento ASC
+    `, [req.params.codigo]);
+    res.json(facturas.map(f => ({
+      ...f,
+      saldo_app: Number(f.saldo_app),
+      saldo_softland: Number(f.saldo_softland),
+      diferencia: Number(f.saldo_app) - Number(f.saldo_softland),
+      concuerdan: (Number(f.saldo_app) > 0) === (Number(f.saldo_softland) > 0),
+    })));
+  } catch (err) {
+    console.error('[cobranza/cuentas-cliente/:codigo/facturas GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // === Fase 2 — Documentos (facturas con saldo pendiente, sincronizadas desde
 // Softland) ===
 

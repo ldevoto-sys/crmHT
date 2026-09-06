@@ -336,6 +336,28 @@ module.exports = {
     `)
   ),
 
+  // Aviso diario de cuentas de paso de Cobranza sin registrar (Fase 4):
+  // usuario: {nombre,email}; cuentas: filas de cobranza_cuentas_cliente con
+  // es_cuenta_paso=true. Mientras sigan de paso no reciben recordatorios de
+  // cobro (no hay contacto de cobranza al que escribirle).
+  cuentasPasoCobranza: (usuario, cuentas) => {
+    const filas = cuentas.map(c => filaInforme([c.codigo_cliente, c.nombre_cliente || '—', c.rut_cliente || '—']));
+    return enviar(
+      usuario.email,
+      'COBRANZA: cuentas de cliente sin registrar',
+      template('Cuentas de cliente sin registrar', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p>
+          Hay ${cuentas.length} cliente${cuentas.length === 1 ? '' : 's'} de Softland con facturas pendientes que
+          todavía no tiene${cuentas.length === 1 ? '' : 'n'} una empresa y un contacto de cobranza registrados en el CRM.
+          Mientras sigan así, no van a recibir recordatorios de cobro.
+        </p>
+        ${tablaInforme(['Código de cliente', 'Nombre', 'RUT'], filas)}
+        ${boton(`${APP_URL}/cobranza`, 'Ver Cobranza')}
+      `)
+    );
+  },
+
   // Aviso diario de casos de Postventa vencidos (HT-AP-03 nota v1.25):
   // usuario: {nombre,email}; casos: filas de
   // services/postventaVencidos.js (casosVencidos), ya con dias_atraso

@@ -11,6 +11,8 @@ const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
 const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
 const { sincronizarSiCorresponde: sincronizarSoftlandSiCorresponde } = require('./services/softlandSync');
+const { sincronizarDocumentosSiCorresponde: sincronizarCobranzaSiCorresponde } = require('./services/cobranzaSoftland');
+const { enviarAvisoCuentasPasoSiCorresponde } = require('./services/cobranzaCuentasPaso');
 const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
 const { purgarInactivosSiCorresponde } = require('./services/privacidad');
 
@@ -134,6 +136,19 @@ if (require.main === module) {
       // botón "Actualizar" del reporte.
       setInterval(() => {
         sincronizarSoftlandSiCorresponde().catch(err => console.error('[softlandSync] Error:', err));
+      }, QUINCE_MIN);
+      // Cobranza: facturas pendientes desde Softland, a las 23:30 hora Chile
+      // (media hora después de Reportería Comercial), solo en producción y
+      // una vez por día (ver services/cobranzaSoftland.js). En staging se
+      // actualiza a mano con el botón "Actualizar desde Softland".
+      setInterval(() => {
+        sincronizarCobranzaSiCorresponde().catch(err => console.error('[cobranzaSoftland] Error:', err));
+      }, QUINCE_MIN);
+      // Cobranza: aviso de cuentas de cliente sin registrar (de paso), a las
+      // 08:45 hora Chile, solo si hay al menos una (ver tabla
+      // cobranza_cuentas_paso_envios).
+      setInterval(() => {
+        enviarAvisoCuentasPasoSiCorresponde().catch(err => console.error('[cobranzaCuentasPaso] Error:', err));
       }, QUINCE_MIN);
       // Memoria de conversaciones de WhatsApp: dispara a las 3am hora Chile,
       // una vez por día (ver tabla whatsapp_memoria_envios), sobre el día

@@ -7,6 +7,7 @@
 // el botón "Actualizar" de Reportería Softland en staging).
 const softland = require('./softland');
 const { db } = require('../db');
+const { validarRut, normalizarRut } = require('../utils/validaciones');
 
 const SQL_DOCUMENTOS_PENDIENTES = `
 SELECT
@@ -64,7 +65,89 @@ async function actualizarDocumentosPendientes() {
   } finally {
     client.release();
   }
+  await sincronizarCuentasCliente(filas);
   return { total: filas.length };
 }
 
-module.exports = { actualizarDocumentosPendientes };
+// Crea/actualiza la cuenta de cliente (Fase 4 — clave codigo_cliente) para
+// cada cliente que aparezca en la corrida de Softland. Si ya existe, solo se
+// refresca el nombre/RUT informado — nunca se toca empresa_id/es_cuenta_paso
+// de una cuenta ya vinculada o ya marcada de paso a mano.
+async function sincronizarCuentasCliente(filas) {
+  const clientes = new Map();
+  for (const r of filas) {
+    if (!r.CodigoCliente) continue; // sin código de cliente no hay cómo agrupar la cuenta
+    if (!clientes.has(r.CodigoCliente)) {
+      clientes.set(r.CodigoCliente, { rut: r.RutCliente || null, nombre: r.NombreCliente || null });
+    }
+  }
+  if (clientes.size === 0) return { creadas: 0 };
+
+  // Mapa rut normalizado → empresa_id, para no fallar el match por
+  // diferencias de formato (puntos, guión, mayúscula del DV) entre lo que
+  // informa Softland y lo que quedó guardado en `empresas`.
+  const empresas = await db.all('SELECT id, rut FROM empresas WHERE rut IS NOT NULL AND rut <> $1', ['']);
+  const empresaPorRut = new Map();
+  for (const e of empresas) {
+    if (validarRut(e.rut)) empresaPorRut.set(normalizarRut(e.rut), e.id);
+  }
+
+  let creadas = 0;
+  for (const [codigoCliente, { rut, nombre }] of clientes) {
+    const existe = await db.get('SELECT codigo_cliente FROM cobranza_cuentas_cliente WHERE codigo_cliente = $1', [codigoCliente]);
+    if (existe) {
+      await db.run(
+        'UPDATE cobranza_cuentas_cliente SET rut_cliente = $2, nombre_cliente = $3, actualizado_en = now() WHERE codigo_cliente = $1',
+        [codigoCliente, rut, nombre]
+      );
+      continue;
+    }
+    const empresaId = rut && validarRut(rut) ? empresaPorRut.get(normalizarRut(rut)) || null : null;
+    await db.run(
+      `INSERT INTO cobranza_cuentas_cliente (codigo_cliente, rut_cliente, nombre_cliente, empresa_id, es_cuenta_paso)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (codigo_cliente) DO NOTHING`,
+      [codigoCliente, rut, nombre, empresaId, !empresaId]
+    );
+    creadas++;
+  }
+  return { creadas };
+}
+
+// Llamado desde el chequeo horario de server.js: dispara solo entre las
+// 23:30 y las 23:44 hora de Chile (media hora después de la Reportería
+// Comercial, para no pedirle lo mismo a la réplica de Softland al mismo
+// tiempo), solo una vez por día, y solo en producción — mismo criterio que
+// softlandSync.js (staging se actualiza a mano con el botón "Actualizar
+// desde Softland").
+async function sincronizarDocumentosSiCorresponde() {
+  if (process.env.VITE_AMBIENTE_LABEL) return; // definida solo en staging
+
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  const partes = Object.fromEntries(fmt.formatToParts(new Date()).map(p => [p.type, p.value]));
+  if (partes.hour !== '23' || Number(partes.minute) < 30 || Number(partes.minute) >= 45) return;
+
+  const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Santiago' }).format(new Date());
+  const yaCorrido = await db.get('SELECT 1 FROM cobranza_documentos_sync_ejecuciones WHERE fecha = $1 AND ok = true', [hoy]);
+  if (yaCorrido) return;
+
+  try {
+    const resultado = await actualizarDocumentosPendientes();
+    await db.run(
+      `INSERT INTO cobranza_documentos_sync_ejecuciones (fecha, ok, total) VALUES ($1, true, $2)
+       ON CONFLICT (fecha) DO UPDATE SET ejecutado_en = now(), ok = true, total = $2, error = NULL`,
+      [hoy, resultado.total]
+    );
+  } catch (err) {
+    console.error('[cobranzaSoftland] Error en sincronización automática:', err.message);
+    await db.run(
+      `INSERT INTO cobranza_documentos_sync_ejecuciones (fecha, ok, error) VALUES ($1, false, $2)
+       ON CONFLICT (fecha) DO UPDATE SET ejecutado_en = now(), ok = false, error = $2`,
+      [hoy, err.message]
+    ).catch(e2 => console.error('[cobranzaSoftland] Además falló registrar el error:', e2.message));
+  }
+}
+
+module.exports = { actualizarDocumentosPendientes, sincronizarDocumentosSiCorresponde };

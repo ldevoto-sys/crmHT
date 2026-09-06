@@ -1965,6 +1965,48 @@ async function initDb() {
   // services/cobranzaCartolas.js.
   await db.run(`ALTER TABLE cobranza_movimientos_bancarios ADD COLUMN IF NOT EXISTS referencia_banco TEXT`);
 
+  // === Cobranzas — Fase 4 (cuenta de cliente propia del CRM) ===
+  // Clave = codigo_cliente de Softland, no RUT ni empresa_id: es el código
+  // el que agrupa todas las facturas de un mismo cliente en
+  // cobranza_documentos, y no se pierde en cada sincronización (esa tabla se
+  // reemplaza completa — ver nota más arriba). empresa_id se intenta
+  // vincular por RUT contra `empresas`; si no hay match, queda como "cuenta
+  // de paso" (es_cuenta_paso = true) hasta que alguien la registre.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_cuentas_cliente (
+      codigo_cliente TEXT PRIMARY KEY,
+      rut_cliente TEXT,
+      nombre_cliente TEXT,
+      empresa_id INTEGER REFERENCES empresas(id),
+      es_cuenta_paso BOOLEAN NOT NULL DEFAULT false,
+      created_at TIMESTAMP DEFAULT now(),
+      actualizado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Control de la sincronización automática diaria de facturas pendientes
+  // (mismo patrón que reporte_softland_sync, para el botón/cron de
+  // "Actualizar desde Softland" de Cobranza).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_documentos_sync_ejecuciones (
+      fecha DATE PRIMARY KEY,
+      ejecutado_en TIMESTAMP NOT NULL DEFAULT now(),
+      ok BOOLEAN NOT NULL,
+      total INTEGER,
+      error TEXT
+    )
+  `);
+
+  // Control del aviso diario de cuentas de paso sin registrar (mismo patrón
+  // que postventa_vencidos_envios).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS cobranza_cuentas_paso_envios (
+      fecha DATE PRIMARY KEY,
+      enviado_en TIMESTAMP NOT NULL DEFAULT now(),
+      cantidad INTEGER NOT NULL
+    )
+  `);
+
   // Nota: factura_folio se mantiene como texto libre, sin FK. Se evaluó
   // agregar un FK real ahora que cobranza_documentos existe, pero esa tabla
   // se reemplaza por completo (DELETE + reinsert) en cada sincronización con
