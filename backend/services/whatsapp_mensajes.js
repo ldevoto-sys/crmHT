@@ -83,4 +83,28 @@ async function asignarSiSinVendedor(lead_id, vendedor_id) {
   );
 }
 
-module.exports = { registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual, asignarSiSinVendedor };
+// Evita repetir el aviso de "fuera de horario" en cada mensaje de una misma
+// racha fuera de horario (ver routes/public.js#procesarMensaje).
+async function yaAvisoFueraHorario(contacto_id) {
+  const c = await db.get('SELECT fuera_horario_enviado_en FROM whatsapp_conversaciones WHERE contacto_id = $1', [contacto_id]);
+  return !!c?.fuera_horario_enviado_en;
+}
+
+async function marcarAvisoFueraHorarioEnviado(contacto_id) {
+  await db.run(
+    `INSERT INTO whatsapp_conversaciones (contacto_id, fuera_horario_enviado_en) VALUES ($1, now())
+     ON CONFLICT (contacto_id) DO UPDATE SET fuera_horario_enviado_en = now()`,
+    [contacto_id]
+  );
+}
+
+// Se llama cada vez que se procesa un mensaje EN horario hábil, para que la
+// próxima racha fuera de horario vuelva a avisar.
+async function limpiarAvisoFueraHorario(contacto_id) {
+  await db.run(`UPDATE whatsapp_conversaciones SET fuera_horario_enviado_en = NULL WHERE contacto_id = $1`, [contacto_id]);
+}
+
+module.exports = {
+  registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual, asignarSiSinVendedor,
+  yaAvisoFueraHorario, marcarAvisoFueraHorarioEnviado, limpiarAvisoFueraHorario,
+};

@@ -303,12 +303,18 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS) {
       leadId = r.rows[0].id;
     }
     await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante });
-    if (cfg.activo_fuera_horario) {
+    // Una sola vez por racha fuera de horario, no en cada mensaje — ver
+    // whatsapp_mensajes.js#yaAvisoFueraHorario.
+    if (cfg.activo_fuera_horario && !(await mensajes.yaAvisoFueraHorario(contacto.id))) {
       await whatsapp.enviar(telefono_e164, cfg.mensaje_fuera_horario);
       await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'saliente', texto: cfg.mensaje_fuera_horario });
+      await mensajes.marcarAvisoFueraHorarioEnviado(contacto.id);
     }
     return;
   }
+  // De vuelta en horario hábil: limpia la marca para que la próxima racha
+  // fuera de horario avise de nuevo.
+  await mensajes.limpiarAvisoFueraHorario(contacto.id);
 
   if (!lead) {
     if (!cfg.activo_categorizacion) {
