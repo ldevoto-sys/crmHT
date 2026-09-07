@@ -121,6 +121,32 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
       GROUP BY 1, 2, 3, 4, 5
     `, [VENCOD_SIN_CODIGO]);
 
+    // Conversaciones de WhatsApp del mes, por vendedor: una conversación =
+    // un contacto distinto con al menos un mensaje ese mes (mismo criterio
+    // que ya usa whatsapp_conversaciones / GET /api/whatsapp/conversaciones
+    // — "conversación" es por contacto, no por lead, porque un mismo
+    // contacto puede generar varios leads con el tiempo sin ser en realidad
+    // una conversación nueva). El vendedor se resuelve por el lead más
+    // reciente de ese contacto, mismo criterio que routes/whatsapp.js.
+    // No tiene monto asociado (es un conteo de actividad, no de venta).
+    const whatsappCrm = await db.all(`
+      WITH contacto_mes AS (
+        SELECT DISTINCT contacto_id, date_part('year', created_at)::int AS anio, date_part('month', created_at)::int AS mes
+        FROM whatsapp_mensajes
+      )
+      SELECT cm.anio, cm.mes,
+             COALESCE(u.codigo_softland, $1) AS vencod,
+             u.nombre AS nombre_vendedor,
+             u.area AS area,
+             COUNT(*)::int AS whatsapp_cant
+      FROM contacto_mes cm
+      LEFT JOIN LATERAL (
+        SELECT vendedor_id FROM leads WHERE contacto_id = cm.contacto_id ORDER BY created_at DESC LIMIT 1
+      ) l ON true
+      LEFT JOIN users u ON u.id = l.vendedor_id
+      GROUP BY cm.anio, cm.mes, vencod, u.nombre, u.area
+    `, [VENCOD_SIN_CODIGO]);
+
     const filas = new Map();
     const clave = r => `${r.anio}-${r.mes}-${r.vencod}`;
     for (const r of base) {
@@ -129,6 +155,7 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
         cotizado_monto: Number(r.cotizado_monto), cotizado_cant: Number(r.cotizado_cant),
         cerrado_monto: Number(r.cerrado_monto), cerrado_cant: Number(r.cerrado_cant),
         facturado_monto: Number(r.facturado_monto), facturado_cant: Number(r.facturado_cant),
+        whatsapp_cant: 0,
       });
     }
     for (const r of cotizadoCrm) {
@@ -144,6 +171,22 @@ router.get('/reporte', authorize('administrador', 'jefe_comercial', 'vendedor', 
           anio: r.anio, mes: r.mes, vencod: r.vencod, nombre_vendedor: r.nombre_vendedor, area: r.area,
           cotizado_monto: Number(r.cotizado_monto), cotizado_cant: Number(r.cotizado_cant),
           cerrado_monto: 0, cerrado_cant: 0, facturado_monto: 0, facturado_cant: 0,
+          whatsapp_cant: 0,
+        });
+      }
+    }
+    for (const r of whatsappCrm) {
+      const k = clave(r);
+      const existente = filas.get(k);
+      if (existente) {
+        existente.whatsapp_cant = Number(r.whatsapp_cant);
+        if (!existente.nombre_vendedor) existente.nombre_vendedor = r.nombre_vendedor;
+        if (!existente.area) existente.area = resolverArea(r.vencod, r.area);
+      } else {
+        filas.set(k, {
+          anio: r.anio, mes: r.mes, vencod: r.vencod, nombre_vendedor: r.nombre_vendedor, area: resolverArea(r.vencod, r.area),
+          cotizado_monto: 0, cotizado_cant: 0, cerrado_monto: 0, cerrado_cant: 0, facturado_monto: 0, facturado_cant: 0,
+          whatsapp_cant: Number(r.whatsapp_cant),
         });
       }
     }

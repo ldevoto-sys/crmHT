@@ -21,12 +21,25 @@ function rangoMesEnCurso() {
   };
 }
 
-function StatTile({ titulo, monto, cantidad, colorClase }) {
+// modo="cantidad": para métricas sin monto asociado (ej. conversaciones de
+// WhatsApp, que son un conteo de actividad, no una venta) — el número
+// grande es la cantidad, no un monto en pesos. `unidad` es la etiqueta ya
+// formateada en singular/plural (la arma quien llama, ya que no toda
+// palabra pluraliza agregando "s"/"es").
+function StatTile({ titulo, monto, cantidad, colorClase, modo = 'monto', unidad }) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-5 flex-1 min-w-[220px]">
       <p className="text-sm text-gray-500 mb-1">{titulo}</p>
-      <p className={`text-2xl font-bold ${colorClase}`}>{money(monto)}</p>
-      <p className="text-xs text-gray-400 mt-1">{cantidad} {cantidad === 1 ? 'registro' : 'registros'}</p>
+      {modo === 'cantidad' ? (
+        <p className={`text-2xl font-bold ${colorClase}`}>
+          {cantidad} <span className="text-sm font-normal text-gray-400">{unidad}</span>
+        </p>
+      ) : (
+        <>
+          <p className={`text-2xl font-bold ${colorClase}`}>{money(monto)}</p>
+          <p className="text-xs text-gray-400 mt-1">{cantidad} {cantidad === 1 ? 'registro' : 'registros'}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -70,6 +83,9 @@ export default function Dashboard() {
   const nvCant = softlandMes.reduce((s, m) => s + Number(m.cerrado_cant || 0), 0);
   const facturasMonto = softlandMes.reduce((s, m) => s + Number(m.facturado_monto || 0), 0);
   const facturasCant = softlandMes.reduce((s, m) => s + Number(m.facturado_cant || 0), 0);
+  // whatsapp_cant viene en el mismo /softland/reporte (sección "conversaciones
+  // por vendedor" del backend) — no depende de un endpoint aparte.
+  const whatsappCant = softlandMes.reduce((s, m) => s + Number(m.whatsapp_cant || 0), 0);
 
   const totalCotizado = datos.reduce((s, d) => s + Number(d.cotizaciones_monto || 0), 0);
   const totalGanado = datos.reduce((s, d) => s + Number(d.ganados_monto || 0), 0);
@@ -98,6 +114,10 @@ export default function Dashboard() {
         <StatTile titulo="Cerrado ganado en el mes" monto={totalGanado} cantidad={cantGanado} colorClase="text-ht-navy" />
         {softland && <StatTile titulo="Notas de venta del mes (Softland)" monto={nvMonto} cantidad={nvCant} colorClase="text-amber-600" />}
         {softland && <StatTile titulo="Facturas del mes (Softland)" monto={facturasMonto} cantidad={facturasCant} colorClase="text-emerald-600" />}
+        {softland && (
+          <StatTile titulo="Conversaciones WhatsApp del mes" cantidad={whatsappCant} colorClase="text-ht-accent" modo="cantidad"
+            unidad={whatsappCant === 1 ? 'conversación' : 'conversaciones'} />
+        )}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
