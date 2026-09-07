@@ -18,6 +18,7 @@ export default function BandejaWhatsApp() {
   const { user } = useAuth();
   const [conversaciones, setConversaciones] = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [usuariosFiltro, setUsuariosFiltro] = useState([]);
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
@@ -67,6 +68,7 @@ export default function BandejaWhatsApp() {
   };
 
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
+  useEffect(() => { api.get('/users/activos').then(r => setUsuariosFiltro(r.data)).catch(() => {}); }, []);
   useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
 
   // Refresco periódico simple: lista cada 15s, hilo abierto cada 8s.
@@ -253,8 +255,8 @@ export default function BandejaWhatsApp() {
           className="border border-gray-300 rounded px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
           className="border border-gray-300 rounded px-2 py-1.5 text-sm">
-          <option value="">Todos los vendedores</option>
-          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+          <option value="">Todos los usuarios</option>
+          {usuariosFiltro.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
         </select>
         <div className="flex gap-1 flex-wrap">
           {ESTADOS.map(e => (
