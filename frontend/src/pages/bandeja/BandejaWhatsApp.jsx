@@ -22,6 +22,7 @@ export default function BandejaWhatsApp() {
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
   const [verArchivadas, setVerArchivadas] = useState(false);
+  const [soloNoLeidos, setSoloNoLeidos] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
@@ -113,10 +114,13 @@ export default function BandejaWhatsApp() {
   // Búsqueda libre en el lado del cliente (la lista ya viene acotada a 300
   // conversaciones desde el backend) — sin distinguir mayúsculas ni tildes.
   const terminoBusqueda = normalizar(busqueda.trim());
-  const conversacionesFiltradas = terminoBusqueda
-    ? conversaciones.filter(c => [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
-        .some(campo => normalizar(campo).includes(terminoBusqueda)))
-    : conversaciones;
+  const conversacionesFiltradas = conversaciones.filter(c => {
+    if (soloNoLeidos && !c.no_leido) return false;
+    if (!terminoBusqueda) return true;
+    return [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
+      .some(campo => normalizar(campo).includes(terminoBusqueda));
+  });
+  const cantidadNoLeidos = conversaciones.filter(c => c.no_leido).length;
 
   // Búsqueda dentro de la conversación abierta: mensajes cuyo texto contiene
   // el término (mismo criterio sin mayúsculas/tildes que el buscador de
@@ -264,6 +268,10 @@ export default function BandejaWhatsApp() {
               className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
           ))}
         </div>
+        <button onClick={() => setSoloNoLeidos(v => !v)}
+          className={`text-sm px-3 py-1.5 rounded ${soloNoLeidos ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {soloNoLeidos ? '✓ No leídos' : `No leídos${cantidadNoLeidos ? ` (${cantidadNoLeidos})` : ''}`}
+        </button>
         <button onClick={() => { setSeleccionada(null); setVerArchivadas(v => !v); }}
           className={`text-sm px-3 py-1.5 rounded ${verArchivadas ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {verArchivadas ? '✓ Archivadas' : 'Archivadas'}
