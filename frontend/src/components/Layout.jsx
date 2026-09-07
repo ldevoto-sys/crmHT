@@ -71,6 +71,8 @@ const menuByRole = {
   ],
   callcenter: [
     { label: 'Dashboard', to: '/dashboard' },
+    { label: 'Pipeline', to: '/pipeline' },
+    { label: 'Cotizaciones', to: '/cotizaciones' },
     { label: 'Bandeja WhatsApp', to: '/bandeja' },
     { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Empresas', to: '/empresas' },

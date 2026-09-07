@@ -15,8 +15,13 @@ const mensajes = require('./whatsapp_mensajes');
 // envía el siguiente mensaje de recontacto, o cierra el lead si ya se
 // enviaron todos los pasos configurados.
 async function avanzarRecontactosPendientes() {
+  // vendedor_id IS NULL — defensa adicional (07-09-2026): si un lead quedó
+  // asignado manualmente mientras seguía en bot_estado='esperando_categoria'
+  // (antes de que /leads/:id/asignar y el auto-sync al cotizar empezaran a
+  // marcarlo 'derivado'), no debe seguir "trabajándolo" el bot ni terminar
+  // cerrándolo por esta vía — ya tiene dueño humano.
   const pendientes = await db.all(
-    `SELECT * FROM leads WHERE bot_estado IN ('esperando_categoria','recontactando') AND bot_proxima_accion <= now()`
+    `SELECT * FROM leads WHERE bot_estado IN ('esperando_categoria','recontactando') AND bot_proxima_accion <= now() AND vendedor_id IS NULL`
   );
   if (!pendientes.length) return { procesados: 0, enviados: 0, cerrados: 0 };
 

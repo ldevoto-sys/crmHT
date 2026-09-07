@@ -121,19 +121,19 @@ export default function App() {
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleNegocio /></ProtectedRoute>
             } />
             <Route path="negocios/:negocioId/cotizar" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
             } />
             <Route path="cotizaciones" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><Cotizaciones /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><Cotizaciones /></ProtectedRoute>
             } />
             <Route path="cotizaciones/nueva" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
             } />
             <Route path="cotizaciones/:id" element={
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleCotizacion /></ProtectedRoute>
             } />
             <Route path="cotizaciones/:cotizacionId/editar" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor']}><NuevaCotizacion /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
             } />
 
             {/* Etapa 3 — Tareas y reportes */}

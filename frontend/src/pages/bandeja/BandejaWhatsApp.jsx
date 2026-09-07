@@ -9,10 +9,10 @@ const fecha = formatFechaHora;
 const ESTADOS = ['todos', 'nuevo', 'asignado', 'convertido', 'descartado'];
 const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
 const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
-// Mismo criterio que el backend (routes/leads.js POST /:id/asignar): estos
-// roles pueden asignar el lead a cualquier vendedor; un vendedor solo puede
-// asignárselo a sí mismo (ver botón "Asignarme" más abajo).
-const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callcenter'];
+// Mismo criterio que el backend (routes/leads.js POST /:id/asignar): solo
+// quien reparte leads puede asignarlos — un vendedor no puede asignarse
+// leads ni a sí mismo ni a otros (política 07-09-2026).
+const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
 
 export default function BandejaWhatsApp() {
   const { user } = useAuth();
@@ -335,10 +335,6 @@ export default function BandejaWhatsApp() {
                         <span className={conversacionActual?.vendedor_id ? 'text-ht-navy font-medium' : 'text-gray-500'}>
                           {conversacionActual?.vendedor_nombre || 'Sin asignar'}
                         </span>
-                      )}
-                      {user?.rol === 'vendedor' && !conversacionActual?.vendedor_id && (
-                        <button onClick={() => asignarLead(conversacionActual?.lead_id, user.id)}
-                          className="text-ht-accent hover:underline">Asignarme</button>
                       )}
                     </div>
                   </div>
