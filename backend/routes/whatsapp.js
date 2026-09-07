@@ -90,14 +90,19 @@ router.get('/conversaciones', async (req, res) => {
 });
 
 // GET /api/whatsapp/no-leidos/cantidad — contador liviano para el badge del
-// menú lateral (Layout.jsx), independiente de si la Bandeja está abierta.
+// menú lateral (Layout.jsx) y para el botón "No leídos" de la Bandeja,
+// independiente de si la Bandeja está abierta.
+// A diferencia de puedeVerTodo() (que rige qué conversaciones puede navegar
+// un vendedor y depende del toggle bandeja_acceso), lo no leído de un
+// vendedor siempre se acota a lo suyo — administrador/jefe_comercial/
+// callcenter/gerencia siempre ven el total (política 07-09-2026).
 router.get('/no-leidos/cantidad', async (req, res) => {
   try {
-    const verTodo = await puedeVerTodo(req);
+    const soloPropios = req.user.rol === 'vendedor';
     const clauses = [`COALESCE(wc.archivada, false) = false`,
       `ult.direccion = 'entrante'`, `(wl.leido_en IS NULL OR ult.created_at > wl.leido_en)`];
     const params = [req.user.id]; // $1 para wl.usuario_id
-    if (!verTodo) { clauses.push(`l.vendedor_id = $2`); params.push(req.user.id); }
+    if (soloPropios) { clauses.push(`l.vendedor_id = $2`); params.push(req.user.id); }
 
     const fila = await db.get(
       `SELECT COUNT(*)::int AS cantidad

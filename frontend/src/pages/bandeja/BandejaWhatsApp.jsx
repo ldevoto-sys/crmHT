@@ -24,6 +24,7 @@ export default function BandejaWhatsApp() {
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
   const [verArchivadas, setVerArchivadas] = useState(false);
   const [soloNoLeidos, setSoloNoLeidos] = useState(false);
+  const [cantidadNoLeidos, setCantidadNoLeidos] = useState(0);
   const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
@@ -48,9 +49,18 @@ export default function BandejaWhatsApp() {
       if (filtroEstado !== 'todos') params.estado = filtroEstado;
       if (filtroAbierta !== 'todas') params.abierta = filtroAbierta === 'abiertas';
       if (verArchivadas) params.archivadas = true;
+      // Un vendedor viendo "No leídos" siempre ve solo lo suyo, sin importar
+      // el filtro de usuario elegido — administrador/jefe_comercial/
+      // callcenter/gerencia sí ven el total (política 07-09-2026).
+      if (soloNoLeidos && user?.rol === 'vendedor') params.vendedor_id = user.id;
       const { data } = await api.get('/whatsapp/conversaciones', { params });
       setConversaciones(data);
     } catch { setError('No se pudieron cargar las conversaciones.'); }
+  };
+
+  const cargarCantidadNoLeidos = async () => {
+    try { setCantidadNoLeidos((await api.get('/whatsapp/no-leidos/cantidad')).data.cantidad); }
+    catch { /* el badge del menú lateral usa el mismo endpoint; si falla acá, se ignora */ }
   };
 
   const asignarLead = async (leadId, vendedorId) => {
@@ -69,21 +79,24 @@ export default function BandejaWhatsApp() {
 
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
   useEffect(() => { api.get('/users/activos').then(r => setUsuariosFiltro(r.data)).catch(() => {}); }, []);
-  useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
+  useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas, soloNoLeidos]);
+  useEffect(() => { cargarCantidadNoLeidos(); }, []);
 
   // Refresco periódico simple: lista cada 15s, hilo abierto cada 8s.
   useEffect(() => {
-    const t = setInterval(cargarConversaciones, 15000);
+    const t = setInterval(() => { cargarConversaciones(); cargarCantidadNoLeidos(); }, 15000);
     return () => clearInterval(t);
-  }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
+  }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas, soloNoLeidos]);
 
   useEffect(() => {
     setBusquedaHilo('');
     if (!seleccionada) return;
     cargarHilo(seleccionada);
     // Marca la conversación como leída (apaga su indicador de no leído) —
-    // optimista en la lista local, y confirmado en el próximo refresco.
+    // optimista en la lista local y en el contador, confirmado en el próximo refresco.
+    const eraNoLeido = conversaciones.find(c => c.contacto_id === seleccionada)?.no_leido;
     setConversaciones(cs => cs.map(c => c.contacto_id === seleccionada ? { ...c, no_leido: false } : c));
+    if (eraNoLeido) setCantidadNoLeidos(n => Math.max(0, n - 1));
     api.post(`/whatsapp/conversaciones/${seleccionada}/marcar-leido`).catch(() => {});
     const t = setInterval(() => cargarHilo(seleccionada), 8000);
     return () => clearInterval(t);
@@ -122,7 +135,6 @@ export default function BandejaWhatsApp() {
     return [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
       .some(campo => normalizar(campo).includes(terminoBusqueda));
   });
-  const cantidadNoLeidos = conversaciones.filter(c => c.no_leido).length;
 
   // Búsqueda dentro de la conversación abierta: mensajes cuyo texto contiene
   // el término (mismo criterio sin mayúsculas/tildes que el buscador de
