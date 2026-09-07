@@ -104,8 +104,12 @@ router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callce
     }
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
-    const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true AND rol='vendedor'`, [vendedor_id]);
-    if (!v) return res.status(400).json({ error: 'Vendedor inválido' });
+    // No se exige rol='vendedor': mismo criterio que ya usan contactos.js y
+    // empresas.js para su propio vendedor_id — cualquier usuario activo
+    // puede quedar como dueño (ej. un administrador que también responde
+    // WhatsApp y cotiza).
+    const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true`, [vendedor_id]);
+    if (!v) return res.status(400).json({ error: 'Usuario inválido' });
     const modo = Number(vendedor_id) === lead.vendedor_sugerido_id ? 'sugerida_confirmada' : 'sugerida_cambiada';
     await db.run('UPDATE leads SET vendedor_id=$1, estado=\'asignado\', asignacion_modo=$2 WHERE id=$3', [vendedor_id, modo, req.params.id]);
     res.json({ message: 'Lead asignado', modo });

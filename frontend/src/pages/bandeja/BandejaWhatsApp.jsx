@@ -329,7 +329,7 @@ export default function BandejaWhatsApp() {
                           onChange={e => e.target.value && asignarLead(conversacionActual?.lead_id, e.target.value)}
                           className="border border-gray-300 rounded px-1 py-0.5 text-xs">
                           <option value="">Sin asignar</option>
-                          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                          {usuariosFiltro.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
                         </select>
                       ) : (
                         <span className={conversacionActual?.vendedor_id ? 'text-ht-navy font-medium' : 'text-gray-500'}>
