@@ -90,24 +90,33 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/leads/:id/asignar {vendedor_id} — confirma/cambia sugerencia
-// (admin/jefe_comercial/callcenter, a cualquiera) o un vendedor tomando una
-// conversación sin dueño desde la Bandeja WhatsApp (solo a sí mismo — mismo
-// criterio que la asignación automática al responder, ver
-// services/whatsapp_mensajes.js#asignarSiSinVendedor).
-router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callcenter', 'vendedor'), async (req, res) => {
+// POST /api/leads/:id/asignar {vendedor_id} — confirma/cambia sugerencia,
+// o asigna a cualquiera. Solo quien reparte leads puede hacerlo (política
+// 07-09-2026): administrador, jefe_comercial, callcenter o gerencia — un
+// vendedor no puede asignarse leads a sí mismo ni a otros.
+router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callcenter', 'gerencia'), async (req, res) => {
   try {
     const { vendedor_id } = req.body;
     if (!vendedor_id) return res.status(400).json({ error: 'vendedor_id requerido' });
-    if (req.user.rol === 'vendedor' && Number(vendedor_id) !== req.user.id) {
-      return res.status(403).json({ error: 'Un vendedor solo puede asignarse a sí mismo' });
-    }
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
-    const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true AND rol='vendedor'`, [vendedor_id]);
-    if (!v) return res.status(400).json({ error: 'Vendedor inválido' });
+    // No se exige rol='vendedor': mismo criterio que ya usan contactos.js y
+    // empresas.js para su propio vendedor_id — cualquier usuario activo
+    // puede quedar como dueño (ej. un administrador que también responde
+    // WhatsApp y cotiza).
+    const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true`, [vendedor_id]);
+    if (!v) return res.status(400).json({ error: 'Usuario inválido' });
     const modo = Number(vendedor_id) === lead.vendedor_sugerido_id ? 'sugerida_confirmada' : 'sugerida_cambiada';
-    await db.run('UPDATE leads SET vendedor_id=$1, estado=\'asignado\', asignacion_modo=$2 WHERE id=$3', [vendedor_id, modo, req.params.id]);
+    // bot_estado='derivado' (y se limpia bot_proxima_accion): si no se marca,
+    // el bot de WhatsApp (routes/public.js#procesarMensaje) no reconoce este
+    // lead como "ya resuelto" en el próximo mensaje del cliente y crea uno
+    // nuevo sin dueño para el mismo contacto — la Bandeja muestra siempre el
+    // lead más reciente, así que ese lead huérfano tapa a este ya asignado
+    // (causa raíz de "el chat se desasigna solo", corregido 07-09-2026).
+    await db.run(
+      `UPDATE leads SET vendedor_id=$1, estado='asignado', asignacion_modo=$2, bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$3`,
+      [vendedor_id, modo, req.params.id]
+    );
     res.json({ message: 'Lead asignado', modo });
   } catch (err) {
     console.error('[leads/asignar]', err);

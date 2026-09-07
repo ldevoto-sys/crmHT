@@ -9,19 +9,21 @@ const fecha = formatFechaHora;
 const ESTADOS = ['todos', 'nuevo', 'asignado', 'convertido', 'descartado'];
 const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
 const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
-// Mismo criterio que el backend (routes/leads.js POST /:id/asignar): estos
-// roles pueden asignar el lead a cualquier vendedor; un vendedor solo puede
-// asignárselo a sí mismo (ver botón "Asignarme" más abajo).
-const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callcenter'];
+// Mismo criterio que el backend (routes/leads.js POST /:id/asignar): solo
+// quien reparte leads puede asignarlos — un vendedor no puede asignarse
+// leads ni a sí mismo ni a otros (política 07-09-2026).
+const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
 
 export default function BandejaWhatsApp() {
   const { user } = useAuth();
   const [conversaciones, setConversaciones] = useState([]);
   const [vendedores, setVendedores] = useState([]);
+  const [usuariosFiltro, setUsuariosFiltro] = useState([]);
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [filtroAbierta, setFiltroAbierta] = useState('todas');
   const [verArchivadas, setVerArchivadas] = useState(false);
+  const [soloNoLeidos, setSoloNoLeidos] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [seleccionada, setSeleccionada] = useState(null); // contacto_id
   const [hilo, setHilo] = useState([]);
@@ -66,6 +68,7 @@ export default function BandejaWhatsApp() {
   };
 
   useEffect(() => { api.get('/users/vendedores').then(r => setVendedores(r.data)).catch(() => {}); }, []);
+  useEffect(() => { api.get('/users/activos').then(r => setUsuariosFiltro(r.data)).catch(() => {}); }, []);
   useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas]);
 
   // Refresco periódico simple: lista cada 15s, hilo abierto cada 8s.
@@ -113,10 +116,13 @@ export default function BandejaWhatsApp() {
   // Búsqueda libre en el lado del cliente (la lista ya viene acotada a 300
   // conversaciones desde el backend) — sin distinguir mayúsculas ni tildes.
   const terminoBusqueda = normalizar(busqueda.trim());
-  const conversacionesFiltradas = terminoBusqueda
-    ? conversaciones.filter(c => [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
-        .some(campo => normalizar(campo).includes(terminoBusqueda)))
-    : conversaciones;
+  const conversacionesFiltradas = conversaciones.filter(c => {
+    if (soloNoLeidos && !c.no_leido) return false;
+    if (!terminoBusqueda) return true;
+    return [c.contacto_nombre, c.contacto_apellido, c.empresa_razon_social, c.telefono_e164]
+      .some(campo => normalizar(campo).includes(terminoBusqueda));
+  });
+  const cantidadNoLeidos = conversaciones.filter(c => c.no_leido).length;
 
   // Búsqueda dentro de la conversación abierta: mensajes cuyo texto contiene
   // el término (mismo criterio sin mayúsculas/tildes que el buscador de
@@ -249,8 +255,8 @@ export default function BandejaWhatsApp() {
           className="border border-gray-300 rounded px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
         <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}
           className="border border-gray-300 rounded px-2 py-1.5 text-sm">
-          <option value="">Todos los vendedores</option>
-          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+          <option value="">Todos los usuarios</option>
+          {usuariosFiltro.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
         </select>
         <div className="flex gap-1 flex-wrap">
           {ESTADOS.map(e => (
@@ -264,6 +270,10 @@ export default function BandejaWhatsApp() {
               className={`text-sm px-3 py-1.5 rounded capitalize ${filtroAbierta === a ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>{a}</button>
           ))}
         </div>
+        <button onClick={() => setSoloNoLeidos(v => !v)}
+          className={`text-sm px-3 py-1.5 rounded ${soloNoLeidos ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+          {soloNoLeidos ? '✓ No leídos' : `No leídos${cantidadNoLeidos ? ` (${cantidadNoLeidos})` : ''}`}
+        </button>
         <button onClick={() => { setSeleccionada(null); setVerArchivadas(v => !v); }}
           className={`text-sm px-3 py-1.5 rounded ${verArchivadas ? 'bg-ht-accent text-ht-navy' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
           {verArchivadas ? '✓ Archivadas' : 'Archivadas'}
@@ -319,16 +329,12 @@ export default function BandejaWhatsApp() {
                           onChange={e => e.target.value && asignarLead(conversacionActual?.lead_id, e.target.value)}
                           className="border border-gray-300 rounded px-1 py-0.5 text-xs">
                           <option value="">Sin asignar</option>
-                          {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+                          {usuariosFiltro.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
                         </select>
                       ) : (
                         <span className={conversacionActual?.vendedor_id ? 'text-ht-navy font-medium' : 'text-gray-500'}>
                           {conversacionActual?.vendedor_nombre || 'Sin asignar'}
                         </span>
-                      )}
-                      {user?.rol === 'vendedor' && !conversacionActual?.vendedor_id && (
-                        <button onClick={() => asignarLead(conversacionActual?.lead_id, user.id)}
-                          className="text-ht-accent hover:underline">Asignarme</button>
                       )}
                     </div>
                   </div>

@@ -121,9 +121,11 @@ async function avanzarAEtapaCotizado(client, negocio, usuarioId) {
   });
 }
 
-// Visibilidad (§5 matriz de permisos v1.6): admin/jefe comercial/gerencia ven todas;
-// vendedor solo las suyas; call center no tiene acceso a cotizaciones.
-const PUEDE_VER_TODAS = ['administrador', 'jefe_comercial', 'gerencia'];
+// Visibilidad (matriz de permisos, actualizada 07-09-2026): admin/jefe
+// comercial/gerencia/call center ven todas; vendedor solo las suyas. Call
+// center pasó a tener acceso completo (antes no tenía ninguno) porque
+// también cotiza sobre los negocios que gestiona.
+const PUEDE_VER_TODAS = ['administrador', 'jefe_comercial', 'gerencia', 'callcenter'];
 function puedeVer(negocio, user) {
   if (PUEDE_VER_TODAS.includes(user.rol)) return true;
   return user.rol === 'vendedor' && negocio && negocio.vendedor_id === user.id;
@@ -555,7 +557,7 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
 });
 
 // POST /api/cotizaciones — nueva cotización (versión 1)
-router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   const { negocio_id, items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
   const titulo = mayusculas(req.body.titulo);
   if (!negocio_id) return res.status(400).json({ error: 'negocio_id requerido' });
@@ -620,16 +622,24 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
     }
     await sincronizarMontoEstimado(client, negocio_id, neto);
     await avanzarAEtapaCotizado(client, negocio, req.user.id);
-    // Si el negocio viene de un lead de WhatsApp sin vendedor asignado (nunca
-    // completó el menú de categorización del bot), mandarle una cotización es
-    // justo el momento en que un vendedor lo toma — se asigna acá también, no
-    // solo al responder mensajes (02-09-2026, mismo caso reportado). No pisa
-    // una asignación ya existente.
-    if (req.user.rol === 'vendedor') {
+    // Si el negocio ya tiene dueño propio (llegó por conversión de otro lead,
+    // o se creó directo) pero el lead de WhatsApp más reciente del mismo
+    // contacto sigue sin vendedor_id (nunca completó el menú de
+    // categorización del bot), se sincroniza para que quede consistente — no
+    // es una asignación nueva, se usa el dueño que el negocio YA tiene
+    // (negocio.vendedor_id, no quien está cotizando), así que no depende del
+    // rol de quien cotiza. bot_estado se marca 'derivado' (y se limpia
+    // bot_proxima_accion): si no, el bot de WhatsApp no reconoce este lead
+    // como "ya resuelto" en el próximo mensaje del cliente y crea uno nuevo
+    // sin dueño para el mismo contacto — la Bandeja muestra siempre el lead
+    // más reciente, así que ese lead huérfano tapa a este ya asignado (causa
+    // raíz de "el chat se desasigna solo", corregido 07-09-2026).
+    if (negocio.vendedor_id) {
       await client.query(
-        `UPDATE leads SET vendedor_id = $2, estado = 'asignado', asignacion_modo = 'tomada_en_bandeja'
+        `UPDATE leads SET vendedor_id = $2, estado = 'asignado', asignacion_modo = 'tomada_en_bandeja',
+                bot_estado = 'derivado', bot_proxima_accion = NULL
          WHERE id = (SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1) AND vendedor_id IS NULL`,
-        [negocio.contacto_id, req.user.id]
+        [negocio.contacto_id, negocio.vendedor_id]
       );
     }
     await client.query('COMMIT');
@@ -644,7 +654,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
 });
 
 // PUT /api/cotizaciones/:id — edita una cotización en estado 'borrador' (incl. luego de "nueva versión")
-router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
   const titulo = mayusculas(req.body.titulo);
   if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
@@ -715,7 +725,7 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor'), asy
 });
 
 // POST /api/cotizaciones/:id/nueva-version — clona ítems en version+1; la anterior queda 'reemplazada'
-router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   const negocio = await negocioDe(req.params.id);
   if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
   if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede versionar' });

@@ -43,6 +43,22 @@ router.get('/vendedores', async (req, res) => {
   }
 });
 
+// GET /api/users/activos — todos los usuarios activos, cualquier rol (para
+// filtros de listados, ej. Bandeja WhatsApp, donde se quiere poder filtrar
+// por cualquier persona del equipo, no solo por vendedores). Distinto de
+// /vendedores: ese es para asignación real de leads (solo rol vendedor).
+router.get('/activos', async (req, res) => {
+  try {
+    const users = await db.all(
+      `SELECT id, nombre, rol FROM users WHERE activo = true ORDER BY nombre`
+    );
+    res.json(users);
+  } catch (err) {
+    console.error('[users/GET /activos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // GET /api/users/con-cotizaciones — usuarios activos que son dueños de al
 // menos un negocio con al menos una cotización emitida, sin importar su rol
 // (ej. un administrador que también cotiza). Distinto de /vendedores: ese es
