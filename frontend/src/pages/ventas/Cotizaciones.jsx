@@ -4,7 +4,7 @@ import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatFecha } from '../../utils/fecha';
 
-const PUEDE_COTIZAR = ['administrador', 'jefe_comercial', 'vendedor'];
+const PUEDE_COTIZAR = ['administrador', 'jefe_comercial', 'vendedor', 'callcenter'];
 const PUEDE_FILTRAR_VENDEDOR = ['administrador', 'jefe_comercial', 'gerencia'];
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
