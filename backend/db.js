@@ -1627,6 +1627,16 @@ async function initDb() {
   `);
   await db.run('CREATE INDEX IF NOT EXISTS idx_softland_facturas_anio_mes ON reporte_softland_facturas (anio, mes)');
 
+  // Sugerencias de facturación (nota de cambio v1.33): vínculo opcional
+  // factura Softland → negocio del CRM. negocio_id se llena solo cuando una
+  // persona confirma la sugerencia (nunca automático — ver
+  // services/sugerenciasFacturacion.js); revisado_en queda seteado tanto al
+  // confirmar como al descartar, para no volver a ofrecer una factura ya
+  // resuelta.
+  await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS negocio_id INTEGER REFERENCES negocios(id)`);
+  await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS revisado_por_id INTEGER REFERENCES users(id)`);
+  await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS revisado_en TIMESTAMP`);
+
   // Control de backfill histórico: cada dataset de Softland con historial
   // "congelado" (no cambia una vez pasados ~2 meses) se consulta completo
   // UNA sola vez; de ahí en adelante la sincronización nocturna solo repite

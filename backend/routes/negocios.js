@@ -8,6 +8,7 @@ const secuencias = require('../services/secuencias');
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
+const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
 const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
@@ -63,6 +64,18 @@ router.get('/', async (req, res) => {
        ORDER BY n.ultima_actividad DESC LIMIT 1000`,
       params
     );
+
+    // Sugerencias de facturación pendientes (v1.33): se pintan como badge en
+    // la tarjeta del Pipeline, mismas candidatas que la pestaña dedicada de
+    // Reportería Softland — ver services/sugerenciasFacturacion.js.
+    const sugerenciasPorNegocio = await sugerenciasFacturacion.candidatosPorNegocio();
+    if (sugerenciasPorNegocio.size) {
+      for (const n of negocios) {
+        const s = sugerenciasPorNegocio.get(n.id);
+        if (s) n.sugerencias_factura = s;
+      }
+    }
+
     res.json(negocios);
   } catch (err) {
     console.error('[negocios/GET /]', err);
@@ -230,76 +243,91 @@ router.put('/:id', async (req, res) => {
 });
 
 // PUT /api/negocios/:id/etapa — mover de etapa (kanban)
+// Núcleo de "cambiar de etapa" (historial, timeline, secuencias, encuesta de
+// satisfacción al llegar a una etapa 'ganada') — sin el chequeo de dueño
+// (puedeEditar), que es específico de la ruta de abajo. Reutilizado por
+// /sugerencias-facturacion/:folio/confirmar (routes/softland.js, v1.33)
+// para que confirmar una sugerencia dispare exactamente lo mismo que mover
+// la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
+// `.status` para que el caller los traduzca a la respuesta HTTP.
+async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle } = {}, usuarioId) {
+  const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
+  if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
+
+  const negocio = await db.get(
+    `SELECT n.*, pe.nombre AS etapa_nombre, pe.secuencia_id AS etapa_anterior_secuencia_id
+     FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [negocioId]);
+  if (!negocio) { const e = new Error('Negocio no encontrado'); e.status = 404; throw e; }
+  if (etapa.pipeline_id !== negocio.pipeline_id) {
+    const e = new Error('Esa etapa pertenece a otro pipeline. Usa "Mover a otro pipeline" primero.'); e.status = 400; throw e;
+  }
+  if (etapa.tipo === 'perdida' && !causa_no_cierre_id) {
+    const e = new Error('La causa de no cierre es obligatoria al marcar perdido'); e.status = 400; throw e;
+  }
+
+  const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
+  await db.run(
+    `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
+            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now()
+     WHERE id=$6`,
+    [etapa.id, etapa.probabilidad_cierre,
+     etapa.tipo === 'perdida' ? causa_no_cierre_id : null,
+     etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
+     cierra ? new Date().toISOString() : null, negocioId]
+  );
+  if (etapa.id !== negocio.etapa_id) {
+    await db.run(
+      'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
+      [negocioId]
+    );
+    await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocioId, etapa.id]);
+  }
+  await timeline.registrar({
+    contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
+    tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: usuarioId,
+  });
+
+  await secuencias.alCambiarEtapa({
+    negocio,
+    etapaAnterior: negocio.etapa_id ? { secuencia_id: negocio.etapa_anterior_secuencia_id } : null,
+    etapaNueva: etapa,
+    usuarioId,
+    origenDescripcion: 'al entrar a la etapa',
+  });
+
+  if (etapa.tipo === 'ganada') {
+    const token = crypto.randomBytes(16).toString('hex');
+    const r = await db.run(
+      `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2)
+       ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
+      [negocioId, token]
+    );
+    if (r.rows[0]) {
+      await db.run(
+        `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
+         VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
+        [
+          'Enviar encuesta de satisfacción al cliente',
+          `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
+          negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, negocioId,
+        ]
+      );
+    }
+  }
+
+  return { negocio, etapa };
+}
+
 router.put('/:id/etapa', async (req, res) => {
   try {
-    const { etapa_id, causa_no_cierre_id, causa_no_cierre_detalle } = req.body;
-    const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapa_id]);
-    if (!etapa) return res.status(400).json({ error: 'Etapa inválida' });
+    const negocioActual = await db.get('SELECT * FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocioActual) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeEditar(negocioActual, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-    const negocio = await db.get(
-      `SELECT n.*, pe.nombre AS etapa_nombre, pe.secuencia_id AS etapa_anterior_secuencia_id
-       FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id WHERE n.id = $1`, [req.params.id]);
-    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
-    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
-    if (etapa.pipeline_id !== negocio.pipeline_id) {
-      return res.status(400).json({ error: 'Esa etapa pertenece a otro pipeline. Usa "Mover a otro pipeline" primero.' });
-    }
-
-    if (etapa.tipo === 'perdida' && !causa_no_cierre_id) {
-      return res.status(400).json({ error: 'La causa de no cierre es obligatoria al marcar perdido' });
-    }
-    const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
-    await db.run(
-      `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
-              causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now()
-       WHERE id=$6`,
-      [etapa.id, etapa.probabilidad_cierre,
-       etapa.tipo === 'perdida' ? causa_no_cierre_id : null,
-       etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
-       cierra ? new Date().toISOString() : null, req.params.id]
-    );
-    if (etapa.id !== negocio.etapa_id) {
-      await db.run(
-        'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
-        [req.params.id]
-      );
-      await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [req.params.id, etapa.id]);
-    }
-    await timeline.registrar({
-      contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id,
-      tipo: 'cambio_etapa', descripcion: `Etapa: ${negocio.etapa_nombre || '—'} → ${etapa.nombre}`, usuario_id: req.user.id,
-    });
-
-    await secuencias.alCambiarEtapa({
-      negocio,
-      etapaAnterior: negocio.etapa_id ? { secuencia_id: negocio.etapa_anterior_secuencia_id } : null,
-      etapaNueva: etapa,
-      usuarioId: req.user.id,
-      origenDescripcion: 'al entrar a la etapa',
-    });
-
-    if (etapa.tipo === 'ganada') {
-      const token = crypto.randomBytes(16).toString('hex');
-      const r = await db.run(
-        `INSERT INTO encuestas (negocio_id, token_publico) VALUES ($1,$2)
-         ON CONFLICT (negocio_id) DO NOTHING RETURNING id`,
-        [req.params.id, token]
-      );
-      if (r.rows[0]) {
-        await db.run(
-          `INSERT INTO tareas (titulo, descripcion, fecha_vencimiento, asignado_a_id, creado_por_id, contacto_id, empresa_id, negocio_id)
-           VALUES ($1,$2,now(),$3,$3,$4,$5,$6)`,
-          [
-            'Enviar encuesta de satisfacción al cliente',
-            `Comparte este link con el cliente: ${process.env.APP_URL || ''}/encuesta/${token}`,
-            negocio.vendedor_id, negocio.contacto_id, negocio.empresa_id, req.params.id,
-          ]
-        );
-      }
-    }
-
+    await cambiarEtapaNegocio(req.params.id, req.body.etapa_id, req.body, req.user.id);
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('[negocios/PUT /:id/etapa]', err);
     res.status(500).json({ error: 'Error interno' });
   }
@@ -1106,3 +1134,4 @@ router.post('/actualizar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uplo
 });
 
 module.exports = router;
+module.exports.cambiarEtapaNegocio = cambiarEtapaNegocio;
