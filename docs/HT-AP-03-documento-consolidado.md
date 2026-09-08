@@ -60,7 +60,13 @@ de Cotizaciones/NV/Facturas y su sincronización con backfill único +
 ventana viva (§9/§13/§14), la unificación de "Reportes" en una sola
 sección del menú, las tarjetas de Notas de Venta/Facturas del mes en el
 Dashboard (§9), y el estado de habilitación de WhatsApp Business Platform
-con Meta, incluido el bloqueo pendiente por cuenta desactivada (§11). Este
+con Meta, incluido el bloqueo pendiente por cuenta desactivada (§11); y de
+v1.32 (07 al 08-09-2026): en la Bandeja WhatsApp, el filtro "No leídos" de
+un vendedor queda siempre acotado a lo propio, sin importar el toggle
+general de acceso (§11); y en Dashboard/Reportería, la tarjeta y columnas
+de **Conversaciones de WhatsApp del mes** más el nuevo **Embudo comercial**
+(Conversaciones → Cotizaciones → Notas de venta → Facturas, en cantidad y
+en monto, por vendedor/área) (§9). Este
 documento es el que debe subirse a SharePoint reemplazando la versión
 anterior del documento base.
 
@@ -789,6 +795,22 @@ puede cambiar — ver detalle completo en la nota de cambio v1.31 y en §13
 agrega tarjetas de Notas de Venta y Facturas del mes en curso, además de
 Cotizado/Cerrado ganado del CRM.
 
+**Conversaciones de WhatsApp y Embudo comercial (v1.32):** una
+"conversación" es un contacto distinto con al menos un mensaje en el
+período (mismo criterio que `whatsapp_conversaciones`, por contacto y no
+por lead), atribuida al vendedor del lead más reciente de ese contacto —
+sin monto asociado, es actividad, no venta. Sin atribución entre
+períodos: cada mes se mide solo, un cliente que recontacta y compra meses
+después cuenta como negocio nuevo en el mes en que ocurre. Dashboard:
+tarjeta "Conversaciones WhatsApp del mes". Reportería: columna/barra de
+Conversaciones en "Por vendedor" y "Por área", y nueva pestaña
+**"Embudo"** con dos gráficos (Conversaciones→Cotizaciones→Notas de
+venta→Facturas en cantidad, 4 etapas; Cotizado→Notas de venta→Facturado
+en monto, 3 etapas — conversaciones no tienen monto) y el % de conversión
+entre cada etapa, filtrable por año/mes/vendedor/área como el resto de la
+pantalla. Sin endpoint ni tabla nueva: se suma a la consulta ya existente
+de `GET /api/softland/reporte`. Ver detalle en la nota de cambio v1.32.
+
 ## 10. Encuesta post-cierre
 
 - Al mover un negocio a etapa "ganada" se crea automáticamente una encuesta
@@ -853,6 +875,13 @@ WhatsApp (Meta), app en modo desarrollo (ver pendientes, §16).
 - **Botón "Crear cotización"** directamente desde una conversación, abre en
   pestaña nueva (para que el vendedor pueda seguir revisando el chat);
   detecta si el contacto ya tiene negocio o crea uno nuevo.
+- **Filtro "No leídos" acotado por rol (v1.32):** un vendedor siempre ve
+  solo lo suyo al activarlo, sin importar cómo esté configurado el acceso
+  general de la Bandeja ("cualquier vendedor ve todo" vs. "solo el
+  asignado"); call center, jefe comercial, gerencia y administrador siguen
+  viendo el total. Antes dependía del mismo toggle de acceso general, lo
+  que hacía que un vendedor viera no leídos de conversaciones ajenas. Ver
+  detalle en la nota de cambio v1.32.
 
 **Almacenamiento de adjuntos (Cloudflare R2):** bucket privado
 `crm-ht-adjuntos` (no público, distinto del bucket de catálogo de productos
