@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { FunnelChart, Funnel, LabelList, Tooltip as RTooltip, Cell, ResponsiveContainer } from 'recharts';
 import api from '../../api';
 import ListadoDocumentosSoftland from './ListadoDocumentosSoftland';
 
@@ -16,6 +17,8 @@ const COLOR_COTIZADO = '#34B3DE', COLOR_CERRADO = '#C98A2C', COLOR_FACTURADO = '
 
 const fmtMoney = v => `$${Math.round(v || 0).toLocaleString('es-CL')}`;
 const fmtCant = v => `${Math.round(v || 0).toLocaleString('es-CL')} doc${Math.round(v) === 1 ? '.' : 's.'}`;
+const fmtNum = v => Math.round(v || 0).toLocaleString('es-CL');
+const fmtConv = v => `${fmtNum(v)} conv.`;
 const fmtPct = v => (isFinite(v) && v !== null ? `${(v * 100).toFixed(0)}%` : '—');
 const fmtFecha = iso => (iso ? new Date(iso).toLocaleString('es-CL') : '—');
 
@@ -72,6 +75,11 @@ export default function ReporteriaSoftland() {
       cotizado: r.cotizado_monto, cant_cotizado: r.cotizado_cant,
       cerrado: r.cerrado_monto, cant_cerrado: r.cerrado_cant,
       facturado: r.facturado_monto, cant_facturado: r.facturado_cant,
+      // Conversaciones de WhatsApp: solo cantidad, no tienen monto asociado
+      // (es actividad, no venta) — se duplica bajo las dos llaves para que
+      // campo('whatsapp') devuelva el mismo número sin importar el toggle
+      // monto/cantidad de la pantalla.
+      whatsapp: r.whatsapp_cant, cant_whatsapp: r.whatsapp_cant,
     }));
   }, [datos]);
 
@@ -101,17 +109,38 @@ export default function ReporteriaSoftland() {
   const rowsSerie = useMemo(() => mensual.filter(r => coincide(r, true)), [mensual, vencod, area]);
 
   const kpis = useMemo(() => {
+    const conv = sum(rowsPeriodo, 'whatsapp');
     const cot = sum(rowsPeriodo, campo('cotizado')), cer = sum(rowsPeriodo, campo('cerrado')), fac = sum(rowsPeriodo, campo('facturado'));
     const cotM = sum(rowsPeriodo, 'cotizado'), cerM = sum(rowsPeriodo, 'cerrado'), facM = sum(rowsPeriodo, 'facturado');
     const cotC = sum(rowsPeriodo, 'cant_cotizado'), cerC = sum(rowsPeriodo, 'cant_cerrado'), facC = sum(rowsPeriodo, 'cant_facturado');
-    return { cot, cer, fac, cotM, cerM, facM, cotC, cerC, facC, convCotCer: cer / cot, convCerFac: fac / cer };
+    return { conv, cot, cer, fac, cotM, cerM, facM, cotC, cerC, facC, convConvCot: cotC / conv, convCotCer: cer / cot, convCerFac: fac / cer };
   }, [rowsPeriodo, unidad]);
+
+  // Embudo: Conversaciones->Cotizaciones->Notas de venta->Facturas, sin
+  // atribución entre períodos (cada período se mira solo, ver conversación
+  // con el usuario) — cantidad tiene 4 etapas (conversaciones no tienen
+  // monto asociado); monto tiene 3, porque ahí no aplica "conversaciones".
+  // Rampa secuencial (magnitud, claro->oscuro) a partir de los dos únicos
+  // colores de marca autorizados, variando solo la opacidad.
+  const embudoCantidad = useMemo(() => ([
+    { etapa: 'Conversaciones', valor: kpis.conv, fill: 'rgba(52,179,222,0.35)' },
+    { etapa: 'Cotizaciones', valor: kpis.cotC, fill: 'rgba(52,179,222,0.6)' },
+    { etapa: 'Notas de venta', valor: kpis.cerC, fill: 'rgba(52,179,222,0.8)' },
+    { etapa: 'Facturas', valor: kpis.facC, fill: 'rgba(52,179,222,1)' },
+  ]), [kpis]);
+
+  const embudoMonto = useMemo(() => ([
+    { etapa: 'Cotizado', valor: kpis.cotM, fill: 'rgba(17,37,72,0.5)' },
+    { etapa: 'Notas de venta', valor: kpis.cerM, fill: 'rgba(17,37,72,0.75)' },
+    { etapa: 'Facturado', valor: kpis.facM, fill: 'rgba(17,37,72,1)' },
+  ]), [kpis]);
 
   const porVendedor = useMemo(() => {
     const m = new Map();
     rowsPeriodo.forEach(r => {
-      if (!m.has(r.vencod)) m.set(r.vencod, { nombre: r.nombre, area: r.area, cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 });
+      if (!m.has(r.vencod)) m.set(r.vencod, { nombre: r.nombre, area: r.area, whatsapp: 0, cant_whatsapp: 0, cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 });
       const acc = m.get(r.vencod);
+      acc.whatsapp += r.whatsapp; acc.cant_whatsapp += r.cant_whatsapp;
       acc.cotizado += r.cotizado; acc.cerrado += r.cerrado; acc.facturado += r.facturado;
       acc.cant_cotizado += r.cant_cotizado; acc.cant_cerrado += r.cant_cerrado; acc.cant_facturado += r.cant_facturado;
     });
@@ -120,10 +149,11 @@ export default function ReporteriaSoftland() {
 
   const porArea = useMemo(() => {
     const m = {};
-    Object.keys(AREA_LABEL).forEach(k => { m[k] = { cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 }; });
+    Object.keys(AREA_LABEL).forEach(k => { m[k] = { whatsapp: 0, cant_whatsapp: 0, cotizado: 0, cerrado: 0, facturado: 0, cant_cotizado: 0, cant_cerrado: 0, cant_facturado: 0 }; });
     rowsPeriodo.forEach(r => {
       if (!r.area || !m[r.area]) return;
       const d = m[r.area];
+      d.whatsapp += r.whatsapp; d.cant_whatsapp += r.cant_whatsapp;
       d.cotizado += r.cotizado; d.cerrado += r.cerrado; d.facturado += r.facturado;
       d.cant_cotizado += r.cant_cotizado; d.cant_cerrado += r.cant_cerrado; d.cant_facturado += r.cant_facturado;
     });
@@ -311,7 +341,7 @@ export default function ReporteriaSoftland() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200 mb-4">
-        {[['mensual', 'Mensual (2023–hoy)'], ['anual', 'Comparación anual'], ['vendedor', 'Por vendedor'], ['area', 'Por área'], ['nvpend', 'NV sin facturar'], ['cotizaciones_doc', 'Cotizaciones'], ['nv_doc', 'Notas de Venta'], ['facturas_doc', 'Facturas']].map(([k, l]) => (
+        {[['mensual', 'Mensual (2023–hoy)'], ['anual', 'Comparación anual'], ['vendedor', 'Por vendedor'], ['area', 'Por área'], ['embudo', 'Embudo'], ['nvpend', 'NV sin facturar'], ['cotizaciones_doc', 'Cotizaciones'], ['nv_doc', 'Notas de Venta'], ['facturas_doc', 'Facturas']].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`text-sm font-medium px-3 py-2 border-b-2 -mb-px ${tab === k ? 'text-ht-navy border-ht-accent' : 'text-gray-500 border-transparent hover:text-ht-navy'}`}>
             {l}
@@ -413,6 +443,7 @@ export default function ReporteriaSoftland() {
                 <tr>
                   <th className="text-left px-4 py-2 font-medium">Vendedor</th>
                   <th className="text-left px-4 py-2 font-medium">Área</th>
+                  <th className="text-right px-4 py-2 font-medium">Conversaciones</th>
                   <th className="text-right px-4 py-2 font-medium">Cotizado</th>
                   <th className="text-right px-4 py-2 font-medium">Cerrado</th>
                   <th className="text-right px-4 py-2 font-medium">Facturado</th>
@@ -425,6 +456,7 @@ export default function ReporteriaSoftland() {
                   <tr key={i} className="border-t border-gray-100 hover:bg-slate-50">
                     <td className="px-4 py-2 text-ht-navy">{v.nombre}</td>
                     <td className="px-4 py-2">{v.area ? <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${AREA_BADGE[v.area]}`}>{AREA_LABEL[v.area]}</span> : <span className="text-xs text-gray-300">Sin área</span>}</td>
+                    <td className="px-4 py-2 text-right">{fmtConv(v.whatsapp)}</td>
                     <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('cotizado')])}</td>
                     <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('cerrado')])}</td>
                     <td className="px-4 py-2 text-right">{fmtUnidad(v[campo('facturado')])}</td>
@@ -432,7 +464,7 @@ export default function ReporteriaSoftland() {
                     <td className="px-4 py-2 text-right">{fmtPct(v[campo('facturado')] / v[campo('cerrado')])}</td>
                   </tr>
                 ))}
-                {!porVendedor.length && <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Sin datos para este filtro.</td></tr>}
+                {!porVendedor.length && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Sin datos para este filtro.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -444,13 +476,17 @@ export default function ReporteriaSoftland() {
           {Object.keys(AREA_LABEL).map(k => {
             const d = porArea[k];
             const max = Math.max(1, ...Object.values(porArea).map(x => x[campo('cotizado')]));
-            const barra = (c, label, color) => {
-              const v = d[campo(c)];
+            // Conversaciones se mide en conteo de actividad, no en la misma
+            // escala que cotizado/cerrado/facturado — usa su propio máximo
+            // para que la barra no quede aplastada o desbordada.
+            const maxConv = Math.max(1, ...Object.values(porArea).map(x => x.whatsapp));
+            const barra = (c, label, color, valor, maxProp) => {
+              const v = valor ?? d[campo(c)];
               return (
-                <div key={c} className="grid grid-cols-[60px_1fr_auto] items-center gap-2 text-xs text-gray-500 mb-1.5">
+                <div key={c} className="grid grid-cols-[70px_1fr_auto] items-center gap-2 text-xs text-gray-500 mb-1.5">
                   <span>{label}</span>
-                  <span className="h-1.5 rounded bg-gray-100 overflow-hidden"><span className="block h-full rounded" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: color }} /></span>
-                  <span className="text-right">{fmtUnidad(v)}</span>
+                  <span className="h-1.5 rounded bg-gray-100 overflow-hidden"><span className="block h-full rounded" style={{ width: `${Math.max(2, (v / (maxProp ?? max)) * 100)}%`, background: color }} /></span>
+                  <span className="text-right">{c === 'whatsapp' ? fmtConv(v) : fmtUnidad(v)}</span>
                 </div>
               );
             };
@@ -458,12 +494,60 @@ export default function ReporteriaSoftland() {
               <div key={k} className="bg-white border border-gray-200 rounded-lg p-4">
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${AREA_BADGE[k]}`}>{AREA_LABEL[k]}</span>
                 <div className="text-lg font-bold text-ht-navy mt-2 mb-3">{fmtUnidad(d[campo('cotizado')])} <span className="text-xs font-normal text-gray-400">cotizado</span></div>
+                {barra('whatsapp', 'Conversac.', '#34B3DE', d.whatsapp, maxConv)}
                 {barra('cotizado', 'Cotizado', COLOR_COTIZADO)}
                 {barra('cerrado', 'Cerrado', COLOR_CERRADO)}
                 {barra('facturado', 'Facturado', COLOR_FACTURADO)}
               </div>
             );
           })}
+        </div>
+      )}
+
+      {tab === 'embudo' && (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="font-semibold text-ht-navy text-sm mb-1">Embudo por cantidad</h2>
+            <p className="text-xs text-gray-400 mb-3">Conversaciones → Cotizaciones → Notas de venta → Facturas</p>
+            <ResponsiveContainer width="100%" height={300}>
+              <FunnelChart>
+                <RTooltip formatter={v => fmtNum(v)} />
+                <Funnel dataKey="valor" data={embudoCantidad} isAnimationActive={false}>
+                  <LabelList position="right" dataKey="etapa" fill="#112548" stroke="none" fontSize={12} />
+                  <LabelList position="center" dataKey={d => fmtNum(d.valor)} fill="#fff" stroke="none" fontSize={13} fontWeight={600} />
+                  {embudoCantidad.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Funnel>
+              </FunnelChart>
+            </ResponsiveContainer>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500 mt-3 pt-3 border-t border-gray-100">
+              <span>Conv. → Cotiz. <b className="text-ht-navy ml-1">{fmtPct(kpis.cotC / kpis.conv)}</b></span>
+              <span>Cotiz. → NV <b className="text-ht-navy ml-1">{fmtPct(kpis.cerC / kpis.cotC)}</b></span>
+              <span>NV → Fact. <b className="text-ht-navy ml-1">{fmtPct(kpis.facC / kpis.cerC)}</b></span>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5">
+            <h2 className="font-semibold text-ht-navy text-sm mb-1">Embudo por monto</h2>
+            <p className="text-xs text-gray-400 mb-3">Cotizado → Notas de venta → Facturado</p>
+            <ResponsiveContainer width="100%" height={260}>
+              <FunnelChart>
+                <RTooltip formatter={v => fmtMoney(v)} />
+                <Funnel dataKey="valor" data={embudoMonto} isAnimationActive={false}>
+                  <LabelList position="right" dataKey="etapa" fill="#112548" stroke="none" fontSize={12} />
+                  <LabelList position="center" dataKey={d => fmtMoney(d.valor)} fill="#fff" stroke="none" fontSize={13} fontWeight={600} />
+                  {embudoMonto.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                </Funnel>
+              </FunnelChart>
+            </ResponsiveContainer>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500 mt-3 pt-3 border-t border-gray-100">
+              <span>Cotizado → NV <b className="text-ht-navy ml-1">{fmtPct(kpis.cerM / kpis.cotM)}</b></span>
+              <span>NV → Facturado <b className="text-ht-navy ml-1">{fmtPct(kpis.facM / kpis.cerM)}</b></span>
+            </div>
+          </div>
+
+          {(!kpis.conv && !kpis.cotC) && (
+            <p className="text-sm text-gray-400 lg:col-span-2">Sin datos para este filtro.</p>
+          )}
         </div>
       )}
 
