@@ -29,12 +29,16 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/users/vendedores — vendedores activos (para asignación y "vendedor de cuenta")
+// GET /api/users/vendedores — usuarios activos asignables como "vendedor" de
+// un contacto/empresa/negocio (para asignación y "vendedor de cuenta").
+// Incluye rol=callcenter desde que ese rol cotiza sobre sus propios negocios
+// (06-09-2026, commit 06d7a28b) — no afecta el round-robin automático, que
+// sigue acotado a rol='vendedor' en services/asignacion.js.
 router.get('/vendedores', async (req, res) => {
   try {
     const users = await db.all(
       `SELECT id, nombre, email, recibe_round_robin
-       FROM users WHERE activo = true AND rol = 'vendedor' ORDER BY nombre`
+       FROM users WHERE activo = true AND rol IN ('vendedor', 'callcenter') ORDER BY nombre`
     );
     res.json(users);
   } catch (err) {
