@@ -154,7 +154,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/negocios
-router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async (req, res) => {
+router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   try {
     const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
