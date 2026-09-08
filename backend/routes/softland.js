@@ -5,6 +5,8 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const softland = require('../services/softland');
 const { sincronizar } = require('../services/softlandSync');
+const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
+const { cambiarEtapaNegocio } = require('./negocios');
 
 router.use(authenticate);
 
@@ -346,6 +348,66 @@ router.get('/documentos/:tipo/exportar', authorize('administrador', 'jefe_comerc
     res.send(csv);
   } catch (err) {
     console.error('[softland/documentos/exportar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// ===== Sugerencias de facturación (nota de cambio v1.33) =====
+// Cruce automático de facturas de Softland contra negocios del pipeline por
+// RUT de empresa + monto exacto (ver services/sugerenciasFacturacion.js) —
+// solo sugiere; el movimiento de etapa siempre lo confirma una persona.
+const PUEDE_REVISAR_SUGERENCIAS = ['administrador', 'jefe_comercial', 'gerencia'];
+
+// GET /api/softland/sugerencias-facturacion — facturas sin resolver con sus
+// negocios candidatos, agrupado por folio (pestaña dedicada en Reportería
+// Softland).
+router.get('/sugerencias-facturacion', authorize(...PUEDE_REVISAR_SUGERENCIAS), async (req, res) => {
+  try {
+    res.json(await sugerenciasFacturacion.candidatos());
+  } catch (err) {
+    console.error('[softland/sugerencias-facturacion]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/softland/sugerencias-facturacion/:folio/confirmar {negocio_id} —
+// mueve el negocio elegido a la etapa "Facturado" de su pipeline (misma
+// lógica que arrastrar la tarjeta en el Pipeline) y marca la factura
+// resuelta. Se revalida negocio_id contra los candidatos recién calculados
+// (no se confía en lo que mandó el navegador) para no mover un negocio que
+// no calce por RUT+monto.
+router.post('/sugerencias-facturacion/:folio/confirmar', authorize(...PUEDE_REVISAR_SUGERENCIAS), async (req, res) => {
+  try {
+    const negocioId = Number(req.body.negocio_id);
+    const factura = (await sugerenciasFacturacion.candidatos()).find(f => f.folio === req.params.folio);
+    const candidato = factura?.negocios.find(n => n.id === negocioId);
+    if (!candidato) return res.status(400).json({ error: 'Ese negocio ya no es un candidato válido para esta factura.' });
+
+    await cambiarEtapaNegocio(negocioId, candidato.etapa_facturado_id, {}, req.user.id);
+    await db.run(
+      `UPDATE reporte_softland_facturas SET negocio_id = $1, revisado_por_id = $2, revisado_en = now() WHERE folio = $3`,
+      [negocioId, req.user.id, req.params.folio]
+    );
+    res.json({ message: 'Negocio movido a Facturado.' });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[softland/sugerencias-facturacion/confirmar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/softland/sugerencias-facturacion/:folio/descartar — marca la
+// factura como revisada sin match (no vuelve a aparecer), sin tocar ningún
+// negocio.
+router.post('/sugerencias-facturacion/:folio/descartar', authorize(...PUEDE_REVISAR_SUGERENCIAS), async (req, res) => {
+  try {
+    await db.run(
+      `UPDATE reporte_softland_facturas SET revisado_por_id = $1, revisado_en = now() WHERE folio = $2`,
+      [req.user.id, req.params.folio]
+    );
+    res.json({ message: 'Factura descartada.' });
+  } catch (err) {
+    console.error('[softland/sugerencias-facturacion/descartar]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

@@ -12,11 +12,14 @@ const PUEDE_EXPORTAR = ['administrador', 'jefe_comercial'];
 // pipeline por defecto, sin selector.
 const PUEDE_CAMBIAR_PIPELINE = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_MOVER_PIPELINE = ['administrador', 'jefe_comercial'];
+// Mismo set que autoriza el backend para /softland/sugerencias-facturacion.
+const PUEDE_REVISAR_SUGERENCIAS = ['administrador', 'jefe_comercial', 'gerencia'];
 
 export default function Pipeline() {
   const { user } = useAuth();
   const puedeCambiarPipeline = PUEDE_CAMBIAR_PIPELINE.includes(user?.rol);
   const puedeMoverPipeline = PUEDE_MOVER_PIPELINE.includes(user?.rol);
+  const puedeRevisarSugerencias = PUEDE_REVISAR_SUGERENCIAS.includes(user?.rol);
 
   // Filtros en la URL (28-08-2026): antes vivían solo en useState, así que
   // se perdían al entrar al detalle de un negocio y volver (con el botón
@@ -104,6 +107,15 @@ export default function Pipeline() {
     if (!drag) return;
     const negocio = drag; setDrag(null);
     moverAEtapa(negocio, etapa);
+  };
+
+  const confirmarSugerencia = async (negocioId, folio) => {
+    try { await api.post(`/softland/sugerencias-facturacion/${folio}/confirmar`, { negocio_id: negocioId }); cargar(); }
+    catch (err) { setError(err.response?.data?.error || 'No se pudo confirmar la sugerencia.'); }
+  };
+  const descartarSugerencia = async folio => {
+    try { await api.post(`/softland/sugerencias-facturacion/${folio}/descartar`); cargar(); }
+    catch { setError('No se pudo descartar la sugerencia.'); }
   };
 
   const confirmarPerdido = async () => {
@@ -248,6 +260,18 @@ export default function Pipeline() {
                     {n.fecha_compromiso && (
                       <div className={`text-[11px] mt-1 ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'Compromiso '}{fecha(n.fecha_compromiso)}</div>
                     )}
+                    {puedeRevisarSugerencias && n.sugerencias_factura?.map(s => (
+                      <div key={s.folio} onClick={e => e.stopPropagation()} draggable={false}
+                        className="mt-2 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5 text-[11px]">
+                        <div className="text-emerald-800">💰 Factura sugerida: {money(s.monto)} · folio {s.folio}</div>
+                        <div className="flex gap-2 mt-1">
+                          <button onClick={() => confirmarSugerencia(n.id, s.folio)}
+                            className="text-emerald-700 font-medium hover:underline">Confirmar</button>
+                          <button onClick={() => descartarSugerencia(s.folio)}
+                            className="text-gray-500 hover:underline">Descartar</button>
+                        </div>
+                      </div>
+                    ))}
                     {/* Arrastrar con el dedo entre columnas no es viable en mobile:
                         se ofrece este selector como alternativa. Solo en pantallas
                         chicas — en desktop se sigue usando drag-and-drop. */}
