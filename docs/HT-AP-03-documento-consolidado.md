@@ -101,7 +101,7 @@ necesita el historial de por qué se definió así):
 |---|:--:|:--:|:--:|:--:|:--:|:--:|
 | Dashboard | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | Pipeline / negocios | ✅ | ✅ (cualquiera) | propios | ver | ver | — |
-| Cotizaciones | ✅ | ✅ | propias | — | ver | — |
+| Cotizaciones | ✅ | ✅ | propias | ✅ (v1.32) | ver | — |
 | Aprobar descuento sobre tope | ✅ | ✅ | — | — | — | — |
 | Postventa (gestión completa) | ✅ | ✅ | encargado (*) | — | — | — |
 | Postventa (crear caso / ver propios) | ✅ | ✅ | ✅ | — | — | — |
