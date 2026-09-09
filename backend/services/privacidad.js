@@ -4,12 +4,24 @@
 // automática de contactos inactivos que nunca se convirtieron en cliente.
 const { db } = require('../db');
 const email = require('./email');
+const whatsapp = require('./whatsapp');
+const mensajes = require('./whatsapp_mensajes');
 
 const TEXTO_AVISO_PRIVACIDAD =
   '¡Hola! Gracias por escribir a Hidrotécnica 👋 Para ayudarte con tu consulta o cotización, ' +
   'vamos a registrar los datos de contacto que nos compartas en este chat. Puedes ver cómo los ' +
   'tratamos en nuestra Política de Privacidad: hidrotecnica.cl/politica-de-privacidad. En cualquier ' +
   'momento puedes pedirnos que eliminemos tus datos escribiendo "eliminar mis datos" o a info@hidrotecnica.cl.';
+
+// Confirmación al contacto de que su solicitud de eliminación ya se procesó.
+// Texto libre, dentro de la ventana de 24h de servicio al cliente — fuera de
+// ella no llega (ver whatsapp.js#enviar) y solo queda registro interno; la
+// plantilla aprobada por Meta para el caso "fuera de ventana" queda pendiente
+// (a definir con Gerencia más adelante).
+const TEXTO_CONFIRMACION_ELIMINACION =
+  '¡Hola! Confirmamos que, según tu solicitud, eliminamos tus datos personales de contacto de ' +
+  'nuestros sistemas (Ley 21.719). Es un proceso irreversible. Cualquier consulta, escríbenos a ' +
+  'info@hidrotecnica.cl.';
 
 // Frases equivalentes a "eliminar mis datos" — comparación simple por
 // substring sobre el texto normalizado (minúsculas, sin tildes), no NLP.
@@ -115,7 +127,21 @@ async function resolverSolicitudEliminacion(solicitudId, { estado, tiene_factura
   if (!solicitud || solicitud.estado !== 'pendiente') return null;
 
   if (estado === 'anonimizado') {
+    // El teléfono se necesita para la confirmación antes de que
+    // anonimizarContacto lo ponga en NULL.
+    const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [solicitud.contacto_id]);
     await anonimizarContacto(solicitud.contacto_id);
+    if (contacto?.telefono_e164) {
+      const resultado = await whatsapp.enviar(contacto.telefono_e164, TEXTO_CONFIRMACION_ELIMINACION);
+      if (resultado.enviado) {
+        await mensajes.registrar({
+          contacto_id: solicitud.contacto_id, direccion: 'saliente',
+          texto: TEXTO_CONFIRMACION_ELIMINACION, enviado_por_id: usuario_id,
+        });
+      } else {
+        console.error(`[privacidad] No se pudo confirmar por WhatsApp la eliminación al contacto ${solicitud.contacto_id}:`, resultado.motivo);
+      }
+    }
   }
   const r = await db.run(
     `UPDATE solicitudes_eliminacion_datos
@@ -184,6 +210,7 @@ async function purgarInactivosSiCorresponde() {
 
 module.exports = {
   TEXTO_AVISO_PRIVACIDAD,
+  TEXTO_CONFIRMACION_ELIMINACION,
   esSolicitudEliminacion,
   necesitaAvisoPrivacidad,
   marcarAvisoPrivacidadEnviado,
