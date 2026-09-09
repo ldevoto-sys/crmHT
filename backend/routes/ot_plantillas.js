@@ -52,9 +52,10 @@ router.put('/:tipoTrabajo', authorize(...PUEDE_CONFIGURAR), async (req, res) => 
     await client.query('DELETE FROM ot_plantilla_items WHERE tipo_trabajo = $1', [req.params.tipoTrabajo]);
     let orden = 1;
     for (const it of items) {
+      const codigo = it.producto_id ? null : (it.codigo || null);
       await client.query(
-        `INSERT INTO ot_plantilla_items (tipo_trabajo, orden, tipo, producto_id, descripcion, cantidad) VALUES ($1,$2,$3,$4,$5,$6)`,
-        [req.params.tipoTrabajo, orden++, it.tipo, it.producto_id || null, it.descripcion || null, it.cantidad]
+        `INSERT INTO ot_plantilla_items (tipo_trabajo, orden, tipo, producto_id, descripcion, cantidad, codigo) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.params.tipoTrabajo, orden++, it.tipo, it.producto_id || null, it.descripcion || null, it.cantidad, codigo]
       );
     }
     await client.query('COMMIT');

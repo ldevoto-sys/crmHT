@@ -98,10 +98,14 @@ router.put('/:id/items', async (req, res) => {
     for (const it of items) {
       const precio = it.precio_unitario === undefined || it.precio_unitario === null || it.precio_unitario === '' ? null : Number(it.precio_unitario);
       const total = precio !== null ? Math.round(Number(it.cantidad) * precio) : null;
+      // Código manual solo aplica a ítems sin producto_id — con producto del
+      // catálogo, el código a mostrar es el SKU de `productos` (join en
+      // cargarOTCompleta), no se guarda uno propio para no duplicar fuente.
+      const codigo = it.producto_id ? null : (it.codigo || null);
       await client.query(
-        `INSERT INTO ot_items (ot_id, tipo, producto_id, descripcion, cantidad, precio_unitario, total_linea)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [req.params.id, it.tipo, it.producto_id || null, it.descripcion || null, it.cantidad, precio, total]
+        `INSERT INTO ot_items (ot_id, tipo, producto_id, descripcion, cantidad, precio_unitario, total_linea, codigo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [req.params.id, it.tipo, it.producto_id || null, it.descripcion || null, it.cantidad, precio, total, codigo]
       );
     }
     await client.query('COMMIT');

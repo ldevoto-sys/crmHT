@@ -2141,6 +2141,11 @@ async function initDb() {
     )
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_ot_items_ot ON ot_items (ot_id)`);
+  // Código de producto (09-09-2026): para ítems del catálogo se muestra el
+  // SKU de `productos` (ya existente); esta columna es solo para ítems sin
+  // producto_id (descripción libre), donde no hay de dónde sacarlo — se
+  // carga a mano. Se ignora si el ítem sí tiene producto_id.
+  await db.run(`ALTER TABLE ot_items ADD COLUMN IF NOT EXISTS codigo TEXT`);
 
   // Configurador de materiales/herramientas estándar — solo para los tipos
   // de trabajo que se repiten siempre igual (mantenimiento preventivo,
@@ -2158,6 +2163,9 @@ async function initDb() {
     )
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_ot_plantilla_items_tipo ON ot_plantilla_items (tipo_trabajo, orden)`);
+  // Mismo criterio que ot_items.codigo: solo se usa para ítems sin
+  // producto_id, se copia a la OT junto con el resto de la línea.
+  await db.run(`ALTER TABLE ot_plantilla_items ADD COLUMN IF NOT EXISTS codigo TEXT`);
 
   console.log('[DB] Base de datos lista.');
 }

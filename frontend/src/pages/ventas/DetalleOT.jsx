@@ -10,7 +10,7 @@ const TIPOS_TRABAJO_LABEL = {
   otro: 'Otro',
 };
 const ORIGEN_ITEMS_LABEL = { plantilla: 'Plantilla estándar', cotizacion: 'Cotización', manual: 'Manual' };
-const itemVacio = () => ({ tipo: 'material', producto_id: null, descripcion: '', cantidad: 1, precio_unitario: '' });
+const itemVacio = () => ({ tipo: 'material', producto_id: null, descripcion: '', cantidad: 1, precio_unitario: '', codigo: '', sku: '' });
 
 // Igual patrón que el buscador de producto de NuevaCotizacion.jsx, sin
 // precio (la OT nace sin precios) ni filtros de categoría/marca.
@@ -59,6 +59,7 @@ export default function DetalleOT() {
       setItems(data.items.map(it => ({
         tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre || '',
         cantidad: it.cantidad, precio_unitario: it.precio_unitario ?? '',
+        codigo: it.codigo || '', sku: it.sku || '',
       })));
       setObservaciones(data.observaciones || '');
     } catch (err) { setError(err.response?.data?.error || 'No se pudo cargar la Orden de Trabajo.'); }
@@ -66,7 +67,7 @@ export default function DetalleOT() {
   useEffect(() => { cargar(); }, [negocioId]); // eslint-disable-line
 
   const setItem = (i, campo, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
-  const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre } : it));
+  const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre, sku: p.sku || '', codigo: '' } : it));
   const agregarItem = () => setItems([...items, itemVacio()]);
   const quitarItem = i => setItems(items.filter((_, idx) => idx !== i));
 
@@ -78,6 +79,7 @@ export default function DetalleOT() {
         items: items.map(it => ({
           tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion,
           cantidad: Number(it.cantidad), precio_unitario: it.precio_unitario === '' ? null : Number(it.precio_unitario),
+          codigo: it.producto_id ? null : (it.codigo || null),
         })),
       });
       setMsg('Orden de Trabajo guardada.'); cargar();
@@ -122,10 +124,11 @@ export default function DetalleOT() {
         <h2 className="font-semibold text-ht-navy mb-3">Materiales y herramientas</h2>
         {!ot.puede_editar && <p className="text-sm text-gray-400 mb-3">Solo el vendedor dueño puede editar.</p>}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm mb-3 min-w-[640px]">
+          <table className="w-full text-sm mb-3 min-w-[720px]">
             <thead className="text-gray-500">
               <tr>
                 <th className="text-left font-medium pb-2 w-32">Tipo</th>
+                <th className="text-left font-medium pb-2 w-28">Código</th>
                 <th className="text-left font-medium pb-2">Descripción</th>
                 <th className="text-right font-medium pb-2 w-24">Cantidad</th>
                 <th className="text-right font-medium pb-2 w-32">Precio unitario</th>
@@ -141,6 +144,14 @@ export default function DetalleOT() {
                       <option value="material">Material</option>
                       <option value="herramienta">Herramienta</option>
                     </select>
+                  </td>
+                  <td className="py-2 pr-2">
+                    {it.producto_id ? (
+                      <span className="text-gray-500">{it.sku || '—'}</span>
+                    ) : ot.puede_editar ? (
+                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} placeholder="—"
+                        className="w-full border border-gray-200 rounded px-2 py-1 text-sm" />
+                    ) : <span className="text-gray-500">{it.codigo || '—'}</span>}
                   </td>
                   <td className="py-2 pr-2">
                     {ot.puede_editar ? (
@@ -163,7 +174,7 @@ export default function DetalleOT() {
                   )}
                 </tr>
               ))}
-              {items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-gray-400">Sin ítems.</td></tr>}
+              {items.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-gray-400">Sin ítems.</td></tr>}
             </tbody>
           </table>
         </div>

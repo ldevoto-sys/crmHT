@@ -43,7 +43,7 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
   if (CON_PLANTILLA.includes(negocio.tipo_trabajo)) {
     itemsFuente = await filas(
       client,
-      'SELECT tipo, producto_id, descripcion, cantidad FROM ot_plantilla_items WHERE tipo_trabajo = $1 ORDER BY orden',
+      'SELECT tipo, producto_id, descripcion, cantidad, codigo FROM ot_plantilla_items WHERE tipo_trabajo = $1 ORDER BY orden',
       [negocio.tipo_trabajo]
     );
     origenItems = 'plantilla';
@@ -75,8 +75,8 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
   for (const it of itemsFuente) {
     await ejecutar(
       client,
-      'INSERT INTO ot_items (ot_id, tipo, producto_id, descripcion, cantidad) VALUES ($1,$2,$3,$4,$5)',
-      [otId, it.tipo || 'material', it.producto_id || null, it.descripcion || null, it.cantidad]
+      'INSERT INTO ot_items (ot_id, tipo, producto_id, descripcion, cantidad, codigo) VALUES ($1,$2,$3,$4,$5,$6)',
+      [otId, it.tipo || 'material', it.producto_id || null, it.descripcion || null, it.cantidad, it.producto_id ? null : (it.codigo || null)]
     );
   }
 

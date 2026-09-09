@@ -5,7 +5,7 @@ const TIPOS = [
   ['mantenimiento_preventivo', 'Mantenimiento preventivo'],
   ['lavado', 'Lavado de estanque'],
 ];
-const itemVacio = () => ({ tipo: 'material', producto_id: null, descripcion: '', cantidad: 1 });
+const itemVacio = () => ({ tipo: 'material', producto_id: null, descripcion: '', cantidad: 1, codigo: '', sku: '' });
 
 function BuscadorProducto({ value, onChange, onElegir }) {
   const [resultados, setResultados] = useState([]);
@@ -47,13 +47,16 @@ export default function ConfigPlantillasOT() {
     setError(''); setMsg('');
     try {
       const { data } = await api.get(`/ot-plantillas/${t}`);
-      setItems(data.map(it => ({ tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre || '', cantidad: it.cantidad })));
+      setItems(data.map(it => ({
+        tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre || '',
+        cantidad: it.cantidad, codigo: it.codigo || '', sku: it.sku || '',
+      })));
     } catch { setError('No se pudo cargar la plantilla.'); }
   };
   useEffect(() => { cargar(tipo); }, [tipo]); // eslint-disable-line
 
   const setItem = (i, campo, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
-  const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre } : it));
+  const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre, sku: p.sku || '', codigo: '' } : it));
   const agregarItem = () => setItems([...items, itemVacio()]);
   const quitarItem = i => setItems(items.filter((_, idx) => idx !== i));
 
@@ -61,7 +64,10 @@ export default function ConfigPlantillasOT() {
     setError(''); setMsg(''); setGuardando(true);
     try {
       await api.put(`/ot-plantillas/${tipo}`, {
-        items: items.map(it => ({ tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad) })),
+        items: items.map(it => ({
+          tipo: it.tipo, producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad),
+          codigo: it.producto_id ? null : (it.codigo || null),
+        })),
       });
       setMsg('Plantilla guardada.'); cargar(tipo);
     } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar.'); }
@@ -91,10 +97,11 @@ export default function ConfigPlantillasOT() {
 
       <div className="bg-white border border-gray-200 rounded-lg p-5">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm mb-3 min-w-[560px]">
+          <table className="w-full text-sm mb-3 min-w-[640px]">
             <thead className="text-gray-500">
               <tr>
                 <th className="text-left font-medium pb-2 w-32">Tipo</th>
+                <th className="text-left font-medium pb-2 w-28">Código</th>
                 <th className="text-left font-medium pb-2">Descripción</th>
                 <th className="text-right font-medium pb-2 w-24">Cantidad</th>
                 <th className="w-16"></th>
@@ -111,6 +118,14 @@ export default function ConfigPlantillasOT() {
                     </select>
                   </td>
                   <td className="py-2 pr-2">
+                    {it.producto_id ? (
+                      <span className="text-gray-500">{it.sku || '—'}</span>
+                    ) : (
+                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} placeholder="—"
+                        className="w-full border border-gray-200 rounded px-2 py-1 text-sm" />
+                    )}
+                  </td>
+                  <td className="py-2 pr-2">
                     <BuscadorProducto value={it.descripcion} onChange={val => setItem(i, 'descripcion', val)} onElegir={p => elegirProducto(i, p)} />
                   </td>
                   <td className="py-2 pr-2">
@@ -122,7 +137,7 @@ export default function ConfigPlantillasOT() {
                   </td>
                 </tr>
               ))}
-              {items.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-gray-400">Sin ítems configurados.</td></tr>}
+              {items.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-gray-400">Sin ítems configurados.</td></tr>}
             </tbody>
           </table>
         </div>
