@@ -105,22 +105,49 @@ en el commit de staging `af39e0d`.
 **Cobranza**: módulo con desarrollo pendiente, acumulado en `staging` sin
 promover a `main` (sigue la regla de arriba — no se promueve por mejoras).
 
-**Operaciones — "Arranque de Trabajos" (Ventas → Operaciones)**: especificación
-funcional revisada y analizada contra el código (ver
-`Especificacion_Tecnica_CRM_Arranque_Trabajos.md`, no forma parte de este
-repo todavía). Decisiones ya tomadas por Luis Devoto:
-- Correos del flujo salen de `operaciones@hidrotecnica.cl`.
-- WhatsApp de Operaciones: número separado del de Ventas, **todavía no
-  dado de alta en Meta** — depende del trabajo de multi-número de arriba.
-- Listado de materiales/herramientas: solo registro en la orden de trabajo,
-  sin integración con Compras ni con el módulo Despacho.
-- Sin firma digital en sitio.
-Queda pendiente como el mayor hueco de diseño: no existe en el código un
-motor de checklist obligatorio configurable por etapa — el único gate
-existente hoy es un `if` puntual en `negocios.js` (causa de no cierre).
-Habría que construirlo desde cero, con una matriz tipo-de-trabajo × etapa
-(Reparación/Rutinario/Lavado/Especial-Proyecto tienen requisitos distintos).
-También sigue abierto si el trabajo "Rutinario" referencia un N° de
-Contrato (no existe esa tabla hoy) o solo N° de cotización.
-No se ha empezado a construir nada de esto — se retoma después de terminar
-la migración del WhatsApp oficial.
+**Operaciones — "Arranque de Trabajos" (Ventas → Operaciones) — Fase 1
+implementada (09-09-2026, subida a `staging`).** Reemplaza el enfoque de
+la especificación funcional original (`Especificacion_Tecnica_CRM_Arranque_Trabajos.md`,
+tipos Reparación/Rutinario/Lavado/Especial-Proyecto) por uno más simple,
+definido directamente por Luis Devoto: un solo flujo, sin ramificar por
+tipo, con 5 tipos de trabajo reales (mantenimiento preventivo, lavado,
+impermeabilizado, mantenimiento correctivo, otro). Ver
+`docs/HT-AP-03-nota-cambio-v1.34.md` para el detalle completo.
+
+Construido:
+- **Tipo de trabajo obligatorio** al mover un negocio a "Aceptado" (pipeline
+  Operaciones) — gate en `cambiarEtapaNegocio()` (`backend/routes/negocios.js`),
+  cubre kanban, creación directa y el importador CSV masivo.
+- **Orden de Trabajo (OT) automática** al entrar a "Aceptado"
+  (`backend/services/ot.js`), identificada como `OT-{negocio_id}` (no tiene
+  numeración propia). Prellenado de materiales/herramientas:
+  - Mantenimiento preventivo / lavado: desde una plantilla configurable una
+    sola vez (`Config → Plantillas de Orden de Trabajo`, tabla
+    `ot_plantilla_items`) — estos trabajos no varían de un negocio a otro.
+  - Impermeabilizado / correctivo / otro: caso a caso, copiando los ítems de
+    la cotización vigente, **sin precios** (se cargan a mano si hace falta
+    costear).
+- OT editable (materiales/herramientas, con o sin precio) e
+  imprimible/exportable a PDF, igual que una cotización.
+- **Bug corregido de paso**: el importador CSV masivo caía por defecto en
+  "Ganado" en vez de "Aceptado" cuando una fila no traía columna "estado"
+  — contradecía su propio comentario y el texto de la UI. No estaba
+  relacionado con este feature, pero bloqueaba probarlo con el importador.
+- El aviso a cliente al pasar a "Programado" **no necesitó código nuevo**:
+  se configura como una secuencia de seguimiento más (`Config →
+  Secuencias`, un paso de correo con 0 días de espera) asignada a esa etapa
+  desde `Config → Pipeline` — el motor de secuencias ya soportaba esto.
+
+Sigue pendiente (Fase 2, no iniciada):
+- El motor de checklist obligatorio configurable por etapa (el "mayor hueco
+  de diseño" que ya identificaba este documento) — sigue sin existir; el
+  único gate de etapa además del de tipo de trabajo es el de causa de no
+  cierre.
+- N° de Contrato para servicios recurrentes (Rutinario/Lavado) — sigue sin
+  existir esa tabla; hoy solo hay `negocios.n_oc` (N° de orden de compra).
+- WhatsApp de Operaciones (número separado del de Ventas) — sigue sin dar
+  de alta en Meta, depende del trabajo de multi-número de arriba.
+- Integración con Compras y Despacho — explícitamente fuera de alcance por
+  ahora (decisión de Luis Devoto, 09-09-2026): la OT solo registra
+  materiales/herramientas, sin disparar nada en esos módulos.
+- Firma digital de cliente en sitio — no evaluada en esta fase.
