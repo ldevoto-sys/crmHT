@@ -51,7 +51,7 @@ router.get('/', async (req, res) => {
     const { where, params } = filtrosNegocios(req.query, req.user);
     const negocios = await db.all(
       `SELECT n.id, n.titulo, n.etapa_id, n.pipeline_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
-              n.fecha_cierre_estimada, n.fecha_compromiso, n.ultima_actividad, n.created_at,
+              n.fecha_cierre_estimada, n.fecha_compromiso, n.ultima_actividad, n.created_at, n.tipo_trabajo,
               pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.orden AS etapa_orden,
               u.nombre AS vendedor_nombre, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
               e.razon_social AS empresa_nombre,
