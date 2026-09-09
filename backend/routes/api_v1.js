@@ -23,6 +23,8 @@ const timeline = require('../services/timeline');
 const cot = require('./cotizaciones'); // expone proximoNumero, avanzarAEtapaCotizado, sincronizarMontoEstimado, redondearMonto
 const { REPORTES } = require('./reportes'); // mismos reportes ya calculados para la página Reportes
 const { toCSV } = require('../utils/csv');
+const whatsappSvc = require('../services/whatsapp'); // mismo envío real (Meta) que usa la Bandeja
+const wmensajes = require('../services/whatsapp_mensajes'); // mismo registro y chequeo de ventana 24h que usa la Bandeja
 
 const APP_URL = process.env.APP_URL || '';
 
@@ -366,6 +368,122 @@ router.get('/reportes/:tipo', async (req, res) => {
     res.json(filas);
   } catch (err) {
     console.error('[api/v1/reportes GET]', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
+// --- WhatsApp (Bandeja) — alcance simple para Cowork: leer conversaciones,
+// leer un hilo y responder texto. Reutiliza tal cual la lógica ya probada de
+// routes/whatsapp.js y services/whatsapp_mensajes.js (ventana de 24h, registro
+// y envío real a Meta) — no hay atajo ni excepción distinta para Cowork. Fuera
+// de esta vuelta: adjuntos y reenvío de plantilla para conversaciones cerradas
+// (ver routes/whatsapp.js si se necesita ese alcance más adelante).
+function conversacionOut(c) {
+  return {
+    contacto_id: String(c.contacto_id),
+    nombre: [c.contacto_nombre, c.contacto_apellido].filter(Boolean).join(' ') || null,
+    telefono: c.telefono_e164,
+    empresa: c.empresa_razon_social || null,
+    negocio_id: c.negocio_id ? String(c.negocio_id) : null,
+    vendedor_nombre: c.vendedor_nombre || null,
+    ultimo_mensaje: c.ultimo_mensaje,
+    ultimo_direccion: c.ultimo_direccion,
+    ultimo_at: c.ultimo_at,
+    abierta: c.abierta,
+  };
+}
+
+// GET /api/v1/whatsapp/conversaciones?abierta=true|false
+// Sin distinción de vendedor: Cowork ve todas, mismo criterio que /reportes.
+// No incluye archivadas (mismo default que la Bandeja humana).
+router.get('/whatsapp/conversaciones', async (req, res) => {
+  try {
+    const { abierta } = req.query;
+    const clauses = [`COALESCE(wc.archivada, false) = false`];
+    if (abierta === 'true') clauses.push(`abierta.abierta = true`);
+    else if (abierta === 'false') clauses.push(`abierta.abierta = false`);
+    const conversaciones = await db.all(
+      `SELECT c.id AS contacto_id, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido, c.telefono_e164,
+              em.razon_social AS empresa_razon_social,
+              l.negocio_id, u.nombre AS vendedor_nombre,
+              ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
+              COALESCE(abierta.abierta, false) AS abierta
+       FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
+       JOIN contactos c ON c.id = base.contacto_id
+       LEFT JOIN empresas em ON em.id = c.empresa_id
+       LEFT JOIN LATERAL (
+         SELECT * FROM leads WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
+       ) l ON true
+       LEFT JOIN users u ON u.id = l.vendedor_id
+       LEFT JOIN LATERAL (
+         SELECT texto, direccion, created_at FROM whatsapp_mensajes WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
+       ) ult ON true
+       LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
+       LEFT JOIN LATERAL (
+         SELECT EXISTS (
+           SELECT 1 FROM whatsapp_mensajes
+           WHERE contacto_id = c.id AND direccion = 'entrante' AND created_at > now() - interval '24 hours'
+         ) AND NOT COALESCE(wc.cerrada_manual, false) AS abierta
+       ) abierta ON true
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY ult.created_at DESC LIMIT 300`
+    );
+    res.json(conversaciones.map(conversacionOut));
+  } catch (err) {
+    console.error('[api/v1/whatsapp/conversaciones GET]', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
+// GET /api/v1/whatsapp/conversaciones/:contactoId/mensajes
+router.get('/whatsapp/conversaciones/:contactoId/mensajes', async (req, res) => {
+  try {
+    const contacto = await db.get('SELECT id FROM contactos WHERE id = $1', [req.params.contactoId]);
+    if (!contacto) return error(res, 404, 'no_encontrado', 'Contacto no encontrado');
+    const hilo = await db.all(
+      `SELECT wm.id, wm.direccion, wm.texto, wm.created_at, wm.tipo, wm.archivo_nombre, wm.archivo_mime,
+              (wm.archivo_key IS NOT NULL) AS tiene_archivo, u.nombre AS enviado_por_nombre
+       FROM whatsapp_mensajes wm
+       LEFT JOIN users u ON u.id = wm.enviado_por_id
+       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC`,
+      [req.params.contactoId]
+    );
+    res.json(hilo);
+  } catch (err) {
+    console.error('[api/v1/whatsapp/conversaciones/:id/mensajes GET]', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
+// POST /api/v1/whatsapp/conversaciones/:contactoId/mensajes {texto}
+// Mismo envío/registro que la Bandeja humana — respeta la ventana de 24h de
+// Meta igual que ahí, sin atajo para Cowork. A diferencia del mensaje que
+// manda un vendedor logueado (routes/whatsapp.js), este no antepone una firma
+// con nombre de persona — se envía el texto tal cual. El mensaje queda
+// igualmente auditado en el timeline con autoría "Cowork" (idCowork()).
+router.post('/whatsapp/conversaciones/:contactoId/mensajes', async (req, res) => {
+  try {
+    const { texto } = req.body;
+    if (!texto || !texto.trim()) return error(res, 400, 'campos_requeridos', 'texto es obligatorio');
+
+    const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
+    if (!contacto) return error(res, 404, 'no_encontrado', 'Contacto no encontrado');
+    if (!contacto.telefono_e164) return error(res, 422, 'sin_telefono', 'El contacto no tiene teléfono registrado');
+
+    const abierta = await wmensajes.ventanaAbierta(req.params.contactoId);
+    if (!abierta) return error(res, 409, 'ventana_cerrada', 'Pasaron más de 24 h desde el último mensaje del cliente: no se puede enviar texto libre');
+
+    const lead = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [req.params.contactoId]);
+    const resultado = await whatsappSvc.enviar(contacto.telefono_e164, texto.trim());
+    if (!resultado.enviado) return error(res, 502, 'envio_fallido', resultado.motivo || 'No se pudo enviar el mensaje');
+
+    await wmensajes.registrar({
+      contacto_id: req.params.contactoId, lead_id: lead?.id ?? null,
+      direccion: 'saliente', texto: texto.trim(), enviado_por_id: await idCowork(),
+    });
+    res.status(201).json({ message: 'Mensaje enviado' });
+  } catch (err) {
+    console.error('[api/v1/whatsapp/conversaciones/:id/mensajes POST]', err);
     error(res, 500, 'error_interno', 'Error interno');
   }
 });
