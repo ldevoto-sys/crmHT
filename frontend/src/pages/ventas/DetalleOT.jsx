@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
 
@@ -13,24 +14,39 @@ const ORIGEN_ITEMS_LABEL = { plantilla: 'Plantilla estándar', cotizacion: 'Coti
 const itemVacio = () => ({ tipo: 'material', producto_id: null, descripcion: '', cantidad: 1, precio_unitario: '' });
 
 // Igual patrón que el buscador de producto de NuevaCotizacion.jsx, sin
-// precio (la OT nace sin precios) ni filtros de categoría/marca.
+// precio (la OT nace sin precios) ni filtros de categoría/marca. El
+// desplegable se renderiza en un portal a <body> con posición fija
+// calculada desde el input — la tabla de ítems va dentro de un
+// contenedor "overflow-x-auto" (para scroll horizontal en mobile), y
+// eso recorta cualquier hijo "absolute" que se salga de su alto; con
+// "fixed" + portal, el desplegable ya no depende de ningún ancestro.
 function BuscadorProducto({ value, onChange, onElegir }) {
   const [resultados, setResultados] = useState([]);
   const [abierto, setAbierto] = useState(false);
+  const [pos, setPos] = useState(null);
+  const inputRef = useRef(null);
+
+  const actualizarPos = () => {
+    if (!inputRef.current) return;
+    const r = inputRef.current.getBoundingClientRect();
+    setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+  };
   const buscar = async val => {
     onChange(val);
+    actualizarPos();
     if (val.length < 2) { setResultados([]); return; }
     try { setResultados((await api.get('/productos', { params: { q: val } })).data.slice(0, 15)); }
     catch { /* */ }
   };
   return (
     <div className="relative">
-      <input value={value} onChange={e => buscar(e.target.value)}
-        onFocus={() => setAbierto(true)} onBlur={() => setTimeout(() => setAbierto(false), 150)}
+      <input ref={inputRef} value={value} onChange={e => buscar(e.target.value)}
+        onFocus={() => { setAbierto(true); actualizarPos(); }} onBlur={() => setTimeout(() => setAbierto(false), 150)}
         placeholder="Nombre, código, marca — o descripción libre"
         className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ht-accent" />
-      {abierto && resultados.length > 0 && (
-        <div className="absolute z-10 bg-white border border-gray-200 rounded mt-1 w-full max-h-64 overflow-y-auto shadow">
+      {abierto && resultados.length > 0 && pos && createPortal(
+        <div style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 50 }}
+          className="bg-white border border-gray-200 rounded max-h-64 overflow-y-auto shadow-lg">
           {resultados.map(p => (
             <button key={p.id} type="button" onMouseDown={() => { onElegir(p); setResultados([]); }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
@@ -38,7 +54,8 @@ function BuscadorProducto({ value, onChange, onElegir }) {
               <span className="text-gray-400"> · {p.sku}{p.marca ? ` · ${p.marca}` : ''}</span>
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
