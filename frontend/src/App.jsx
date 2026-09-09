@@ -12,6 +12,7 @@ import ConfigPipeline from './pages/admin/ConfigPipeline';
 import ReglasAsignacion from './pages/admin/ReglasAsignacion';
 import ConfigEmpresa from './pages/admin/ConfigEmpresa';
 import ConfigSecuencias from './pages/admin/ConfigSecuencias';
+import ConfigPlantillasOT from './pages/admin/ConfigPlantillasOT';
 import ConfigBotWhatsApp from './pages/admin/ConfigBotWhatsApp';
 import ConfigEncuesta from './pages/admin/ConfigEncuesta';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
@@ -29,6 +30,7 @@ import ImportarProductos from './pages/maestros/ImportarProductos';
 import Pipeline from './pages/ventas/Pipeline';
 import ImportarNegocios from './pages/ventas/ImportarNegocios';
 import DetalleNegocio from './pages/ventas/DetalleNegocio';
+import DetalleOT from './pages/ventas/DetalleOT';
 import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
@@ -118,6 +120,9 @@ export default function App() {
             <Route path="negocios/:id" element={
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleNegocio /></ProtectedRoute>
             } />
+            <Route path="negocios/:negocioId/ot" element={
+              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleOT /></ProtectedRoute>
+            } />
             <Route path="negocios/:negocioId/cotizar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
             } />
@@ -205,6 +210,9 @@ export default function App() {
             } />
             <Route path="config/secuencias" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigSecuencias /></ProtectedRoute>
+            } />
+            <Route path="config/plantillas-ot" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigPlantillasOT /></ProtectedRoute>
             } />
             <Route path="config/bot-whatsapp" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigBotWhatsApp /></ProtectedRoute>

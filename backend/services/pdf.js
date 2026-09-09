@@ -211,4 +211,116 @@ async function generarCotizacionPDFBuffer(data) {
   return listo;
 }
 
-module.exports = { generarCotizacionPDF, generarCotizacionPDFBuffer };
+const TIPO_TRABAJO_LABEL = {
+  mantenimiento_preventivo: 'Mantenimiento preventivo',
+  lavado: 'Lavado de estanque',
+  impermeabilizado: 'Impermeabilizado',
+  mantenimiento_correctivo: 'Mantenimiento correctivo',
+  otro: 'Otro',
+};
+
+// Orden de Trabajo (Arranque de Trabajos, HT-AP-03 pendiente 06-09-2026):
+// mismo layout/colores que generarCotizacionPDF, pero la OT nace "sin
+// precios" (ver services/ot.js) — la tabla de ítems omite las columnas de
+// precio/total si ningún ítem tiene precio_unitario cargado.
+async function generarOTPDF(data, stream) {
+  const { ot, items, cliente, emisor = {} } = data;
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
+  doc.pipe(stream);
+  const M = 40;
+  const tienePrecios = items.some(it => it.precio_unitario !== null && it.precio_unitario !== undefined);
+
+  doc.rect(0, 0, 595, 96).fill(NAVY);
+  if (fs.existsSync(LOGO)) { try { doc.image(LOGO, M, 20, { height: 30 }); } catch { /* opcional */ } }
+  doc.fillColor(CYAN).fontSize(18).font('Helvetica-Bold').text('ORDEN DE TRABAJO', 275, 22, { width: 280, align: 'right' });
+  doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold').text(`OT-${ot.negocio_id}`, 275, 46, { width: 280, align: 'right' });
+  const emLinea = [emisor.direccion && `${emisor.direccion}, ${emisor.comuna || ''}`, emisor.rut && `RUT ${emisor.rut}`,
+                   emisor.telefono && `T ${emisor.telefono}`, emisor.whatsapp && `WhatsApp ${emisor.whatsapp}`, emisor.email_ventas]
+                   .filter(Boolean).join('   ·   ');
+  doc.fontSize(8).font('Helvetica').fillColor('rgba(255,255,255,0.8)').text(emLinea, M, 74, { width: 515 });
+  doc.rect(0, 96, 595, 4).fill(CYAN);
+
+  let y = 104;
+  if (ot.negocio_titulo) {
+    doc.fillColor(NAVY).fontSize(11).font('Helvetica-Bold');
+    const tituloAltura = doc.heightOfString(ot.negocio_titulo, { width: 515 });
+    doc.text(ot.negocio_titulo, M, y, { width: 515 });
+    y += Math.max(18, tituloAltura + 6);
+  }
+  y = Math.max(y, 120);
+
+  doc.fillColor(CYAN).fontSize(9).font('Helvetica-Bold').text('CLIENTE', M, y);
+  doc.fillColor(CYAN).text('INFORMACIÓN', 320, y);
+  y += 14;
+  const nombreCliente = cliente.empresa_nombre || `${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim();
+  doc.fillColor(NAVY).fontSize(12).font('Helvetica-Bold');
+  const nombreClienteAltura = doc.heightOfString(nombreCliente, { width: 260 });
+  doc.text(nombreCliente, M, y, { width: 260 });
+  doc.fontSize(9).font('Helvetica').fillColor(GRAY);
+  let yc = y + Math.max(16, nombreClienteAltura + 4);
+  const lineaCliente = (texto) => {
+    const altura = doc.heightOfString(texto, { width: 260 });
+    doc.text(texto, M, yc, { width: 260 });
+    yc += Math.max(12, altura + 2);
+  };
+  if (cliente.empresa_direccion) lineaCliente(`${cliente.empresa_direccion}${cliente.empresa_comuna ? ', ' + cliente.empresa_comuna : ''}`);
+  lineaCliente(`Contacto: ${cliente.contacto_nombre || ''} ${cliente.contacto_apellido || ''}`.trim());
+  if (cliente.contacto_email) lineaCliente(cliente.contacto_email);
+
+  const info = [
+    ['Tipo de trabajo', TIPO_TRABAJO_LABEL[ot.tipo_trabajo] || ot.tipo_trabajo || '—'],
+    ['Fecha', fechaCorta(ot.created_at)],
+  ];
+  let yi = y + 16;
+  info.forEach(([k, v]) => {
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(k, 320, yi, { width: 100 });
+    doc.font('Helvetica-Bold').fillColor(NAVY).text(v || '—', 420, yi, { width: 135 });
+    yi += 14;
+  });
+
+  y = Math.max(yc, yi) + 16;
+
+  // Tabla de ítems: con columnas de precio/total solo si algún ítem tiene
+  // precio cargado — la OT nace sin precios y muchas nunca los tendrán.
+  doc.rect(M, y, 515, 22).fill(NAVY);
+  doc.fillColor('#fff').fontSize(9).font('Helvetica-Bold').text('Tipo', M + 8, y + 7, { width: 70 });
+  if (tienePrecios) {
+    doc.text('Descripción', 110, y + 7, { width: 210 })
+      .text('Cant.', 330, y + 7, { width: 45, align: 'right' })
+      .text('P. unitario', 385, y + 7, { width: 80, align: 'right' })
+      .text('Total', 475, y + 7, { width: 72, align: 'right' });
+  } else {
+    doc.text('Descripción', 110, y + 7, { width: 350 })
+      .text('Cant.', 475, y + 7, { width: 72, align: 'right' });
+  }
+  y += 22;
+  const anchoDescripcion = tienePrecios ? 210 : 350;
+  items.forEach((it, idx) => {
+    const nombre = it.descripcion || it.producto_nombre || '—';
+    const nombreAltura = doc.font('Helvetica-Bold').fontSize(9).heightOfString(nombre, { width: anchoDescripcion });
+    const h = Math.max(nombreAltura + 16, 26);
+
+    if (y + h > 780) { doc.addPage(); y = 40; }
+    if (idx % 2 === 1) doc.rect(M, y, 515, h).fill('#f7f9fc');
+    doc.fillColor(GRAY).font('Helvetica').fontSize(8.5).text(it.tipo === 'herramienta' ? 'Herramienta' : 'Material', M + 8, y + 8, { width: 70 });
+    doc.fillColor(NAVY).font('Helvetica-Bold').fontSize(9).text(nombre, 110, y + 8, { width: anchoDescripcion });
+    doc.fillColor('#000').font('Helvetica').fontSize(9)
+      .text(String(Number(it.cantidad)), tienePrecios ? 330 : 475, y + 8, { width: 45, align: 'right' });
+    if (tienePrecios) {
+      doc.text(it.precio_unitario != null ? money(it.precio_unitario) : '—', 385, y + 8, { width: 80, align: 'right' })
+        .fillColor(NAVY).font('Helvetica-Bold').text(it.total_linea != null ? money(it.total_linea) : '—', 475, y + 8, { width: 72, align: 'right' });
+    }
+    y += h;
+    if (y > 700) { doc.addPage(); y = 40; }
+  });
+
+  if (ot.observaciones) {
+    y += 16;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('OBSERVACIONES', M, y);
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(ot.observaciones, M, y + 14, { width: 515 });
+  }
+
+  doc.end();
+}
+
+module.exports = { generarCotizacionPDF, generarCotizacionPDFBuffer, generarOTPDF };
