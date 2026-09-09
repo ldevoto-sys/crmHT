@@ -2101,6 +2101,64 @@ async function initDb() {
   // evita generar dos veces los resúmenes del mismo día.
   await db.run(`CREATE TABLE IF NOT EXISTS whatsapp_memoria_envios (fecha DATE PRIMARY KEY)`);
 
+  // === Arranque de Trabajos (Ventas → Operaciones), HT-AP-03 pendiente
+  // 06-09-2026 ===
+  // Tipo de trabajo se exige al mover el negocio a "Aceptado" en el
+  // pipeline Operaciones — determina cómo se prellena la Orden de Trabajo
+  // (ver services/ot.js): preventivo/lavado desde una plantilla
+  // configurable (ot_plantilla_items), impermeabilizado/correctivo/otro
+  // caso a caso desde la cotización vigente (o vacío si no hay).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS tipo_trabajo TEXT CHECK (tipo_trabajo IN ('mantenimiento_preventivo','lavado','impermeabilizado','mantenimiento_correctivo','otro'))`);
+
+  // Orden de Trabajo: 1:1 con el negocio, se crea sola al entrar a
+  // "Aceptado" (ver services/ot.js). No tiene numeración propia — se
+  // identifica como "OT-{negocio_id}", igual que el negocio tampoco tiene
+  // folio propio, para no sumar un correlativo más.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS ordenes_trabajo (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL UNIQUE REFERENCES negocios(id),
+      origen_items TEXT NOT NULL CHECK (origen_items IN ('plantilla','cotizacion','manual')),
+      observaciones TEXT,
+      creado_por_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Ítems de la OT — mismo esqueleto que cotizacion_items, pero sin precio
+  // obligatorio (la OT nace "sin precios"): se puede cargar después a mano
+  // si se necesita costear.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS ot_items (
+      id SERIAL PRIMARY KEY,
+      ot_id INTEGER NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
+      tipo TEXT NOT NULL DEFAULT 'material' CHECK (tipo IN ('material','herramienta')),
+      producto_id INTEGER REFERENCES productos(id),
+      descripcion TEXT,
+      cantidad NUMERIC(10,2) NOT NULL DEFAULT 1,
+      precio_unitario NUMERIC(12,2),
+      total_linea NUMERIC(12,2)
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_ot_items_ot ON ot_items (ot_id)`);
+
+  // Configurador de materiales/herramientas estándar — solo para los tipos
+  // de trabajo que se repiten siempre igual (mantenimiento preventivo,
+  // lavado de estanque). Se define una vez en Config → Plantillas OT y se
+  // copia entera a la OT cada vez que se crea un negocio de ese tipo.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS ot_plantilla_items (
+      id SERIAL PRIMARY KEY,
+      tipo_trabajo TEXT NOT NULL CHECK (tipo_trabajo IN ('mantenimiento_preventivo','lavado')),
+      orden INTEGER NOT NULL DEFAULT 0,
+      tipo TEXT NOT NULL DEFAULT 'material' CHECK (tipo IN ('material','herramienta')),
+      producto_id INTEGER REFERENCES productos(id),
+      descripcion TEXT,
+      cantidad NUMERIC(10,2) NOT NULL DEFAULT 1
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_ot_plantilla_items_tipo ON ot_plantilla_items (tipo_trabajo, orden)`);
+
   console.log('[DB] Base de datos lista.');
 }
 

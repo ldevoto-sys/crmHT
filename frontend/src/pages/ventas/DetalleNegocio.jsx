@@ -10,6 +10,13 @@ import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '—';
 const fecha = formatFechaHora;
 const numeroCompleto = (numero, version) => `${numero}-${String(version).padStart(2, '0')}`;
+const TIPOS_TRABAJO = [
+  ['mantenimiento_preventivo', 'Mantenimiento preventivo'],
+  ['lavado', 'Lavado de estanque'],
+  ['impermeabilizado', 'Impermeabilizado'],
+  ['mantenimiento_correctivo', 'Mantenimiento correctivo'],
+  ['otro', 'Otro'],
+];
 // Reasignar el vendedor dueño del negocio: administrador o jefe comercial —
 // no el propio vendedor dueño, aunque n.puede_editar sí lo deje editar el
 // resto de los campos.
@@ -29,6 +36,8 @@ export default function DetalleNegocio() {
   const [fechaCompromiso, setFechaCompromiso] = useState('');
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
+  const [modalAceptado, setModalAceptado] = useState(null); // etapa "Aceptado" sin tipo_trabajo
+  const [tipoTrabajoSel, setTipoTrabajoSel] = useState('');
 
   const [cots, setCots] = useState([]);
   const [encuesta, setEncuesta] = useState(null);
@@ -189,6 +198,20 @@ export default function DetalleNegocio() {
             )}
           </div>
 
+          {n.tipo_trabajo && (
+            <div className="bg-white border border-gray-200 rounded-lg p-5">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold text-ht-navy">Orden de Trabajo</h2>
+                <Link to={`/negocios/${id}/ot`} className="text-sm bg-ht-accent text-ht-navy px-3 py-1.5 rounded hover:bg-ht-accent/90">
+                  Ver OT-{id}
+                </Link>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Tipo de trabajo: {TIPOS_TRABAJO.find(([v]) => v === n.tipo_trabajo)?.[1] || n.tipo_trabajo}
+              </p>
+            </div>
+          )}
+
           {n.etapa_tipo === 'ganada' && encuesta && (
             <div className="bg-white border border-gray-200 rounded-lg p-5">
               <h2 className="font-semibold text-ht-navy mb-3">Encuesta de satisfacción</h2>
@@ -236,7 +259,11 @@ export default function DetalleNegocio() {
               <div className="flex flex-col gap-2">
                 {etapas.map(e => (
                   <button key={e.id} disabled={e.id === n.etapa_id}
-                    onClick={() => e.tipo === 'perdida' ? (setModalPerdido(e), setCausaSel(''), setDetalle('')) : cambiarEtapa(e)}
+                    onClick={() => {
+                      if (e.tipo === 'perdida') { setModalPerdido(e); setCausaSel(''); setDetalle(''); return; }
+                      if (e.nombre.toLowerCase() === 'aceptado' && !n.tipo_trabajo) { setModalAceptado(e); setTipoTrabajoSel(''); return; }
+                      cambiarEtapa(e);
+                    }}
                     className={`text-sm px-3 py-2 rounded border text-left flex justify-between ${e.id === n.etapa_id ? 'bg-ht-accent text-ht-navy border-ht-accent' : 'border-gray-300 text-gray-700 hover:bg-slate-50'}`}>
                     <span>{e.nombre}</span><span className="opacity-70">{e.probabilidad_cierre}%</span>
                   </button>
@@ -295,6 +322,28 @@ export default function DetalleNegocio() {
           </div>
         </div>
       </div>
+
+      {modalAceptado && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setModalAceptado(null)}>
+          <div onClick={e => e.stopPropagation()} className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="font-semibold text-ht-navy text-lg mb-1">Tipo de trabajo</h2>
+            <p className="text-sm text-gray-500 mb-3">
+              Obligatorio para pasar a "{modalAceptado.nombre}" — determina cómo se prellena la Orden de Trabajo.
+            </p>
+            <select value={tipoTrabajoSel} onChange={e => setTipoTrabajoSel(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent">
+              <option value="">— Selecciona tipo de trabajo —</option>
+              {TIPOS_TRABAJO.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+            <div className="flex gap-2">
+              <button disabled={!tipoTrabajoSel}
+                onClick={async () => { await cambiarEtapa(modalAceptado, { tipo_trabajo: tipoTrabajoSel }); setModalAceptado(null); }}
+                className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">Confirmar</button>
+              <button onClick={() => setModalAceptado(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modalPerdido && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setModalPerdido(null)}>

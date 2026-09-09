@@ -85,7 +85,9 @@ export default function ImportarNegocios() {
         Sube un CSV con órdenes de compra contra un contrato (ej: Cencosud, Sodimac). Cada fila crea una
         oportunidad directo en el pipeline Operaciones, sin necesidad de cotización. La columna <strong>estado</strong>{' '}
         indica en qué etapa del pipeline queda (por nombre, ej. "Aceptado", "Programado", "Perdido"); si viene vacía,
-        queda en <strong>Aceptado</strong>. Las fechas van en formato <strong>DD-MM-AAAA</strong>.
+        queda en <strong>Aceptado</strong>. Las filas que entran a Aceptado exigen <strong>tipo_trabajo</strong>
+        (mantenimiento preventivo, lavado, impermeabilizado, mantenimiento correctivo u otro) — con eso se genera la
+        Orden de Trabajo automáticamente. Las fechas van en formato <strong>DD-MM-AAAA</strong>.
         La empresa y el contacto se buscan o se crean automáticamente; el vendedor debe existir ya en el sistema.
       </p>
       <button onClick={descargarPlantilla} className="text-sm text-ht-accent hover:underline mb-6 inline-block">
@@ -135,6 +137,7 @@ export default function ImportarNegocios() {
                   <th className="text-left px-4 py-1 font-medium">Contacto</th>
                   <th className="text-left px-4 py-1 font-medium">Título</th>
                   <th className="text-left px-4 py-1 font-medium">Estado</th>
+                  <th className="text-left px-4 py-1 font-medium">Tipo de trabajo</th>
                   <th className="text-left px-4 py-1 font-medium">N° O/C</th>
                   <th className="text-left px-4 py-1 font-medium">Monto</th>
                   <th className="text-left px-4 py-1 font-medium">Fecha cierre</th>
@@ -148,6 +151,7 @@ export default function ImportarNegocios() {
                       <td className="px-4 py-1 text-gray-600">{m.contacto}</td>
                       <td className="px-4 py-1 text-gray-600">{m.titulo}</td>
                       <td className="px-4 py-1 text-gray-600">{m.estado}</td>
+                      <td className="px-4 py-1 text-gray-600">{m.tipo_trabajo || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.n_oc || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.monto ?? '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.fecha_cierre || '—'}</td>

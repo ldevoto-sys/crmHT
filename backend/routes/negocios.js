@@ -5,9 +5,10 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
+const ot = require('../services/ot');
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
-const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
+const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
 const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
@@ -156,7 +157,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/negocios
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   try {
-    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id } = req.body;
+    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id, tipo_trabajo } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
 
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
@@ -178,21 +179,35 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
 
     // Etapa inicial: primera abierta por orden, dentro de ese mismo pipeline.
     const etapaInicial = await db.get(
-      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true AND pipeline_id = $1 ORDER BY orden LIMIT 1`,
+      `SELECT id, nombre, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true AND pipeline_id = $1 ORDER BY orden LIMIT 1`,
       [pipelineId]
     );
     const emp = empresa_id || contacto.empresa_id || null;
 
+    // Arranque de Trabajos (HT-AP-03, pendiente 06-09-2026): si la etapa
+    // inicial resulta ser "Aceptado" (pipeline Operaciones reordenado sin
+    // Lead/Cotizado/Negociación antes, o un pipeline nuevo con Aceptado
+    // como primera etapa), exige tipo de trabajo igual que PUT /:id/etapa
+    // — no es solo la ruta del kanban la que puede aterrizar ahí.
+    const entraAAceptado = etapaInicial?.nombre.toLowerCase() === 'aceptado';
+    if (entraAAceptado) {
+      if (!tipo_trabajo) return res.status(400).json({ error: 'El tipo de trabajo es obligatorio para pasar a "Aceptado"' });
+      if (!TIPOS_TRABAJO.includes(tipo_trabajo)) return res.status(400).json({ error: 'Tipo de trabajo inválido' });
+    }
+
     const r = await db.run(
-      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id, fecha_compromiso)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id, fecha_compromiso, tipo_trabajo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [contacto_id, emp, dueno, titulo, monto_estimado || null,
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null,
-       fecha_cierre_estimada || null, pipelineId, fecha_compromiso || null]
+       fecha_cierre_estimada || null, pipelineId, fecha_compromiso || null, entraAAceptado ? tipo_trabajo : null]
     );
     const negocio = r.rows[0];
     if (etapaInicial) {
       await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaInicial.id]);
+    }
+    if (entraAAceptado) {
+      await ot.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo }, db, req.user.id);
     }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
@@ -250,7 +265,7 @@ router.put('/:id', async (req, res) => {
 // para que confirmar una sugerencia dispare exactamente lo mismo que mover
 // la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
 // `.status` para que el caller los traduzca a la respuesta HTTP.
-async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle } = {}, usuarioId) {
+async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, tipo_trabajo } = {}, usuarioId) {
   const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
   if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
 
@@ -264,17 +279,35 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   if (etapa.tipo === 'perdida' && !causa_no_cierre_id) {
     const e = new Error('La causa de no cierre es obligatoria al marcar perdido'); e.status = 400; throw e;
   }
+  // Arranque de Trabajos (HT-AP-03, pendiente 06-09-2026): entrar a
+  // "Aceptado" exige tipo de trabajo — determina cómo se prellena la OT
+  // (ver services/ot.js). Puede venir recién en este request (primera vez
+  // que se fija) o ya estar en el negocio de una entrada anterior. Va acá
+  // (no en la ruta) para que cualquier caller de cambiarEtapaNegocio —
+  // también /sugerencias-facturacion/:folio/confirmar — quede protegido.
+  const entraAAceptado = etapa.nombre.toLowerCase() === 'aceptado';
+  const tipoTrabajoFinal = tipo_trabajo || negocio.tipo_trabajo;
+  if (entraAAceptado) {
+    if (!tipoTrabajoFinal) { const e = new Error('El tipo de trabajo es obligatorio para pasar a "Aceptado"'); e.status = 400; throw e; }
+    if (!TIPOS_TRABAJO.includes(tipoTrabajoFinal)) { const e = new Error('Tipo de trabajo inválido'); e.status = 400; throw e; }
+  }
 
   const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
   await db.run(
     `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
-            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now()
-     WHERE id=$6`,
+            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now(),
+            tipo_trabajo=$6
+     WHERE id=$7`,
     [etapa.id, etapa.probabilidad_cierre,
      etapa.tipo === 'perdida' ? causa_no_cierre_id : null,
      etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
-     cierra ? new Date().toISOString() : null, negocioId]
+     cierra ? new Date().toISOString() : null,
+     tipo_trabajo ? tipoTrabajoFinal : negocio.tipo_trabajo,
+     negocioId]
   );
+  if (entraAAceptado) {
+    await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: tipoTrabajoFinal }, db, usuarioId);
+  }
   if (etapa.id !== negocio.etapa_id) {
     await db.run(
       'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
@@ -636,8 +669,12 @@ async function resolverPipelineOperaciones(client) {
   if (!etapas.rows.length) return { error: 'El pipeline "Operaciones" no tiene etapas activas configuradas.' };
 
   const porNombre = new Map(etapas.rows.map(e => [e.nombre.toLowerCase(), e]));
-  const porDefecto = etapas.rows.find(e => e.tipo === 'ganada');
-  if (!porDefecto) return { error: 'El pipeline "Operaciones" no tiene una etapa de tipo "ganada" configurada (se usa por defecto cuando la fila no indica estado).' };
+  // Fix (bug pre-existente): esto buscaba tipo==='ganada', contradiciendo el
+  // comentario de arriba y el de resolverEtapaFila() — una fila sin "estado"
+  // caía directo en "Ganado" en vez de "Aceptado". Corregido para matchear
+  // por nombre, igual que el resto del importador.
+  const porDefecto = porNombre.get('aceptado');
+  if (!porDefecto) return { error: 'El pipeline "Operaciones" no tiene una etapa "Aceptado" configurada (se usa por defecto cuando la fila no indica estado).' };
 
   return { pipelineId, porNombre, porDefecto };
 }
@@ -759,6 +796,7 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
         contacto: `${v.negocio.contacto_nombre} ${v.negocio.contacto_apellido || ''}`.trim(),
         titulo: v.negocio.titulo,
         estado: v.etapaNombre,
+        tipo_trabajo: v.negocio.tipo_trabajo || '',
         n_oc: v.negocio.n_oc || '',
         monto: v.negocio.monto,
         fecha_cierre: v.negocio.fecha_cierre || '',
@@ -811,9 +849,9 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       const fechaCierreEstimada = esCerrada ? null : (n.fecha_cierre || null);
 
       const r = await client.query(
-        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, fecha_cierre_estimada, pipeline_id, n_oc)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, fechaCierreEstimada, pipelineId, n.n_oc || null]
+        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, fecha_cierre_estimada, pipeline_id, n_oc, tipo_trabajo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, fechaCierreEstimada, pipelineId, n.n_oc || null, n.tipo_trabajo || null]
       );
       const negocioId = r.rows[0].id;
       await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocioId, etapa.id]);
@@ -821,6 +859,12 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
         contacto_id: contactoId, empresa_id: empresaId, negocio_id: negocioId, tipo: 'cambio_etapa',
         descripcion: `Negocio creado por importación de oportunidades (O/C directo a "${etapa.nombre}")`, usuario_id: req.user.id,
       }, client);
+      // Arranque de Trabajos: si la fila entra directo a "Aceptado" (con su
+      // tipo_trabajo ya validado en mapearFila), se le genera la OT ahí
+      // mismo — mismo comportamiento que el kanban manual, para no divergir.
+      if (etapa.nombre.toLowerCase() === 'aceptado') {
+        await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+      }
       creados++;
     }
 

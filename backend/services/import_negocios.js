@@ -17,6 +17,7 @@ const MAPA = {
   'celular': 'contacto_telefono', 'fono': 'contacto_telefono',
   'titulo': 'titulo', 'título': 'titulo', 'nombre_negocio': 'titulo', 'oportunidad': 'titulo',
   'estado': 'estado', 'etapa': 'estado',
+  'tipo_trabajo': 'tipo_trabajo', 'tipo de trabajo': 'tipo_trabajo', 'tipo trabajo': 'tipo_trabajo',
   'n_oc': 'n_oc', 'oc': 'n_oc', 'orden_compra': 'n_oc', 'orden de compra': 'n_oc',
   'n° oc': 'n_oc', 'nº oc': 'n_oc', 'numero_oc': 'n_oc', 'número de oc': 'n_oc',
   'monto': 'monto', 'monto_estimado': 'monto', 'total': 'monto',
@@ -27,8 +28,29 @@ const MAPA = {
 
 const PLANTILLA_HEADERS = [
   'empresa', 'rut_empresa', 'contacto_nombre', 'contacto_apellido', 'contacto_email',
-  'contacto_telefono', 'titulo', 'estado', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
+  'contacto_telefono', 'titulo', 'estado', 'tipo_trabajo', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
 ];
+
+// Mismos 5 valores que el CHECK de negocios.tipo_trabajo en db.js. Exportado
+// para que routes/negocios.js valide con la misma lista en el gate manual
+// de "Aceptado" (PUT /:id/etapa), sin duplicarla.
+const TIPOS_TRABAJO = ['mantenimiento_preventivo', 'lavado', 'impermeabilizado', 'mantenimiento_correctivo', 'otro'];
+
+// Acepta tanto el valor enum tal cual como etiquetas legibles typeadas a
+// mano en el CSV (con o sin tildes/espacios) — normaliza antes de validar.
+const SINONIMOS_TIPO_TRABAJO = {
+  'mantenimiento preventivo': 'mantenimiento_preventivo', 'preventivo': 'mantenimiento_preventivo',
+  'lavado': 'lavado', 'lavado de estanque': 'lavado', 'lavado estanque': 'lavado',
+  'impermeabilizado': 'impermeabilizado', 'impermeabilizacion': 'impermeabilizado', 'impermeabilización': 'impermeabilizado',
+  'mantenimiento correctivo': 'mantenimiento_correctivo', 'correctivo': 'mantenimiento_correctivo',
+  'otro': 'otro',
+};
+function normalizarTipoTrabajo(valor) {
+  if (!valor) return null;
+  const limpio = valor.toLowerCase().trim();
+  if (TIPOS_TRABAJO.includes(limpio)) return limpio;
+  return SINONIMOS_TIPO_TRABAJO[limpio] || null;
+}
 
 // Fecha del CSV en formato local DD-MM-AAAA (no ISO) — se convierte a
 // AAAA-MM-DD antes de guardar, que es lo que espera la columna DATE.
@@ -78,12 +100,21 @@ function mapearFila(row) {
 
   n.estado = n.estado || null;
 
+  // El tipo de trabajo se exige para "Aceptado" (o fila sin estado, que cae
+  // ahí por defecto) — el resto de las etapas del CSV (Cotizado,
+  // Negociación, Programado, etc.) no lo necesitan en este punto.
+  const entraAAceptado = !n.estado || n.estado.toLowerCase() === 'aceptado';
+  const tipoTrabajoNormalizado = normalizarTipoTrabajo(n.tipo_trabajo);
+  if (n.tipo_trabajo && !tipoTrabajoNormalizado) advertencias.push(`tipo_trabajo "${n.tipo_trabajo}" no reconocido (se ignoró)`);
+  n.tipo_trabajo = tipoTrabajoNormalizado;
+
   const errores = [];
   if (!n.empresa_nombre && !n.empresa_rut) errores.push('falta empresa (nombre o RUT)');
   if (!n.contacto_nombre) errores.push('falta nombre del contacto');
   if (!n.contacto_email && !n.contacto_telefono_e164) errores.push('el contacto no tiene email ni teléfono');
   if (!n.titulo) errores.push('falta título de la oportunidad');
   if (!n.vendedor) errores.push('falta vendedor responsable');
+  if (entraAAceptado && !n.tipo_trabajo) errores.push('falta tipo_trabajo (obligatorio para filas que entran a "Aceptado")');
 
   return { negocio: n, advertencias, errores };
 }
@@ -102,4 +133,4 @@ function mapearNegocios(rows) {
   return { validos, rechazos };
 }
 
-module.exports = { mapearNegocios, PLANTILLA_HEADERS };
+module.exports = { mapearNegocios, PLANTILLA_HEADERS, TIPOS_TRABAJO };
