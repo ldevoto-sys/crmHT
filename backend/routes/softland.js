@@ -7,6 +7,7 @@ const softland = require('../services/softland');
 const { sincronizar } = require('../services/softlandSync');
 const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
 const { cambiarEtapaNegocio } = require('./negocios');
+const { sincronizarProductos } = require('../services/softlandProductos');
 
 router.use(authenticate);
 
@@ -20,6 +21,19 @@ router.get('/test', authorize('administrador'), async (req, res) => {
   } catch (err) {
     console.error('[softland/test]', err);
     res.status(502).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/softland/productos/sincronizar — botón manual, no hay rutina
+// automática (el catálogo no cambia todos los días). Ver
+// services/softlandProductos.js para qué campos toca y cuáles preserva.
+router.post('/productos/sincronizar', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const resultado = await sincronizarProductos();
+    res.json(resultado);
+  } catch (err) {
+    console.error('[softland/productos/sincronizar]', err);
+    res.status(502).json({ error: 'No se pudo sincronizar con Softland: ' + err.message });
   }
 });
 
