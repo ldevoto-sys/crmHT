@@ -293,14 +293,30 @@ reemplaza la herramienta HTML independiente que existía antes):
 - **Importador CSV de oportunidades (v1.21):** para negocios que nacen de
   una orden de compra contra un contrato ya firmado (Cencosud, Sodimac,
   etc.), sin pasar por una cotización. Cada fila crea el negocio directo en
-  la etapa **"Aceptado"** (tipo `ganada`) del pipeline **Operaciones** —
-  mismo patrón de subir → previsualizar → confirmar → informe de rechazos
-  que Empresas/Contactos, botón "Importar oportunidades" en Pipeline
-  (administrador/jefe comercial). La empresa y el contacto se buscan o se
-  crean automáticamente; el vendedor debe existir ya en el sistema (se
-  resuelve por email o nombre). Como entra directo a la etapa terminal, no
-  dispara encuesta de satisfacción ni tarea automática. Campo nuevo
-  `negocios.n_oc` para el N° de orden de compra.
+  una etapa del pipeline **Operaciones**, por defecto **"Aceptado"** si la
+  columna "estado" viene vacía — mismo patrón de subir → previsualizar →
+  confirmar → informe de rechazos que Empresas/Contactos, botón "Importar
+  oportunidades" en Pipeline (administrador/jefe comercial). La empresa y
+  el contacto se buscan o se crean automáticamente; el vendedor debe existir
+  ya en el sistema (se resuelve por email o nombre). Campo nuevo
+  `negocios.n_oc` para el N° de orden de compra. (Fix v1.34: antes una fila
+  sin "estado" caía por error en "Ganado" en vez de "Aceptado".)
+- **Arranque de Trabajos — tipo de trabajo y Orden de Trabajo automática
+  (v1.34):** al mover un negocio a **"Aceptado"** en el pipeline Operaciones
+  (por cualquier vía: kanban, creación directa o el importador CSV de
+  arriba) se exige **tipo de trabajo** (mantenimiento preventivo, lavado,
+  impermeabilizado, mantenimiento correctivo u otro) y se genera sola una
+  **Orden de Trabajo** (`OT-{negocio_id}`, tablas `ordenes_trabajo` +
+  `ot_items`), editable e imprimible/exportable a PDF igual que una
+  cotización. Los materiales/herramientas se prellenan según el tipo:
+  mantenimiento preventivo y lavado desde una plantilla configurable una
+  sola vez (`Config → Plantillas de Orden de Trabajo`, tabla
+  `ot_plantilla_items`); impermeabilizado, correctivo y otro caso a caso,
+  copiando los ítems de la cotización vigente **sin precios**. El aviso a
+  cliente al pasar a "Programado" se configura como una secuencia de
+  seguimiento más (§8), asignada a esa etapa desde Config → Pipeline — no
+  necesitó mecanismo nuevo. Detalle completo:
+  `docs/HT-AP-03-nota-cambio-v1.34.md`.
 - **Fecha de compromiso (v1.22):** campo opcional `negocios.fecha_compromiso`
   (ej. fecha de entrega pactada con el cliente) — distinto de "fecha
   estimada de cierre" (forecast de venta). Se edita en la ficha del negocio
