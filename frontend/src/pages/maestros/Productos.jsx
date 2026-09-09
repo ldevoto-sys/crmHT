@@ -29,6 +29,9 @@ export default function Productos() {
   const [q, setQ] = useState('');
   const [marca, setMarca] = useState('');
   const [categoria, setCategoria] = useState('');
+  const [sincronizando, setSincronizando] = useState(false);
+  const [msgSync, setMsgSync] = useState('');
+  const [errorSync, setErrorSync] = useState('');
 
   const cargar = async () => {
     const params = {};
@@ -46,16 +49,34 @@ export default function Productos() {
   }, [q, marca, categoria, tab]);
   useEffect(() => { api.get('/productos/facetas').then(r => setFacetas(r.data)).catch(() => {}); }, []);
 
+  const sincronizarSoftland = async () => {
+    setErrorSync(''); setMsgSync(''); setSincronizando(true);
+    try {
+      const { data } = await api.post('/softland/productos/sincronizar');
+      setMsgSync(`Sincronizado: ${data.creados} nuevo(s), ${data.actualizados} actualizado(s) de ${data.total} en Softland.`);
+      cargar();
+    } catch (err) { setErrorSync(err.response?.data?.error || 'No se pudo sincronizar con Softland.'); }
+    finally { setSincronizando(false); }
+  };
+
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Productos</h1>
         {esAdmin && tab === 'catalogo' && (
-          <Link to="/productos/importar" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
-            Importar catálogo (CSV)
-          </Link>
+          <div className="flex gap-2">
+            <button onClick={sincronizarSoftland} disabled={sincronizando}
+              className="border border-ht-navy text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/5 disabled:opacity-50">
+              {sincronizando ? 'Sincronizando…' : 'Actualizar productos desde Softland'}
+            </button>
+            <Link to="/productos/importar" className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
+              Importar catálogo (CSV)
+            </Link>
+          </div>
         )}
       </div>
+      {esAdmin && errorSync && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorSync}</div>}
+      {esAdmin && msgSync && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msgSync}</div>}
 
       <div className="flex gap-1 mb-6 border border-gray-200 rounded p-1 bg-slate-50 w-fit">
         <button onClick={() => setTab('catalogo')}
