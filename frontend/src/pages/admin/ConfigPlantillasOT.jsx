@@ -57,6 +57,16 @@ export default function ConfigPlantillasOT() {
 
   const setItem = (i, campo, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre, sku: p.sku || '', codigo: '' } : it));
+  // Igual que en DetalleOT.jsx: código que calza exacto con un SKU del
+  // catálogo autocompleta la descripción al salir del campo.
+  const buscarPorCodigo = async (i, codigo) => {
+    if (!codigo || !codigo.trim()) return;
+    try {
+      const { data } = await api.get('/productos', { params: { q: codigo.trim() } });
+      const match = data.find(p => p.sku && p.sku.toLowerCase() === codigo.trim().toLowerCase());
+      if (match) elegirProducto(i, match);
+    } catch { /* sin conexión o sin match: se deja como código manual */ }
+  };
   const agregarItem = () => setItems([...items, itemVacio()]);
   const quitarItem = i => setItems(items.filter((_, idx) => idx !== i));
 
@@ -121,7 +131,8 @@ export default function ConfigPlantillasOT() {
                     {it.producto_id ? (
                       <span className="text-gray-500">{it.sku || '—'}</span>
                     ) : (
-                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} placeholder="—"
+                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)}
+                        onBlur={e => buscarPorCodigo(i, e.target.value)} placeholder="—"
                         className="w-full border border-gray-200 rounded px-2 py-1 text-sm" />
                     )}
                   </td>

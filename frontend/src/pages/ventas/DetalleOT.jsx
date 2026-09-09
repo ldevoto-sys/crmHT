@@ -68,6 +68,19 @@ export default function DetalleOT() {
 
   const setItem = (i, campo, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre, sku: p.sku || '', codigo: '' } : it));
+  // Buscador "al revés": si lo que se tipeó en Código calza exacto con el
+  // SKU de un producto del catálogo, al salir del campo (Tab o clic afuera)
+  // se autocompleta la descripción igual que si se hubiera elegido desde
+  // el buscador — si no hay match, queda como código manual (para ítems
+  // que no están en el catálogo).
+  const buscarPorCodigo = async (i, codigo) => {
+    if (!codigo || !codigo.trim()) return;
+    try {
+      const { data } = await api.get('/productos', { params: { q: codigo.trim() } });
+      const match = data.find(p => p.sku && p.sku.toLowerCase() === codigo.trim().toLowerCase());
+      if (match) elegirProducto(i, match);
+    } catch { /* sin conexión o sin match: se deja como código manual */ }
+  };
   const agregarItem = () => setItems([...items, itemVacio()]);
   const quitarItem = i => setItems(items.filter((_, idx) => idx !== i));
 
@@ -149,7 +162,8 @@ export default function DetalleOT() {
                     {it.producto_id ? (
                       <span className="text-gray-500">{it.sku || '—'}</span>
                     ) : ot.puede_editar ? (
-                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)} placeholder="—"
+                      <input value={it.codigo} onChange={e => setItem(i, 'codigo', e.target.value)}
+                        onBlur={e => buscarPorCodigo(i, e.target.value)} placeholder="—"
                         className="w-full border border-gray-200 rounded px-2 py-1 text-sm" />
                     ) : <span className="text-gray-500">{it.codigo || '—'}</span>}
                   </td>
