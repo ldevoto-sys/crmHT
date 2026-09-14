@@ -38,11 +38,20 @@ function fechaVencimientoCotizacion(cot) {
   return base.toLocaleDateString('es-CL');
 }
 const PLANTILLAS_WHATSAPP = {
+  // La clave quedó fija en "envio_cotizacion" (sin "_v2") aunque la
+  // plantilla real en Meta es "envio_cotizacion_v2" — cambiar la clave
+  // obligaría a migrar cualquier secuencia ya configurada con esta opción
+  // (columna secuencia_pasos.whatsapp_template). Bug corregido 14-09-2026:
+  // antes se mandaba el nombre de plantilla viejo tal cual la clave (Meta
+  // lo rechazaba en silencio, ver cotizaciones.js#PLANTILLA_ENVIO_COTIZACION)
+  // y faltaba el parámetro "link" que la plantilla sí exige.
   envio_cotizacion: {
     label: 'Envío de cotización',
+    metaTemplate: 'envio_cotizacion_v2',
     parametros: (contacto, cot) => [
       { nombre: 'customer_name', valor: nombreCompleto(contacto) },
       { nombre: 'coti_id', valor: cot.numero },
+      { nombre: 'link', valor: `${process.env.APP_URL || ''}/c/${cot.token_publico}` },
     ],
   },
   vencimiento_cotizacion: {
@@ -116,12 +125,12 @@ async function intentarEnviarWhatsapp(ns, paso) {
   const contacto = await db.get('SELECT nombre, apellido, telefono_e164 FROM contactos WHERE id = $1', [ns.contacto_id]);
   if (!contacto?.telefono_e164) return { enviado: false, motivo: 'el contacto no tiene teléfono registrado' };
   const ultimaCot = await db.get(
-    'SELECT numero, validez_dias, fecha_envio, created_at FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+    'SELECT numero, validez_dias, fecha_envio, created_at, token_publico FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
   );
   if (!ultimaCot) return { enviado: false, motivo: 'el negocio no tiene ninguna cotización registrada' };
   const plantilla = PLANTILLAS_WHATSAPP[paso.whatsapp_template];
   if (!plantilla) return { enviado: false, motivo: `plantilla de WhatsApp "${paso.whatsapp_template}" desconocida` };
-  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
+  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, plantilla.metaTemplate || paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el WhatsApp' };
   return { enviado: true, destinatario: contacto.telefono_e164 };
 }
