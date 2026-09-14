@@ -1,7 +1,7 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-08-07
+**Fecha de consolidación:** 2026-08-07 (última actualización: 2026-09-14)
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
 cambio v1.2 a v1.25 (que quedan archivadas en `docs/` como historial de
@@ -66,7 +66,25 @@ un vendedor queda siempre acotado a lo propio, sin importar el toggle
 general de acceso (§11); y en Dashboard/Reportería, la tarjeta y columnas
 de **Conversaciones de WhatsApp del mes** más el nuevo **Embudo comercial**
 (Conversaciones → Cotizaciones → Notas de venta → Facturas, en cantidad y
-en monto, por vendedor/área) (§9). Este
+en monto, por vendedor/área) (§9); de v1.33 (08-09-2026): **Sugerencias de
+facturación** — cruce automático de facturas de Softland contra negocios
+del pipeline por RUT de empresa + monto exacto, que solo sugiere (nunca
+mueve un negocio solo) desde el Pipeline y desde una pestaña propia de
+Reportería (§9); de v1.34 (11 al 12-09-2026): **Arranque de Trabajos** —
+tipo de trabajo obligatorio y Orden de Trabajo automática al aceptar un
+negocio de Operaciones (§3); y de v1.35 (26-08 al 14-09-2026, relevamiento
+completo pedido por Luis Devoto para poner al día toda la documentación):
+varios cambios que habían quedado en `staging` sin nota propia — fixes de
+Arranque de Trabajos, "negocio = un hilo de cotización" (§4), sincronización
+de productos desde Softland (§2), corrección del motor de seguimiento
+(canal WhatsApp automático y canal "cambiar etapa", §8), variables
+`{{...}}` en el correo de seguimiento sin contenido automático (§8), los 3
+últimos fixes de permisos de `callcenter` para cotizar, extensión de
+WhatsApp en la API Cowork (§18); además, en esta misma pasada se
+incorporaron por primera vez a este consolidado la **migración del
+WhatsApp oficial y la Ley 21.719 de protección de datos** (§11, ya en
+producción desde el 06-09-2026 pero nunca documentadas acá) y el estado
+real del módulo **Cobranza** (§19, en construcción en `staging`). Este
 documento es el que debe subirse a SharePoint reemplazando la versión
 anterior del documento base.
 
@@ -75,7 +93,16 @@ anterior del documento base.
 ## 1. Alcance y roles
 
 **Roles del sistema:** `administrador`, `jefe_comercial`, `vendedor`,
-`callcenter`, `gerencia`, `tecnico` (v1.22).
+`callcenter`, `gerencia`, `tecnico` (v1.22), `integrador` (v1.28 — ver
+nota abajo).
+
+**Rol `integrador`:** no es un rol de persona — es el actor de sistema
+único que usa la API de integración Cowork (§18), sembrado con el usuario
+`cowork@integracion.hidrotecnica.cl`. Queda seleccionable en el
+desplegable de rol de la pantalla Usuarios junto a los roles de personas
+reales (decisión deliberada, confirmada 14-09-2026: no genera confusión
+real, no se oculta de la UI); toda escritura de esa API queda atribuida a
+ese actor en el timeline.
 
 **Rol `tecnico` (v1.22):** rol acotado a un solo módulo — quien lo tiene
 **solo** ve y usa Servicio Técnico (§15), nada más del sistema (ni Dashboard,
@@ -85,14 +112,15 @@ Técnico a lo que ya veían — no se les quita nada. Pensado para personal de
 terreno que solo necesita gestionar casos técnicos, sin acceso al resto del
 CRM comercial.
 
-**Atribuciones adicionales (v1.13-v1.14):** además del rol, un usuario puede
-tener marcados uno o ambos de `es_encargado_postventa` y
-`es_encargado_despacho` — booleanos independientes del rol, no un perfil de
-usuario nuevo. Decisión explícita: permiten que alguien cubra esa función
-(por ejemplo, el jefe comercial durante una licencia del encargado titular)
-sin cambiarle el rol. Quien tiene el atributo marcado ve el módulo en su
-menú aunque su rol no lo traiga por defecto, y gestiona el tablero/las rutas
-completas de ese módulo.
+**Atribuciones adicionales (v1.13-v1.14, +v1.35):** además del rol, un
+usuario puede tener marcados uno o más de `es_encargado_postventa`,
+`es_encargado_despacho` y `es_encargado_cobranza` (v1.35, ver §19) —
+booleanos independientes del rol, no un perfil de usuario nuevo. Decisión
+explícita: permiten que alguien cubra esa función (por ejemplo, el jefe
+comercial durante una licencia del encargado titular) sin cambiarle el
+rol. Quien tiene el atributo marcado ve el módulo en su menú aunque su rol
+no lo traiga por defecto, y gestiona el tablero/las rutas completas de ese
+módulo.
 
 **Matriz de permisos** (resumen; ver detalle por función en la nota v1.6 si se
 necesita el historial de por qué se definió así):
@@ -107,6 +135,8 @@ necesita el historial de por qué se definió así):
 | Postventa (crear caso / ver propios) | ✅ | ✅ | ✅ | — | — | — |
 | Despacho (gestión completa) | ✅ | ✅ | encargado (*) | — | — | — |
 | Despacho (crear ruta / ver propios) | ✅ | ✅ | ✅ | — | — | — |
+| Cobranza — operación diaria (§19, v1.35) | ✅ | — | encargado (*) | — | ✅ | — |
+| ⚙️ Cobranza — cuentas contables (§19) | ✅ | ✅ | — | — | — | — |
 | **Servicio Técnico (§15, v1.22)** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (‡) |
 | Cola de asignación (†) | ✅ | ✅ | — | ✅ | — | — |
 | Bandeja WhatsApp (†) | ✅ | ✅ | sus conv. | ✅ | ver | — |
@@ -129,8 +159,11 @@ necesita el historial de por qué se definió así):
 | ⚙️ Usuarios | ✅ | — | — | — | — | — |
 | ⚙️ Cambiar contraseña | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
-(*) Cualquier usuario con `es_encargado_postventa`/`es_encargado_despacho`
-marcado, sin importar su rol — no solo vendedor.
+(*) Cualquier usuario con `es_encargado_postventa`/`es_encargado_despacho`/
+`es_encargado_cobranza` marcado, sin importar su rol — no solo vendedor.
+Para Cobranza, a diferencia de Postventa/Despacho, `jefe_comercial` **no**
+tiene acceso a la operación diaria sin el atributo — asimetría deliberada,
+confirmada 14-09-2026: es información financiera sensible.
 
 (†) Desde v1.19 (01-08-2026), estas dos pantallas se ocultaron del **menú**
 para todos los roles (el canal WhatsApp no está operativo, ver §11/§14) —
@@ -238,6 +271,19 @@ de la empresa asociada (no solo por datos del propio contacto) ahora sí
 encuentra resultados — antes el filtro comparaba solo los campos del
 contacto, aunque el listado ya mostraba la empresa en pantalla.
 
+**Sincronización de productos desde Softland (v1.35):** botón "Actualizar
+productos desde Softland" (administrador/jefe comercial), separado del
+importador Excel de arriba. La tabla origen en Softland (`iw_tprod`) solo
+trae código y nombre — por eso este sincronizador **solo actualiza
+`nombre` y `marca`**, nunca precio, categoría, imagen, ficha técnica ni
+`atributos` (esos siguen curándose a mano o vía el Excel). Un producto
+**nuevo** creado por esta vía queda sin precio ni categoría hasta
+completarse por una de esas dos vías. Es manual (un botón, no una rutina
+automática como la de ventas/facturas del §9) — el catálogo no cambia
+todos los días. Reutiliza la conexión a la réplica de Softland ya
+configurada, sin variables nuevas. **Sin validar todavía contra la
+réplica real de producción** — pendiente de confirmar al desplegarse.
+
 **Buscador de equivalencias técnicas** (pestaña dentro de Productos,
 reemplaza la herramienta HTML independiente que existía antes):
 - Bombas: filtro por tipo/voltaje/marca/precio máximo; búsqueda por caudal,
@@ -317,6 +363,15 @@ reemplaza la herramienta HTML independiente que existía antes):
   seguimiento más (§8), asignada a esa etapa desde Config → Pipeline — no
   necesitó mecanismo nuevo. Detalle completo:
   `docs/HT-AP-03-nota-cambio-v1.34.md`.
+  - **Fixes posteriores (v1.35):** el gate de tipo de trabajo no se podía
+    completar desde el Pipeline (kanban) — solo existía en la ficha del
+    negocio; se agregó el mismo modal al arrastrar la tarjeta o usar
+    "Mover a etapa" en mobile. Columna **Código** en los ítems de la OT y
+    su plantilla (solo aplica a ítems sin producto del catálogo asociado
+    — con producto, el código mostrado es el SKU real). Buscador doble
+    código → Tab (autocompleta la descripción si el código calza con un
+    SKU). Fix del desplegable de búsqueda de producto, que se cortaba
+    dentro de la tabla de ítems con scroll horizontal.
 - **Fecha de compromiso (v1.22):** campo opcional `negocios.fecha_compromiso`
   (ej. fecha de entrega pactada con el cliente) — distinto de "fecha
   estimada de cierre" (forecast de venta). Se edita en la ficha del negocio
@@ -345,6 +400,21 @@ reemplaza la herramienta HTML independiente que existía antes):
   sin referencia externa.
 
 ## 4. Cotizaciones
+
+**Negocio = un hilo de cotización (v1.35):** cambio de regla de negocio de
+fondo. Antes existía, al crear una cotización desde un negocio ya
+existente, un selector "Negocio existente / Negocio nuevo" (nota v1.9).
+Ese selector **ya no existe**: el botón "+ Cotizar" de la ficha de un
+negocio solo aparece si ese negocio **todavía no tiene ninguna
+cotización** — con una ya creada, una versión nueva se agrega desde la
+cotización misma ("Nueva versión"), nunca desde el negocio. Un negocio
+pasa a ser estrictamente 1:1 con un hilo de cotización — misma premisa de
+diseño que sostiene que la Orden de Trabajo (§3) también sea 1:1 con el
+negocio. Sin cambios de esquema ni de la API Cowork (§18). Fix posterior
+(01-09-2026): si el negocio de origen todavía no tiene cotización, la
+nueva se cuelga de ese mismo negocio; solo crea uno nuevo si ya tenía una
+— la primera versión de este cambio creaba un negocio nuevo siempre,
+dejando huérfano el original.
 
 **Numeración:** formato **`NNNNNN-VV`** — correlativo global de 6 dígitos
 (sin año, sin prefijo de texto) seguido de la versión (2 dígitos), ej.
@@ -710,15 +780,37 @@ mismo criterio que Secuencias (§8).
 
 - **Secuencias configurables:** nombre + pasos ordenados (días de espera,
   canal, mensaje/guion). Un negocio abierto inicia una secuencia a la vez;
-  un revisor interno del servidor avanza los pasos vencidos cada 15 minutos.
+  un revisor interno del servidor avanza los pasos vencidos cada 15
+  minutos. **El tiempo de espera de cada paso cuenta desde que se ejecutó
+  el paso anterior** (el primero, desde que se activa la secuencia) — es
+  acumulativo, no desde el inicio de la secuencia; con "Respetar horario
+  hábil" activo, un paso que espera fuera de horario corre recién cuando
+  abre y el atraso se arrastra al resto de los pasos.
   **Desde v1.28, un paso de canal "correo" se envía solo** (Brevo, mismo
-  servicio del envío inicial de cotización) — personalizado con el nombre
-  del contacto y la referencia a la cotización, firmado con el correo y
-  teléfono del vendedor (campo nuevo `users.telefono`), y con el vendedor en
-  copia (CC). Si el contacto no tiene correo o el envío falla, cae a una
-  **tarea** manual con el motivo, igual que antes. Los canales **whatsapp /
-  llamada / tarea** no cambian: siguen generando una tarea para el vendedor,
-  hasta que WhatsApp esté conectado (§11).
+  servicio del envío inicial de cotización). Si el contacto no tiene
+  correo o el envío falla, cae a una **tarea** manual con el motivo.
+  **Correo — sin contenido automático, todo por variables (v1.35):** el
+  cuerpo del correo es exactamente el mensaje configurado — ya no se
+  agrega solo ningún saludo, firma ni referencia a la cotización (así
+  era hasta v1.28, y mezclaba campos fijos con las variables que la
+  persona sí controlaba). Variables disponibles en asunto y mensaje:
+  `{{nombre_cliente}}`, `{{apellido_cliente}}`, `{{n_cotizacion}}`,
+  `{{negocio_titulo}}`, `{{monto_cotizacion}}`, `{{producto_resumen}}`
+  (resumen de ítems de la cotización, hasta 4), `{{link_cotizacion}}`,
+  `{{nombre_vendedor}}`, `{{email_vendedor}}`, `{{telefono_vendedor}}` —
+  una variable no reconocida o sin dato se deja visible en el correo en
+  vez de desaparecer en silencio, para notarlo antes de enviarlo.
+  **Canal "whatsapp" (v1.35, corrige lo que decían versiones anteriores
+  de este documento):** también se envía solo, vía la Cloud API de Meta,
+  con una plantilla aprobada elegida al configurar el paso (ver el
+  listado real vigente en §11) — cae a tarea manual si el contacto no
+  tiene teléfono o el envío falla, igual que correo. **Canal "cambiar
+  etapa" (v1.30):** no envía nada — mueve el negocio a la etapa elegida
+  (si es de tipo "perdida", exige causa de no cierre), reutilizando el
+  mismo camino que moverlo a mano en el Pipeline; útil como último paso
+  si el cliente no respondió a ninguno de los anteriores (ej. mover a
+  "Perdido" con causa "Sin respuesta"). Los canales **llamada / tarea**
+  siguen generando una tarea para el vendedor.
 - **Disparo por etapa de pipeline (v1.19):** cualquier etapa de un pipeline
   (§3) puede tener asociada una secuencia (`pipeline_etapas.secuencia_id`).
   Al mover un negocio a una etapa: si esa etapa tiene secuencia asociada, se
@@ -827,6 +919,26 @@ entre cada etapa, filtrable por año/mes/vendedor/área como el resto de la
 pantalla. Sin endpoint ni tabla nueva: se suma a la consulta ya existente
 de `GET /api/softland/reporte`. Ver detalle en la nota de cambio v1.32.
 
+**Sugerencias de facturación (v1.33):** al sincronizar con Softland, cruza
+facturas sin resolver contra negocios del pipeline por **RUT de empresa +
+monto exacto** (no por nombre de cliente, texto libre sin garantía de
+coincidir con la razón social del CRM) — acotado a pipelines que tengan
+una etapa "Facturado" configurada. **Nunca mueve un negocio solo:** con
+datos reales se comprobó que cliente+monto no es una clave única (un
+mismo cliente de mantención recurrente puede repetir el mismo monto en
+decenas de negocios distintos — sitios/tareas diferentes) — el sistema
+lista los candidatos y una persona confirma cuál corresponde, o descarta
+si ninguno aplica. Aparece en dos lugares: como aviso directo en la
+tarjeta del negocio candidato en el Pipeline, y en una pestaña propia
+("Sugerencias de facturación") dentro de Reportería Softland con la vista
+completa. Confirmar reusa exactamente la misma lógica que mover la
+tarjeta a mano (historial de etapas, secuencias, encuesta de
+satisfacción). Pendiente de explorar más adelante: capturar en Softland
+un identificador de sitio/tarea (campo `NumOC`, ya sincronizado para NV
+pendientes pero no para facturas) para que el cruce deje de depender de
+elegir entre varios candidatos idénticos. Ver detalle completo en la nota
+de cambio v1.33.
+
 ## 10. Encuesta post-cierre
 
 - Al mover un negocio a etapa "ganada" se crea automáticamente una encuesta
@@ -839,27 +951,56 @@ de `GET /api/softland/reporte`. Ver detalle en la nota de cambio v1.32.
 
 ## 11. WhatsApp
 
-**Estado de habilitación con Meta (v1.31, 23-08-2026):** app de
-desarrollador creada, webhook verificado, flujo probado extremo a extremo
-en `staging` (mensaje entrante visible en la Bandeja real; plantilla
-`hello_world` enviada y recibida), política de privacidad publicada y
-3 plantillas de mensaje aprobadas (`envio_cotizacion`,
-`cierre_de_cotizacion`, `seguimiento1`, las 3 categoría "Marketing").
-**Bloqueada:** la cuenta de WhatsApp Business quedó desactivada
+**Estado de habilitación con Meta — migración completada (06-09-2026):**
+la cuenta que había quedado bloqueada (ver historia abajo) se resolvió
+recreando el portafolio empresarial desde el perfil real del
+administrador. **+56 9 8106 2974 es el número comercial real**, publicado
+en el sitio web — antes atendido por un chatbot externo, ahora por el CRM
+completo (bot de categorización, asignación de vendedor, Bandeja). El
+número que usaba el CRM hasta la migración (**+56 9 8109 8161**, con
+historial real de clientes) pasó a ser el número de **pruebas**: se
+reenvía a `staging` vía `WHATSAPP_REENVIO_PHONE_NUMBER_ID`/
+`WHATSAPP_REENVIO_URL` (intercepta antes de resolver la cuenta, reenvía
+el cuerpo y la firma del webhook tal cual, sin procesar ni guardar nada
+localmente — pensado para probar sin ensuciar la base de datos real).
+Ambos números viven bajo la misma app de Meta ("Hidrotecnica") — mismo
+token y secreto de app sirven para los dos. Probado en ambos sentidos
+desde un celular real, sin cruce entre ambientes. Nota interna: el objeto
+`VENTAS` de `backend/config/whatsappCuentas.js` mantiene ese nombre por
+herencia del código aunque ahora corresponde al 8106-2974, no al
+8109-8161 — es solo una etiqueta de log, no afecta nada funcional.
+
+**Plantillas de mensaje aprobadas — confirmado contra el Administrador de
+WhatsApp de Meta el 14-09-2026** (reemplaza el listado desactualizado de
+versiones anteriores de este documento): `envio_cotizacion_v2`,
+`retomar_conversacion`, `seguimiento_coti`, `vencimiento_cotizacion`,
+`permiso_llamada` (categoría Utilidad) y `hello_world` (prueba estándar de
+Meta) — las 6 activas, estado "calidad pendiente". **Bug conocido, sin
+corregir a la fecha de esta nota:** el motor de secuencias (§8) sigue
+ofreciendo como opción `envio_cotizacion` (sin el sufijo `_v2`) — esa
+plantilla ya no existe activa, fue reemplazada por `envio_cotizacion_v2`
+(que sí usa correctamente el botón individual "Enviar cotización por
+WhatsApp" de una cotización). Una secuencia configurada con la opción
+vieja falla el envío en silencio y cae a tarea manual sin explicar el
+motivo real. `retomar_conversacion` y `permiso_llamada` están aprobadas
+pero no están disponibles como opción en ningún paso de secuencia ni
+botón del CRM todavía. Ver nota de cambio v1.35.
+
+**Historia — cuenta bloqueada y su resolución (v1.31, 23-08-2026 al
+06-09-2026):** la cuenta de WhatsApp Business quedó desactivada
 permanentemente por Meta por la Política de Comercio, sin actividad real
 de mensajería — causa más probable, el portafolio se administraba desde
 un perfil personal de fantasía en vez del perfil real del administrador.
-En curso: crear un portafolio empresarial nuevo desde el perfil real,
-recrear ahí la app/WABA, y completar verificación de negocio + número de
-producción + método de pago. **Aclaración para evitar repetir un desvío
-ya identificado:** no hace falta "Tech Provider" ni Advanced Access/App
+Se resolvió creando un portafolio empresarial nuevo desde el perfil real,
+recreando ahí la app/WABA. **Aclaración para evitar repetir un desvío ya
+identificado:** no hace falta "Tech Provider" ni Advanced Access/App
 Review de `whatsapp_business_management`/`whatsapp_business_messaging` —
 eso es solo para quien administra cuentas de **otras** empresas (modelo
 BSP); Hidrotécnica administra directamente su propia única cuenta. Ver
 detalle completo en la nota de cambio v1.31.
 
 **Bot (categorización y recontacto):** integración con la Cloud API de
-WhatsApp (Meta), app en modo desarrollo (ver pendientes, §16).
+WhatsApp (Meta), en producción desde la migración de arriba.
 - Horario de atención configurable (por defecto L–V 9:15–17:15, hora de
   Chile). Fuera de horario: mensaje automático + registro del lead, sin más
   acción del bot.
@@ -905,6 +1046,22 @@ del §2 y del de documentos de despacho del §6). Token de API con permiso
 "Object Read & Write" acotado solo a ese bucket. El control de acceso a un
 archivo lo hace el CRM (mismo criterio de acceso a la conversación); para
 que Meta reciba un adjunto se usa una URL firmada de validez corta.
+
+**Ley 21.719 — protección de datos personales (implementada y en
+producción desde el 06-09-2026, validada con Gerencia en rol DPO — nunca
+antes documentada en este consolidado):**
+
+| Pieza | Cómo funciona |
+|---|---|
+| Aviso de privacidad | Se dispara en el primer mensaje entrante de un contacto, o si pasaron ≥12 meses (configurable) desde su último mensaje — mismo criterio para el número comercial y el de pruebas. |
+| Detección de solicitud de eliminación | Comparación de texto contra una lista fija de frases — **no es NLP/IA**, es un filtro literal. Detectada, crea una solicitud pendiente (sin duplicar si ya hay una) y notifica por correo a gerencia/administrador. |
+| Revisión humana | Pantalla `/config/privacidad` (solo administrador/gerencia) — lista de solicitudes con estado, para anonimizar o rechazar a mano. También admite carga manual (ej. una solicitud llegada por correo a info@hidrotecnica.cl, sin integración automática de correo entrante). |
+| Anonimización | Borra nombre/apellido/teléfono/email/RUT/cargo del contacto y lo desactiva. **No toca mensajes ni notas de texto libre** — alcance acotado, validado con Gerencia. Envía confirmación por WhatsApp solo si está dentro de la ventana de 24 h de Meta; fuera de ventana, no se manda nada al cliente, solo queda registro interno (falta definir con Gerencia una plantilla aprobada para ese caso). |
+| Purga automática | Diaria, 04:00 hora Chile, solo producción. Contactos activos, sin ningún lead convertido, sin mensajes ni actividad en los últimos 12 meses (configurable). Sin excepción por negocio abierto — decisión explícita, es un tema separado del cierre de negocios estancados. |
+| Tablas | `config_privacidad`, `solicitudes_eliminacion_datos`, `privacidad_purga_ejecuciones`. |
+
+Ver el commit de `staging` `af39e0d` para el detalle completo — no existe
+todavía una nota de cambio dedicada para esta funcionalidad.
 
 ## 12. Diseño visual y responsive
 
@@ -956,9 +1113,11 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `tecnico` (§1/§15) y desde v1.28 `integrador` (actor "Cowork" de la API,
   §18). `users.pipeline_default_id` (pipeline por defecto, v1.12).
   `users.es_encargado_postventa` (v1.13), `users.es_encargado_despacho`
-  (v1.14) — atribuciones adicionales, independientes del rol.
-  `users.telefono` (v1.28 — teléfono directo, mostrado en la firma del
-  correo de seguimiento automático, ver §8).
+  (v1.14), `users.es_encargado_cobranza` (v1.35, ver §19) — atribuciones
+  adicionales, independientes del rol. `users.telefono` (v1.28 — teléfono
+  directo; ya no se usa para armar una firma automática del correo de
+  seguimiento, ver v1.35 en §8 — el vendedor la escribe si quiere vía
+  `{{telefono_vendedor}}`).
 - **Contactos:** `vendedor_id`, `vendedor_asignado_en`. `origen` admite
   `api` desde v1.28 (contactos creados por la integración, §18).
 - **Negocios — origen externo (v1.28, ver §3/§18):** `origen` (enum
@@ -976,6 +1135,12 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `negocios.n_oc` (v1.21 — N° de orden de compra, ver §3);
   `negocios.fecha_compromiso` (v1.22 — fecha pactada con el cliente, con
   alerta de SLA, ver §3).
+- **Arranque de Trabajos (v1.34-v1.35, ver §3):** `negocios.tipo_trabajo`
+  (CHECK con 5 valores); tablas `ordenes_trabajo` (1:1 con el negocio,
+  `OT-{negocio_id}`), `ot_items` (`producto_id` opcional, `codigo` solo
+  usado si no hay producto asociado, `descripcion`, `cantidad` — sin
+  precio), `ot_plantilla_items` (plantilla configurable por tipo de
+  trabajo, misma estructura que `ot_items`).
 - **Formas de pago (v1.22, ver §4):** tabla `formas_pago` (`nombre`,
   `incluir_datos_bancarios`, `activo`); `cotizaciones.forma_pago_id` (FK).
 - **Cotizaciones:** `iva_pct`; tabla `config_empresa` (emisor/banco);
@@ -1058,20 +1223,31 @@ solo en acentos puntuales, celeste como color de interacción principal.
   `reporte_softland_facturas` (detalle documento por documento, con
   índice por año/mes para el filtrado del listado); tabla
   `reporte_softland_backfill` (marca qué dataset ya tuvo su carga
-  histórica única — ver §14).
+  histórica única — ver §14). `reporte_softland_facturas` agrega
+  `negocio_id`, `revisado_por_id`, `revisado_en` (v1.33 — Sugerencias de
+  facturación, ver §9; `negocio_id` solo se llena al confirmar una
+  sugerencia, nunca automático).
+- **Ley 21.719 (v1.35, ver §11):** tablas `config_privacidad`,
+  `solicitudes_eliminacion_datos`, `privacidad_purga_ejecuciones`.
+- **Cobranza (v1.35, en construcción — detalle completo en §19):**
+  `users.es_encargado_cobranza`; tablas de configuración
+  (`cobranza_config`, cuentas contables, `cuentas_bancarias`), de
+  contactos de cobranza (`cobranza_contactos`,
+  `cobranza_contacto_empresa`), de documentos y conciliación
+  (sincronizados desde Softland, más cartolas bancarias y de Transbank
+  importadas), `cobranza_cuentas_cliente` (`saldo_app` calculado al
+  vuelo, nunca sincronizado), y el esqueleto sin implementar
+  `cobranza_secuencias`/`cobranza_secuencia_pasos`.
 
 ## 14. Integraciones externas
 
 - **Brevo (SMTP):** correos transaccionales y envío de cotizaciones.
   Remitente genérico con "Responder a" = vendedor.
 - **WhatsApp Cloud API (Meta):** bot, Bandeja, envío de cotizaciones y
-  adjuntos. Credenciales cargadas en `staging` desde el 22-08-2026, flujo
-  probado extremo a extremo (ver §11) — pero la cuenta de WhatsApp Business
-  quedó desactivada por Meta el 23-08-2026, en proceso de recrearse desde
-  un portafolio empresarial nuevo (ver §11 y nota de cambio v1.31). Hasta
-  que quede resuelto, sigue sin exponerse en producción: el botón "Enviar
-  cotización" (§4) y el menú (Bandeja/Cola, §1) no lo muestran todavía; el
-  código sigue existiendo, listo para cuando la cuenta quede operativa.
+  adjuntos — **en producción desde el 06-09-2026** con el número
+  comercial real (+56 9 8106 2974), tras resolver el bloqueo de cuenta de
+  agosto (ver §11 para el detalle completo, incluida la migración y la
+  Ley 21.719).
 - **Softland (SQL Server, solo lectura — v1.31):** réplica de Softland vía
   `mssql`, variables `SOFTLAND_DB_SERVER/NAME/USER/PASS` (+ opcional
   `SOFTLAND_DB_TRUST_CERT`) cargadas en `staging` y `main`. Alimenta la
@@ -1165,18 +1341,23 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    `R2_DESPACHO_ACCESS_KEY_ID`/`R2_DESPACHO_SECRET_ACCESS_KEY`/
    `R2_DESPACHO_BUCKET_NAME` cargados en Railway, en `staging` y
    producción. Los adjuntos de Postventa (§5) reutilizan el mismo bucket.
-3. **Publicar la app de Meta** y migrar del número de prueba (máx. 5
-   destinatarios) al de producción (requiere verificación de negocio en
-   Meta). Es requisito previo del punto 4: mientras la app siga en modo
-   de desarrollo, el bot no puede conversar con clientes reales.
+3. ~~**Publicar la app de Meta** y migrar al número de producción~~ —
+   **hecho (06-09-2026):** número comercial real +56 9 8106 2974 operando
+   en producción, app publicada, verificación de negocio completa. Ver §11.
 4. **Bot con IA fuera de horario**: hoy, fuera de horario, el bot solo
    envía un mensaje automático y registra el lead (§11). La idea es que
    pueda asesorar al cliente, ayudarlo a elegir una bomba y guiarlo hasta
    la ficha de compra. Por definir con Gerencia: hasta dónde responde solo
    (¿solo recomendación de producto, o también precio/disponibilidad?) y
    cuándo escala a un vendedor.
-5. **Plantillas de mensaje aprobadas por Meta**, para responder fuera de la
-   ventana de 24 h en conversaciones cerradas.
+5. ~~**Plantillas de mensaje aprobadas por Meta**~~ — **hecho:** 6
+   plantillas activas hoy (`envio_cotizacion_v2`, `retomar_conversacion`,
+   `seguimiento_coti`, `vencimiento_cotizacion`, `permiso_llamada`,
+   `hello_world`, ver §11). **Pendiente nuevo, detectado 14-09-2026:**
+   corregir el motor de secuencias (§8), que sigue ofreciendo la plantilla
+   vieja `envio_cotizacion` (sin `_v2`) — un envío por esa vía falla en
+   silencio. `retomar_conversacion` y `permiso_llamada` están aprobadas
+   sin ningún uso todavía en el CRM.
 6. **Correo del vendedor como remitente real** de las cotizaciones: en
    evaluación entre autenticar el dominio en Brevo, envío nativo vía
    Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado
@@ -1214,6 +1395,14 @@ Sin prioridad asignada (no comerciales / no bloquean nada):
   categorías aún no la trae completa.
 - **Pago por hitos (%) de la plantilla `HTCO03`** (§7): fuera de alcance de
   v1.18 — si se necesita, se agrega a mano en el Word ya descargado.
+- **Cobranza — Fase 3, secuencias de recordatorio (§19):** las tablas
+  existen (`cobranza_secuencias`/`cobranza_secuencia_pasos`) pero no hay
+  ningún endpoint ni pantalla — es solo esquema de base de datos, sin
+  funcionalidad construida todavía.
+- **Sincronización de productos desde Softland (§2, v1.35):** construida y
+  con upsert probado contra una base de prueba, pero **sin validar contra
+  la réplica real de Softland en producción** — este entorno de
+  desarrollo no tiene salida de red hacia ella.
 
 ## 17. Proceso de despliegue a producción
 
@@ -1275,6 +1464,14 @@ SharePoint, ver §16 punto 9).
 | GET | `/api/v1/negocios/{id}` | Detalle: etapa, historial de etapas, cotizaciones |
 | POST | `/api/v1/negocios/{id}/cotizaciones` | Registrar cotización (numeración real del CRM, avanza etapa a "Cotizado") |
 | GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros |
+| GET | `/api/v1/whatsapp/conversaciones?abierta=true\|false` | Lista conversaciones de la Bandeja (v1.35, todas, sin distinción de vendedor) |
+| GET | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` | Hilo completo de mensajes, orden ascendente (v1.35) |
+| POST | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` `{texto}` | Envío real vía Meta (v1.35) — respeta la ventana de 24h de Meta (`409` si está cerrada); a diferencia de un vendedor logueado, no antepone firma con nombre de persona |
+
+Los 3 endpoints de WhatsApp usan el mismo token y límite de 60
+solicitudes/minuto que el resto de la API — sin diferencia de
+autenticación. Explícitamente fuera de alcance por ahora: adjuntos y
+reenvío de plantilla para conversaciones cerradas.
 
 **Autenticación:** Bearer token fijo por variable de entorno
 (`COWORK_API_KEY`), mismo patrón que `/api/leads/web`. Límite de 60
@@ -1304,6 +1501,59 @@ sigue estando `GET /negocios/{id}`.
 
 Ver notas de cambio v1.28 y v1.29 para el detalle completo, incluida la
 verificación extremo a extremo contra Postgres real.
+
+## 19. Cobranza (v1.35 — en construcción, solo en `staging`)
+
+Módulo nuevo, nunca antes documentado en este consolidado — sigue
+`staging` sin promover a `main` (la regla vigente, §17, no permite
+promover mejoras/funcionalidad nueva). Más avanzado de lo que sugería el
+seguimiento informal en `CLAUDE.md`: 3 de 4 fases de la especificación
+(`HT-DO-XX`) están construidas.
+
+**Fase 1 — Configuración y contactos de cobranza:** completa. Cuentas
+contables, códigos, glosas y umbrales editables (administrador/jefe
+comercial); ajustes de anticipo/garantía/fluctuación/redondeo/
+indemnización; CRUD de cuentas bancarias (con flag "es cuenta Transbank").
+**Contactos de cobranza modelados separados de los contactos
+comerciales** — decisión explícita: "quien compra no necesariamente es
+quien paga" — vinculados a una o varias empresas con nivel (par/jefe/
+superior). Importador CSV masivo desde Buk Finanzas, resuelve la empresa
+por RUT o razón social exacta, sin crear empresas nuevas.
+
+**Fase 2 — Documentos y conciliación bancaria:** completa. Sincronización
+diaria automática (23:30 hora Chile, solo producción — hoy corre en
+`staging` porque el módulo no está en `main`) de facturas pendientes
+desde Softland, validada contra el reporte nativo "Estado de Deuda" de
+Softland. Importación de cartolas bancarias (Banco de Chile, Santander) y
+de los dos archivos de Transbank (Cartola de Movimientos + Resumen de
+abonos), con deduplicación. Conciliación automática para Transbank (por
+monto+fecha, margen ±5 días, sin conciliar si hay ambigüedad — 0 o más de
+1 candidato) y manual para el resto (reparto entre facturas, ajuste de
+excedente contra el umbral de redondeo configurado). Reporte de
+antigüedad de saldos por tramos de mora.
+
+**Fase 3 — Secuencias de recordatorio: sin construir.** Las tablas
+existen (`cobranza_secuencias`/`cobranza_secuencia_pasos`, con canal
+email/whatsapp y niveles de destinatario) pero ningún endpoint ni pantalla
+las usa todavía — es solo el esqueleto de base de datos.
+
+**Fase 4 — Cuenta de cliente propia:** completa. `saldo_app` se calcula al
+vuelo (nunca una columna sincronizada) y se compara contra
+`saldo_softland`, detectando diferencias. Clientes sin empresa vinculada
+en el CRM ("cuentas de paso") generan un aviso diario por correo (8:45
+hora Chile) a quien tenga `es_encargado_cobranza` o rol
+administrador/jefe comercial/gerencia.
+
+**Permisos — dos niveles, no uno solo (§1):** configurar cuentas contables
+es administrador/jefe comercial (igual que el resto de los mantenedores de
+Configuración); la **operación diaria** (documentos, conciliación,
+contactos, cuentas-cliente) es administrador, gerencia, o quien tenga
+`es_encargado_cobranza` — **`jefe_comercial` queda deliberadamente afuera
+de la operación diaria**, a diferencia de Postventa/Despacho: es
+información financiera sensible, confirmado con Gerencia el 14-09-2026.
+
+No existe todavía una nota de cambio dedicada para este módulo — vive
+solo en los commits de `staging`.
 
 ---
 
