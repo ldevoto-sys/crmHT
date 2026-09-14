@@ -1797,6 +1797,43 @@ async function initDb() {
   // evita generar dos veces los resúmenes del mismo día.
   await db.run(`CREATE TABLE IF NOT EXISTS whatsapp_memoria_envios (fecha DATE PRIMARY KEY)`);
 
+  // === Respuesta a botones de la plantilla "Seguimiento de cotización" por
+  // WhatsApp (14-09-2026) ===
+  // Vínculo entre un mensaje SALIENTE que interesa correlacionar (la
+  // plantilla de seguimiento, la encuesta de causa de no cierre) y el
+  // negocio al que pertenece. wa_message_id es el id que devuelve Meta al
+  // enviar; cuando el cliente responde, el webhook trae ese mismo id en
+  // context.id — así se sabe con certeza a qué negocio corresponde la
+  // respuesta, sin adivinar por "el negocio más reciente del contacto" (un
+  // mismo contacto puede tener más de un negocio abierto a la vez). Ver
+  // services/seguimientoBoton.js.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_correlacion (
+      wa_message_id TEXT PRIMARY KEY,
+      negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+      proposito TEXT NOT NULL CHECK (proposito IN ('seguimiento_coti','encuesta_no_cierre')),
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+
+  // Cola de la encuesta de causa de no cierre: se llena cuando el cliente
+  // responde "No realizaré la compra" al seguimiento de su cotización, y se
+  // envía 1 minuto después (no al toque, para no sentirse un bot
+  // instantáneo). Un minuto no calza con el intervalo de 15 min que usa el
+  // resto de los jobs del proyecto, así que este se revisa aparte, cada 1
+  // min (ver server.js).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_encuesta_no_cierre (
+      id SERIAL PRIMARY KEY,
+      negocio_id INTEGER NOT NULL UNIQUE REFERENCES negocios(id),
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      enviar_en TIMESTAMP NOT NULL,
+      enviado_en TIMESTAMP,
+      created_at TIMESTAMP DEFAULT now()
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_encuesta_no_cierre_pendientes ON whatsapp_encuesta_no_cierre (enviado_en, enviar_en)`);
+
   console.log('[DB] Base de datos lista.');
 }
 

@@ -250,7 +250,7 @@ router.put('/:id', async (req, res) => {
 // para que confirmar una sugerencia dispare exactamente lo mismo que mover
 // la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
 // `.status` para que el caller los traduzca a la respuesta HTTP.
-async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle } = {}, usuarioId) {
+async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, permitirPerdidaSinCausa } = {}, usuarioId) {
   const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
   if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
 
@@ -261,7 +261,12 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   if (etapa.pipeline_id !== negocio.pipeline_id) {
     const e = new Error('Esa etapa pertenece a otro pipeline. Usa "Mover a otro pipeline" primero.'); e.status = 400; throw e;
   }
-  if (etapa.tipo === 'perdida' && !causa_no_cierre_id) {
+  // permitirPerdidaSinCausa: solo lo usa el bot de WhatsApp (ver
+  // services/seguimientoBoton.js) cuando el cliente ya avisó que no comprará
+  // pero la causa se pregunta después, por una encuesta automática — no
+  // aplica a ningún flujo manual de la UI, que sigue exigiendo la causa al
+  // toque.
+  if (etapa.tipo === 'perdida' && !causa_no_cierre_id && !permitirPerdidaSinCausa) {
     const e = new Error('La causa de no cierre es obligatoria al marcar perdido'); e.status = 400; throw e;
   }
 

@@ -106,6 +106,16 @@ async function intentarEnviarWhatsapp(ns, paso) {
   if (!plantilla) return { enviado: false, motivo: `plantilla de WhatsApp "${paso.whatsapp_template}" desconocida` };
   const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el WhatsApp' };
+  if (paso.whatsapp_template === 'seguimiento_coti' && resultado.wa_message_id) {
+    // Para reconocer a qué negocio corresponde si el cliente toca uno de
+    // los botones de esta plantilla (ver services/seguimientoBoton.js) — las
+    // demás plantillas no tienen botones que necesiten esta correlación.
+    await db.run(
+      `INSERT INTO whatsapp_correlacion (wa_message_id, negocio_id, proposito) VALUES ($1,$2,'seguimiento_coti')
+       ON CONFLICT (wa_message_id) DO NOTHING`,
+      [resultado.wa_message_id, ns.negocio_id]
+    );
+  }
   return { enviado: true, destinatario: contacto.telefono_e164 };
 }
 
@@ -368,4 +378,24 @@ async function alCambiarEtapa({ negocio, etapaAnterior, etapaNueva, usuarioId, c
   }
 }
 
-module.exports = { avanzarPasosPendientes, alCambiarEtapa, PLANTILLAS_WHATSAPP };
+// Pausa la secuencia activa/pausada de un negocio porque el cliente
+// respondió — mismo efecto que el endpoint manual /secuencia/marcar-respondido
+// (routes/negocios.js), reescrito acá porque ese depende de req.user y de
+// permisos de edición que no aplican a una acción del bot. Se usa cuando el
+// cliente responde algo que no dispara un cambio de etapa (ver
+// services/seguimientoBoton.js) — si dispara un cambio de etapa, alCambiarEtapa
+// ya se encarga de cancelar/pausar lo que corresponda.
+async function pausarPorRespuestaCliente(negocio, usuarioId = null) {
+  const ns = await db.get(
+    `SELECT id, estado FROM negocio_secuencias WHERE negocio_id = $1 AND estado IN ('activa','pausada') ORDER BY created_at DESC LIMIT 1`,
+    [negocio.id]
+  );
+  if (!ns || ns.estado === 'pausada') return;
+  await db.run(`UPDATE negocio_secuencias SET estado='pausada', pausada_motivo='Cliente respondió', updated_at=now() WHERE id=$1`, [ns.id]);
+  await timeline.registrar({
+    negocio_id: negocio.id, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
+    tipo: 'seguimiento_manual', descripcion: 'Cliente respondió: secuencia pausada', usuario_id: usuarioId, referencia_id: ns.id,
+  });
+}
+
+module.exports = { avanzarPasosPendientes, alCambiarEtapa, PLANTILLAS_WHATSAPP, pausarPorRespuestaCliente };
