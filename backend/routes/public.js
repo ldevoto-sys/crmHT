@@ -138,6 +138,7 @@ const mensajes = require('../services/whatsapp_mensajes');
 const r2 = require('../services/r2');
 const whatsappCuentas = require('../config/whatsappCuentas');
 const privacidad = require('../services/privacidad');
+const seguimientoBoton = require('../services/seguimientoBoton');
 
 const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document: 'documento' };
 
@@ -244,6 +245,19 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   }
   if (m.type === 'text' && privacidad.esSolicitudEliminacion(m.text.body)) {
     await privacidad.registrarSolicitudEliminacion({ contacto_id: contacto.id, origen: 'whatsapp', texto_solicitud: m.text.body });
+  }
+
+  // Respuesta a un botón de la plantilla "Seguimiento de cotización", o a la
+  // encuesta de causa de no cierre que se manda después — se resuelven aparte
+  // porque no son parte del bot de categorización de leads (ver
+  // services/seguimientoBoton.js). Si no hay vínculo conocido para este
+  // mensaje, sigue el flujo normal de abajo sin ningún cambio.
+  if (m.type === 'button' || (m.type === 'interactive' && m.interactive?.list_reply)) {
+    const manejado = await seguimientoBoton.manejarRespuesta(m);
+    if (manejado) {
+      await mensajes.registrar({ contacto_id: contacto.id, direccion: 'entrante', texto: textoEntrante });
+      return;
+    }
   }
 
   // Cuentas que no son la de Ventas (ej. el número oficial de la empresa)

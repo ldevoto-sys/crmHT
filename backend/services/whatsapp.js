@@ -67,7 +67,11 @@ async function enviarLista(telefonoE164, mensaje, opciones, cuenta = VENTAS) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió lista a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
   }
-  const rows = opciones.slice(0, 10).map((o, i) => ({ id: String(i), title: o.label.slice(0, 24) }));
+  // id: si la opción trae uno propio (ej. el id real de una causa de no
+  // cierre) se usa tal cual, para no tener que volver a mapear índice→fila
+  // al leer la respuesta; si no, se cae al índice como hacía antes
+  // (categorización, que no trae id propio).
+  const rows = opciones.slice(0, 10).map((o, i) => ({ id: o.id !== undefined ? String(o.id) : String(i), title: o.label.slice(0, 24) }));
   try {
     const resp = await fetch(
       `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
@@ -87,7 +91,11 @@ async function enviarLista(telefonoE164, mensaje, opciones, cuenta = VENTAS) {
       console.error('[whatsapp] Error enviando lista a', telefonoE164, ':', err);
       return { enviado: false, motivo: errorAmigable(err) };
     }
-    return { enviado: true };
+    // wa_message_id: para correlacionar la respuesta si hace falta (ver
+    // services/seguimientoBoton.js) — Meta lo trae en la confirmación de
+    // envío, no en el webhook de vuelta salvo como context.id.
+    const data = await resp.json().catch(() => null);
+    return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
   } catch (e) {
     console.error('[whatsapp] Error enviando lista a', telefonoE164, ':', e.message);
     return { enviado: false, motivo: e.message };
@@ -169,7 +177,8 @@ async function enviarPlantilla(telefonoE164, nombrePlantilla, parametros, idioma
       console.error(`[whatsapp] Error enviando plantilla "${nombrePlantilla}" a`, telefonoE164, ':', err);
       return { enviado: false, motivo: errorAmigable(err) };
     }
-    return { enviado: true };
+    const data = await resp.json().catch(() => null);
+    return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
   } catch (e) {
     console.error(`[whatsapp] Error enviando plantilla "${nombrePlantilla}" a`, telefonoE164, ':', e.message);
     return { enviado: false, motivo: e.message };
