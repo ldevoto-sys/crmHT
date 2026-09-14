@@ -150,6 +150,13 @@ export default function ConfigSecuencias() {
 
           <div className="space-y-3">
             <label className="block text-sm font-medium text-ht-navy">Pasos (en orden)</label>
+            <p className="text-xs text-gray-400 -mt-2">
+              Los días/horas de espera de cada paso cuentan desde que se ejecutó el paso anterior (o desde que se
+              activa la secuencia, para el primer paso) — no desde el inicio de la secuencia. Es acumulativo: si el
+              paso 1 espera 1 día y el paso 2 espera 1 día más, el paso 2 se dispara ~2 días después de activada la
+              secuencia. Con "Respetar horario hábil" activo, un paso que espera fuera de horario corre recién cuando
+              abre, y el reloj del siguiente paso arranca desde ese momento real — el atraso se arrastra.
+            </p>
             {pasos.map((p, i) => (
               <div key={i} className="border border-gray-200 rounded p-4 flex flex-wrap gap-3 items-start">
                 <div>
