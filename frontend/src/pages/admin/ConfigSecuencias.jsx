@@ -213,10 +213,18 @@ export default function ConfigSecuencias() {
                 ) : (
                   <div className="flex-1 min-w-[280px] basis-full">
                     <label className="block text-xs text-gray-500 mb-1">
-                      {p.canal === 'correo' ? 'Mensaje (se envía tal cual, sin editar)' : 'Mensaje / guion'}
+                      {p.canal === 'correo' ? 'Mensaje' : 'Mensaje / guion'}
                     </label>
                     <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
                       className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
+                    {p.canal === 'correo' && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Variables disponibles en asunto y mensaje: <code>{'{{nombre_cliente}}'}</code>, <code>{'{{n_cotizacion}}'}</code>,{' '}
+                        <code>{'{{negocio_titulo}}'}</code>, <code>{'{{monto_cotizacion}}'}</code>, <code>{'{{nombre_vendedor}}'}</code>,{' '}
+                        <code>{'{{producto_resumen}}'}</code>. El saludo ("Estimado(a) [nombre]") y la referencia a la cotización
+                        ya se agregan solos alrededor del mensaje — no hace falta repetirlos.
+                      </p>
+                    )}
                   </div>
                 )}
                 {pasos.length > 1 && (

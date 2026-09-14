@@ -69,6 +69,23 @@ async function pasoSiguiente(secuenciaId, orden) {
   );
 }
 
+// Resumen de ítems de la cotización para la variable {{producto_resumen}} —
+// "2x Bomba XYZ, 1x Filtro ABC" — capado a 4 ítems para no alargar el correo
+// cuando la cotización tiene muchas líneas.
+async function resumenProductos(cotizacionId) {
+  const items = await db.all(
+    `SELECT ci.cantidad, COALESCE(ci.descripcion, p.nombre, 'ítem') AS nombre
+     FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
+     WHERE ci.cotizacion_id = $1 ORDER BY ci.id`,
+    [cotizacionId]
+  );
+  if (!items.length) return '';
+  const formatoCantidad = c => (Number.isInteger(Number(c)) ? String(Number(c)) : Number(c).toFixed(2));
+  const visibles = items.slice(0, 4).map(it => `${formatoCantidad(it.cantidad)}x ${it.nombre}`);
+  const resto = items.length - visibles.length;
+  return resto > 0 ? `${visibles.join(', ')} y ${resto} más` : visibles.join(', ');
+}
+
 // Intenta enviar el paso 'correo' solo, por Brevo — el mismo servicio que ya
 // usa la cotización inicial. Adjunta el link a la última cotización del
 // negocio (si existe) como "Ver cotización online". Nunca lanza: devuelve
@@ -79,12 +96,13 @@ async function intentarEnviarCorreo(ns, paso) {
   if (!contacto?.email) return { enviado: false, motivo: 'el contacto no tiene correo registrado' };
   const vendedor = ns.vendedor_id ? await db.get('SELECT nombre, email, telefono FROM users WHERE id = $1', [ns.vendedor_id]) : null;
   const ultimaCot = await db.get(
-    'SELECT token_publico, numero, version FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+    'SELECT id, token_publico, numero, version, total, moneda FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
   );
   const linkPublico = ultimaCot ? `${process.env.APP_URL || ''}/c/${ultimaCot.token_publico}` : null;
+  const productoResumen = ultimaCot ? await resumenProductos(ultimaCot.id) : '';
   const nombreContacto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
   const resultado = await email.seguimiento(
-    contacto.email, vendedor, { nombre: nombreContacto }, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico
+    contacto.email, vendedor, { nombre: nombreContacto }, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico, productoResumen
   );
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el correo' };
   return { enviado: true, destinatario: contacto.email };
