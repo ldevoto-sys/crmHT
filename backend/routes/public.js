@@ -227,7 +227,11 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   const textoReaccion = m.type === 'reaction'
     ? (m.reaction?.emoji ? `Reaccionó: ${m.reaction.emoji}` : 'Quitó su reacción')
     : null;
-  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title ?? textoReaccion
+  // type: 'button' es la respuesta a un botón de una PLANTILLA aprobada
+  // (ej. "Seguimiento de cotización") — distinto de interactive.button_reply,
+  // que es la respuesta a un botón/lista que el propio bot envía.
+  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title
+    ?? m.button?.text ?? textoReaccion
     ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : `[tipo no soportado: ${m.type}]`);
 
   // Ley 21.719 — aplica a cualquier cuenta (Ventas u Oficial), antes de
