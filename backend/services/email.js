@@ -237,38 +237,37 @@ module.exports = {
   },
 
   // Paso de canal 'correo' de una secuencia de seguimiento (services/secuencias.js):
-  // se envía solo, sin que nadie lo redacte a mano. El asunto y el mensaje son
-  // los que se definieron al configurar la secuencia, con variables {{...}}
-  // opcionales (nota de cambio pendiente de redactar) — se personaliza además
-  // con el nombre del contacto y se referencia la cotización (número + título)
-  // alrededor, igual que antes de que existieran las variables.
+  // se envía solo, sin que nadie lo redacte a mano. El cuerpo del correo es
+  // EXACTAMENTE el mensaje que se configuró — nada de saludo, firma,
+  // referencia a la cotización ni botón agregados por el sistema (así era
+  // antes: quien configuraba la secuencia no sabía qué parte del correo salía
+  // de un campo fijo y qué parte tenía que escribir). Todo eso ahora son
+  // variables {{...}} más, iguales al resto — se arman o se omiten según lo
+  // que la persona escriba.
   // productoResumen: string ya armado por quien llama (requiere leer
   // cotizacion_items, que este servicio no consulta directamente) — ver
   // intentarEnviarCorreo en services/secuencias.js.
   seguimiento: (destinatario, vendedor, contacto, negocio, cot, paso, linkPublico, productoResumen) => {
     const variables = {
       nombre_cliente: contacto?.nombre || '',
+      apellido_cliente: contacto?.apellido || '',
       n_cotizacion: cot ? numeroCompleto(cot.numero, cot.version) : '',
       negocio_titulo: negocio?.titulo || '',
       monto_cotizacion: cot?.total !== undefined && cot?.total !== null ? money(cot.total) : '',
       nombre_vendedor: vendedor?.nombre || '',
+      email_vendedor: vendedor?.email || '',
+      telefono_vendedor: vendedor?.telefono || '',
       producto_resumen: productoResumen || '',
+      link_cotizacion: linkPublico || '',
     };
     const asuntoBase = paso.asunto || `Seguimiento${negocio?.titulo ? ` — ${negocio.titulo}` : ''}`;
     const asunto = reemplazarVariables(asuntoBase, variables);
     const mensaje = reemplazarVariables(paso.mensaje || '', variables);
-    const referenciaCot = cot ? `Cotización ${numeroCompleto(cot.numero, cot.version)}${negocio?.titulo ? ` — ${negocio.titulo}` : ''}` : negocio?.titulo;
     return enviar(
       destinatario,
       asunto,
       template(asunto, `
-        <p>Estimado(a) ${contacto?.nombre || ''},</p>
         <p style="white-space: pre-wrap;">${mensaje.replace(/\n/g, '<br>')}</p>
-        ${referenciaCot ? `<p style="color:#555555; font-size:13px; margin-top:16px;">${referenciaCot}</p>` : ''}
-        ${linkPublico ? boton(linkPublico, 'Ver cotización online') : ''}
-        <p style="margin-top:20px;">Saludos,<br>${vendedor?.nombre || 'Equipo HidroTecnica'}
-        ${vendedor?.email ? `<br>${vendedor.email}` : ''}
-        ${vendedor?.telefono ? `<br>${vendedor.telefono}` : ''}</p>
       `),
       {
         replyTo: vendedor?.email || undefined,

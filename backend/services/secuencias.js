@@ -100,9 +100,8 @@ async function intentarEnviarCorreo(ns, paso) {
   );
   const linkPublico = ultimaCot ? `${process.env.APP_URL || ''}/c/${ultimaCot.token_publico}` : null;
   const productoResumen = ultimaCot ? await resumenProductos(ultimaCot.id) : '';
-  const nombreContacto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
   const resultado = await email.seguimiento(
-    contacto.email, vendedor, { nombre: nombreContacto }, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico, productoResumen
+    contacto.email, vendedor, contacto, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico, productoResumen
   );
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el correo' };
   return { enviado: true, destinatario: contacto.email };

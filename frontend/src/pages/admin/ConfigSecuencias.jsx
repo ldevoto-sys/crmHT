@@ -219,10 +219,12 @@ export default function ConfigSecuencias() {
                       className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
                     {p.canal === 'correo' && (
                       <p className="text-xs text-gray-400 mt-1">
-                        Variables disponibles en asunto y mensaje: <code>{'{{nombre_cliente}}'}</code>, <code>{'{{n_cotizacion}}'}</code>,{' '}
-                        <code>{'{{negocio_titulo}}'}</code>, <code>{'{{monto_cotizacion}}'}</code>, <code>{'{{nombre_vendedor}}'}</code>,{' '}
-                        <code>{'{{producto_resumen}}'}</code>. El saludo ("Estimado(a) [nombre]") y la referencia a la cotización
-                        ya se agregan solos alrededor del mensaje — no hace falta repetirlos.
+                        El correo sale exactamente como escribas acá — nada se agrega solo (ni saludo, ni firma, ni
+                        referencia a la cotización). Variables disponibles en asunto y mensaje:{' '}
+                        <code>{'{{nombre_cliente}}'}</code>, <code>{'{{apellido_cliente}}'}</code>, <code>{'{{n_cotizacion}}'}</code>,{' '}
+                        <code>{'{{negocio_titulo}}'}</code>, <code>{'{{monto_cotizacion}}'}</code>, <code>{'{{producto_resumen}}'}</code>,{' '}
+                        <code>{'{{link_cotizacion}}'}</code>, <code>{'{{nombre_vendedor}}'}</code>, <code>{'{{email_vendedor}}'}</code>,{' '}
+                        <code>{'{{telefono_vendedor}}'}</code>.
                       </p>
                     )}
                   </div>
