@@ -473,14 +473,20 @@ cotización, algunas aún en SharePoint).
   específica del cuerpo del correo. Catálogo sembrado con "Transferencia
   bancaria" (incluye datos bancarios), "Efectivo" y "Cheque" (no los
   incluyen).
-- **Canal WhatsApp retirado de este botón (v1.19):** el envío por WhatsApp
-  existía (backend `/enviar-whatsapp` sigue ahí), pero se sacó de esta
-  pantalla porque el canal no está operativo todavía (sin credenciales de
-  Meta, ver §11/§14/§16). Correo queda como único canal de envío desde el
-  sistema.
-- Si el contacto no tiene email registrado, ya no queda ningún canal para
-  enviar desde el sistema — se muestra una advertencia visible indicando
-  que hay que agregarlo en la ficha del contacto.
+- **Canal WhatsApp (corrección 14-09-2026):** la nota de v1.19 decía que
+  este canal se había retirado del botón por no estar operativo — eso ya
+  no es así, quedó desactualizado y no se corrigió cuando WhatsApp entró
+  en producción (§11). Hoy la pantalla trae **dos casillas
+  independientes, Correo y WhatsApp**, tildadas por defecto según si el
+  contacto tiene email/teléfono registrado (cada una se deshabilita si
+  falta el dato correspondiente); se puede enviar por uno, otro o ambos a
+  la vez. El envío por WhatsApp usa la plantilla aprobada
+  `envio_cotizacion_v2` con el link público (funciona aunque la
+  conversación esté cerrada, a diferencia de un mensaje libre) — no
+  adjunta el PDF en el mensaje mismo, el cliente accede por el link.
+- Si el contacto no tiene email **ni** teléfono registrado, no queda
+  ningún canal para enviar desde el sistema — se muestra una advertencia
+  visible que permite cargar el email al vuelo sin salir de la pantalla.
 - Si el envío falla, no se marca la cotización como enviada ni se dispara
   seguimiento; el error se traduce a un mensaje entendible.
 
@@ -975,16 +981,20 @@ WhatsApp de Meta el 14-09-2026** (reemplaza el listado desactualizado de
 versiones anteriores de este documento): `envio_cotizacion_v2`,
 `retomar_conversacion`, `seguimiento_coti`, `vencimiento_cotizacion`,
 `permiso_llamada` (categoría Utilidad) y `hello_world` (prueba estándar de
-Meta) — las 6 activas, estado "calidad pendiente". **Bug conocido, sin
-corregir a la fecha de esta nota:** el motor de secuencias (§8) sigue
-ofreciendo como opción `envio_cotizacion` (sin el sufijo `_v2`) — esa
-plantilla ya no existe activa, fue reemplazada por `envio_cotizacion_v2`
-(que sí usa correctamente el botón individual "Enviar cotización por
-WhatsApp" de una cotización). Una secuencia configurada con la opción
-vieja falla el envío en silencio y cae a tarea manual sin explicar el
-motivo real. `retomar_conversacion` y `permiso_llamada` están aprobadas
-pero no están disponibles como opción en ningún paso de secuencia ni
-botón del CRM todavía. Ver nota de cambio v1.35.
+Meta) — las 6 activas, estado "calidad pendiente". **Bug corregido
+(14-09-2026):** el motor de secuencias (§8) ofrecía como opción
+`envio_cotizacion` (sin el sufijo `_v2`) apuntando literalmente a ese
+nombre de plantilla — Meta lo rechazaba en silencio porque esa plantilla
+ya no existe activa (reemplazada por `envio_cotizacion_v2`, la que sí usa
+correctamente el botón individual "Enviar cotización" de una cotización,
+ver §4), y además faltaba el parámetro `link` que la plantilla exige. La
+opción de configuración sigue llamándose internamente `envio_cotizacion`
+(no se migró el valor guardado en `secuencia_pasos.whatsapp_template` de
+ninguna secuencia ya configurada), pero ahora llama a Meta con el nombre
+de plantilla correcto y los 3 parámetros completos. `retomar_conversacion`
+y `permiso_llamada` están aprobadas pero no están disponibles como opción
+en ningún paso de secuencia ni botón del CRM todavía. Ver nota de cambio
+v1.35 (bug original) y este mismo documento para la corrección.
 
 **Historia — cuenta bloqueada y su resolución (v1.31, 23-08-2026 al
 06-09-2026):** la cuenta de WhatsApp Business quedó desactivada
@@ -1353,11 +1363,10 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
 5. ~~**Plantillas de mensaje aprobadas por Meta**~~ — **hecho:** 6
    plantillas activas hoy (`envio_cotizacion_v2`, `retomar_conversacion`,
    `seguimiento_coti`, `vencimiento_cotizacion`, `permiso_llamada`,
-   `hello_world`, ver §11). **Pendiente nuevo, detectado 14-09-2026:**
-   corregir el motor de secuencias (§8), que sigue ofreciendo la plantilla
-   vieja `envio_cotizacion` (sin `_v2`) — un envío por esa vía falla en
-   silencio. `retomar_conversacion` y `permiso_llamada` están aprobadas
-   sin ningún uso todavía en el CRM.
+   `hello_world`, ver §11). ~~Bug detectado y corregido el 14-09-2026:~~ el
+   motor de secuencias (§8) ofrecía la plantilla vieja `envio_cotizacion`
+   (sin `_v2`) y fallaba en silencio — corregido, ver §11. `retomar_conversacion`
+   y `permiso_llamada` siguen aprobadas sin ningún uso todavía en el CRM.
 6. **Correo del vendedor como remitente real** de las cotizaciones: en
    evaluación entre autenticar el dominio en Brevo, envío nativo vía
    Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado
