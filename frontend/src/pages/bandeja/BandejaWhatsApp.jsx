@@ -38,6 +38,7 @@ export default function BandejaWhatsApp() {
   const [grabando, setGrabando] = useState(false);
   const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
   const hiloRef = useRef(null);
+  const inputTextoRef = useRef(null);
   const archivoInputRef = useRef(null);
   const recorderRef = useRef(null);
   const matchRefs = useRef({});
@@ -163,6 +164,15 @@ export default function BandejaWhatsApp() {
         {texto.slice(pos + terminoHilo.length)}
       </>
     );
+  };
+
+  // WhatsApp no permite editar ni eliminar un mensaje ya enviado (ni Meta lo
+  // expone en la Cloud API) — esto prellena el cuadro de respuesta con una
+  // aclaración para que el vendedor la edite y la mande como mensaje nuevo,
+  // sin tocar el mensaje original.
+  const corregirMensaje = (m) => {
+    setTexto(`Disculpa, el mensaje anterior tenía un error. ${m.texto}`);
+    inputTextoRef.current?.focus();
   };
 
   const enviar = async (e) => {
@@ -426,8 +436,16 @@ export default function BandejaWhatsApp() {
                         : <div className="text-xs italic opacity-70 mb-1">Cargando documento…</div>
                     )}
                     <div>{resaltar(m.texto, mensajesConMatch[indiceMatch]?.id === m.id)}</div>
-                    <div className={`text-[10px] mt-1 ${m.direccion === 'saliente' ? 'text-ht-navy/50' : 'text-gray-400'}`}>
-                      {fecha(m.created_at)}
+                    <div className={`text-[10px] mt-1 flex items-center gap-2 ${m.direccion === 'saliente' ? 'text-ht-navy/50' : 'text-gray-400'}`}>
+                      <span>{fecha(m.created_at)}</span>
+                      {m.direccion === 'saliente' && (
+                        <button type="button" onClick={() => corregirMensaje(m)}
+                          disabled={conversacionActual && !conversacionActual.abierta}
+                          title="WhatsApp no permite editar ni eliminar un mensaje enviado — esto prepara uno nuevo de aclaración"
+                          className="underline hover:no-underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline">
+                          Corregir
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -473,7 +491,7 @@ export default function BandejaWhatsApp() {
                       />
                     </div>
                   )}
-                  <input value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribe una respuesta..."
+                  <input ref={inputTextoRef} value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribe una respuesta..."
                     disabled={conversacionActual && !conversacionActual.abierta}
                     className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:bg-gray-50" />
                   <button type="submit" disabled={conversacionActual && !conversacionActual.abierta}
