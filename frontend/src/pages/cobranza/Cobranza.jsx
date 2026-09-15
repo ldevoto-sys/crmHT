@@ -15,8 +15,49 @@ const ESTADO_DOC_LABEL = { a_tiempo: 'A tiempo', atrasado: 'Atrasado (<15 días)
 const ESTADO_DOC_COLOR = { a_tiempo: 'bg-ht-accent/15 text-ht-navy', atrasado: 'bg-amber-100 text-amber-700', vencido: 'bg-red-100 text-red-700' };
 const ESTADO_MOV_LABEL = { pendiente: 'Pendiente', preconciliado: 'Parcial', conciliado: 'Conciliado', archivado: 'Archivado' };
 
+const EXTRACTORES_DOCUMENTOS = {
+  nombre_cliente: d => d.nombre_cliente || '',
+  folio: d => Number(d.folio) || 0,
+  fecha_emision: d => d.fecha_emision || '',
+  fecha_vencimiento: d => d.fecha_vencimiento || '',
+  monto_total: d => Number(d.monto_total) || 0,
+  saldo_pendiente: d => Number(d.saldo_pendiente) || 0,
+  estado: d => ESTADO_DOC_LABEL[d.estado] || d.estado || '',
+};
+
 const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
 const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+
+// Orden genérico de tablas: cada tabla define sus propios "extractores"
+// (campo -> valor comparable), porque lo que se ordena no siempre es el dato
+// crudo (ej. estado -> su etiqueta visible, empresas -> lista concatenada).
+function compararValores(a, b) {
+  if (typeof a === 'number' && typeof b === 'number') return a - b;
+  return normalizar(String(a ?? '')).localeCompare(normalizar(String(b ?? '')));
+}
+function ordenar(lista, orden, extractores) {
+  const extraer = orden && extractores[orden.campo];
+  if (!extraer) return lista;
+  return [...lista].sort((a, b) => {
+    const cmp = compararValores(extraer(a), extraer(b));
+    return orden.direccion === 'desc' ? -cmp : cmp;
+  });
+}
+function useOrden() {
+  const [orden, setOrden] = useState(null); // { campo, direccion } | null
+  const toggle = (campo) => setOrden(o => (o?.campo === campo ? { campo, direccion: o.direccion === 'asc' ? 'desc' : 'asc' } : { campo, direccion: 'asc' }));
+  return [orden, toggle];
+}
+function ThOrdenable({ campo, orden, onOrdenar, align = 'left', children }) {
+  const activo = orden?.campo === campo;
+  return (
+    <th className={`px-4 py-2 font-medium text-${align}`}>
+      <button onClick={() => onOrdenar(campo)} className={`flex items-center gap-1 hover:text-ht-navy ${align === 'right' ? 'justify-end w-full' : ''}`}>
+        {children} <span className={activo ? 'text-ht-navy' : 'text-gray-300'}>{activo ? (orden.direccion === 'asc' ? '▲' : '▼') : '⇅'}</span>
+      </button>
+    </th>
+  );
+}
 
 export default function Cobranza() {
   const [tab, setTab] = useState('documentos');
@@ -58,7 +99,7 @@ function TabDocumentos() {
   const [actualizando, setActualizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState('');
-  const [orden, setOrden] = useState(null); // 'asc' | 'desc' | null
+  const [orden, toggleOrden] = useOrden();
 
   const cargar = async () => {
     try { setData((await api.get('/cobranza/documentos')).data); }
@@ -76,20 +117,15 @@ function TabDocumentos() {
     finally { setActualizando(false); }
   };
 
-  const toggleOrdenVencimiento = () => setOrden(orden === 'asc' ? 'desc' : 'asc');
-
   if (!data) return <div className="text-gray-400 text-sm">Cargando…</div>;
 
   const termino = normalizar(busqueda.trim());
-  let filtrados = data.documentos
-    .filter(d => !estadoFiltro || d.estado === estadoFiltro)
-    .filter(d => !termino || [d.folio, d.rut_cliente, d.nombre_cliente].some(c => normalizar(c).includes(termino)));
-  if (orden) {
-    filtrados = [...filtrados].sort((a, b) => {
-      const cmp = (a.fecha_vencimiento || '').localeCompare(b.fecha_vencimiento || '');
-      return orden === 'asc' ? cmp : -cmp;
-    });
-  }
+  const filtrados = ordenar(
+    data.documentos
+      .filter(d => !estadoFiltro || d.estado === estadoFiltro)
+      .filter(d => !termino || [d.folio, d.rut_cliente, d.nombre_cliente].some(c => normalizar(c).includes(termino))),
+    orden, EXTRACTORES_DOCUMENTOS
+  );
 
   return (
     <div>
@@ -130,17 +166,13 @@ function TabDocumentos() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Cliente</th>
-              <th className="text-left px-4 py-2 font-medium">Folio</th>
-              <th className="text-left px-4 py-2 font-medium">Emisión</th>
-              <th className="text-left px-4 py-2 font-medium">
-                <button onClick={toggleOrdenVencimiento} className="flex items-center gap-1 hover:text-ht-navy">
-                  Vencimiento {orden === 'asc' ? '▲' : orden === 'desc' ? '▼' : ''}
-                </button>
-              </th>
-              <th className="text-right px-4 py-2 font-medium">Monto</th>
-              <th className="text-right px-4 py-2 font-medium">Saldo</th>
-              <th className="text-left px-4 py-2 font-medium">Estado</th>
+              <ThOrdenable campo="nombre_cliente" orden={orden} onOrdenar={toggleOrden}>Cliente</ThOrdenable>
+              <ThOrdenable campo="folio" orden={orden} onOrdenar={toggleOrden}>Folio</ThOrdenable>
+              <ThOrdenable campo="fecha_emision" orden={orden} onOrdenar={toggleOrden}>Emisión</ThOrdenable>
+              <ThOrdenable campo="fecha_vencimiento" orden={orden} onOrdenar={toggleOrden}>Vencimiento</ThOrdenable>
+              <ThOrdenable campo="monto_total" orden={orden} onOrdenar={toggleOrden} align="right">Monto</ThOrdenable>
+              <ThOrdenable campo="saldo_pendiente" orden={orden} onOrdenar={toggleOrden} align="right">Saldo</ThOrdenable>
+              <ThOrdenable campo="estado" orden={orden} onOrdenar={toggleOrden}>Estado</ThOrdenable>
             </tr>
           </thead>
           <tbody>
@@ -172,12 +204,24 @@ function TabDocumentos() {
   );
 }
 
+const EXTRACTORES_MOVIMIENTOS = {
+  banco: m => m.banco || '',
+  cuenta_bancaria: m => m.cuenta_bancaria || '',
+  fecha: m => m.fecha || '',
+  glosa_original: m => m.glosa_original || '',
+  monto: m => Number(m.monto) || 0,
+  estado: m => ESTADO_MOV_LABEL[m.estado] || m.estado || '',
+  cargado_por_nombre: m => m.cargado_por_nombre || '',
+};
+
 function TabMovimientos() {
   const [movimientos, setMovimientos] = useState([]);
   const [documentos, setDocumentos] = useState([]);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [subiendo, setSubiendo] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [busqueda, setBusqueda] = useState('');
+  const [orden, toggleOrden] = useOrden();
   const [expandido, setExpandido] = useState(null);
   const [movimientoAConciliar, setMovimientoAConciliar] = useState(null);
   const fileRef = useRef(null);
@@ -234,6 +278,14 @@ function TabMovimientos() {
 
   const toggleExpandido = (id) => setExpandido(expandido === id ? null : id);
 
+  const termino = normalizar(busqueda.trim());
+  const movimientosFiltrados = ordenar(
+    termino
+      ? movimientos.filter(m => [m.banco, m.cuenta_bancaria, m.glosa_original, m.cargado_por_nombre].some(v => normalizar(v).includes(termino)))
+      : movimientos,
+    orden, EXTRACTORES_MOVIMIENTOS
+  );
+
   return (
     <div>
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
@@ -257,22 +309,25 @@ function TabMovimientos() {
         Acepta cartolas de Banco de Chile/Santander, o los dos archivos de Transbank (Cartola de Movimientos y Resumen de abonos) — se detecta el formato automáticamente.
       </p>
 
+      <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por banco, cuenta, descripción o quién lo cargó…"
+        className="mb-3 border border-gray-300 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Banco</th>
-              <th className="text-left px-4 py-2 font-medium">Cuenta</th>
-              <th className="text-left px-4 py-2 font-medium">Fecha</th>
-              <th className="text-left px-4 py-2 font-medium">Descripción</th>
-              <th className="text-right px-4 py-2 font-medium">Monto</th>
-              <th className="text-left px-4 py-2 font-medium">Estado</th>
-              <th className="text-left px-4 py-2 font-medium">Cargado por</th>
+              <ThOrdenable campo="banco" orden={orden} onOrdenar={toggleOrden}>Banco</ThOrdenable>
+              <ThOrdenable campo="cuenta_bancaria" orden={orden} onOrdenar={toggleOrden}>Cuenta</ThOrdenable>
+              <ThOrdenable campo="fecha" orden={orden} onOrdenar={toggleOrden}>Fecha</ThOrdenable>
+              <ThOrdenable campo="glosa_original" orden={orden} onOrdenar={toggleOrden}>Descripción</ThOrdenable>
+              <ThOrdenable campo="monto" orden={orden} onOrdenar={toggleOrden} align="right">Monto</ThOrdenable>
+              <ThOrdenable campo="estado" orden={orden} onOrdenar={toggleOrden}>Estado</ThOrdenable>
+              <ThOrdenable campo="cargado_por_nombre" orden={orden} onOrdenar={toggleOrden}>Cargado por</ThOrdenable>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {movimientos.map(m => (
+            {movimientosFiltrados.map(m => (
               <Fragment key={m.id}>
                 <tr className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{m.banco}</td>
@@ -310,8 +365,10 @@ function TabMovimientos() {
                 )}
               </Fragment>
             ))}
-            {movimientos.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Sin movimientos — sube un archivo para empezar.</td></tr>
+            {movimientosFiltrados.length === 0 && (
+              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">
+                {movimientos.length === 0 ? 'Sin movimientos — sube un archivo para empezar.' : 'Sin resultados para esa búsqueda.'}
+              </td></tr>
             )}
           </tbody>
         </table>
@@ -501,12 +558,22 @@ function ModalConciliar({ movimiento, documentos, onClose, onConciliado }) {
 // última sincronización con Softland. Una cuenta de paso todavía no tiene
 // empresa vinculada en el CRM — no recibiría recordatorios hasta que se
 // registre (ver especificación §9).
+const EXTRACTORES_CUENTAS = {
+  nombre_cliente: c => c.nombre_cliente || '',
+  codigo_cliente: c => c.codigo_cliente || '',
+  saldo_app: c => Number(c.saldo_app) || 0,
+  saldo_softland: c => Number(c.saldo_softland) || 0,
+  diferencia: c => Number(c.diferencia) || 0,
+  estado: c => (c.es_cuenta_paso ? 'De paso' : c.concuerdan ? 'OK' : 'Revisar diferencia'),
+};
+
 function TabCuentasCliente() {
   const [cuentas, setCuentas] = useState([]);
   const [error, setError] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [expandido, setExpandido] = useState(null);
   const [soloDiferencias, setSoloDiferencias] = useState(false);
+  const [orden, toggleOrden] = useOrden();
 
   const cargar = async () => {
     try { setCuentas((await api.get('/cobranza/cuentas-cliente')).data); }
@@ -515,9 +582,12 @@ function TabCuentasCliente() {
   useEffect(() => { cargar(); }, []);
 
   const termino = normalizar(busqueda.trim());
-  const filtradas = cuentas
-    .filter(c => !termino || [c.codigo_cliente, c.nombre_cliente, c.rut_cliente].some(v => normalizar(v).includes(termino)))
-    .filter(c => !soloDiferencias || !c.concuerdan);
+  const filtradas = ordenar(
+    cuentas
+      .filter(c => !termino || [c.codigo_cliente, c.nombre_cliente, c.rut_cliente].some(v => normalizar(v).includes(termino)))
+      .filter(c => !soloDiferencias || !c.concuerdan),
+    orden, EXTRACTORES_CUENTAS
+  );
 
   return (
     <div>
@@ -538,12 +608,12 @@ function TabCuentasCliente() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Cliente</th>
-              <th className="text-left px-4 py-2 font-medium">Código</th>
-              <th className="text-right px-4 py-2 font-medium">Saldo app</th>
-              <th className="text-right px-4 py-2 font-medium">Saldo Softland</th>
-              <th className="text-right px-4 py-2 font-medium">Diferencia</th>
-              <th className="text-left px-4 py-2 font-medium">Estado</th>
+              <ThOrdenable campo="nombre_cliente" orden={orden} onOrdenar={toggleOrden}>Cliente</ThOrdenable>
+              <ThOrdenable campo="codigo_cliente" orden={orden} onOrdenar={toggleOrden}>Código</ThOrdenable>
+              <ThOrdenable campo="saldo_app" orden={orden} onOrdenar={toggleOrden} align="right">Saldo app</ThOrdenable>
+              <ThOrdenable campo="saldo_softland" orden={orden} onOrdenar={toggleOrden} align="right">Saldo Softland</ThOrdenable>
+              <ThOrdenable campo="diferencia" orden={orden} onOrdenar={toggleOrden} align="right">Diferencia</ThOrdenable>
+              <ThOrdenable campo="estado" orden={orden} onOrdenar={toggleOrden}>Estado</ThOrdenable>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -639,6 +709,13 @@ const NIVEL_LABEL = { par: 'Par', jefe: 'Jefe', superior: 'Superior' };
 // Contactos de cobranza (Fase 1): independientes de los contactos
 // comerciales — quien compra no es necesariamente quien paga. Un mismo
 // contacto puede vincularse a varias empresas, cada una con su propio nivel.
+const EXTRACTORES_CONTACTOS = {
+  nombre: c => c.nombre || '',
+  email: c => c.email || '',
+  telefono_e164: c => c.telefono_e164 || '',
+  empresas: c => c.empresas.map(e => e.razon_social).join(', '),
+};
+
 function TabContactos() {
   const [contactos, setContactos] = useState([]);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
@@ -646,6 +723,7 @@ function TabContactos() {
   const [nuevo, setNuevo] = useState(null); // { nombre, email, telefono_e164 } | null
   const [importando, setImportando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [orden, toggleOrden] = useOrden();
 
   const cargar = async () => {
     try { setContactos((await api.get('/cobranza/contactos')).data); }
@@ -654,9 +732,12 @@ function TabContactos() {
   useEffect(() => { cargar(); }, []);
 
   const termino = normalizar(busqueda.trim());
-  const contactosFiltrados = termino
-    ? contactos.filter(c => [c.nombre, c.email, c.telefono_e164, ...c.empresas.map(e => e.razon_social)].some(v => normalizar(v).includes(termino)))
-    : contactos;
+  const contactosFiltrados = ordenar(
+    termino
+      ? contactos.filter(c => [c.nombre, c.email, c.telefono_e164, ...c.empresas.map(e => e.razon_social)].some(v => normalizar(v).includes(termino)))
+      : contactos,
+    orden, EXTRACTORES_CONTACTOS
+  );
 
   const crear = async (e) => {
     e.preventDefault(); setError(''); setMsg('');
@@ -726,10 +807,10 @@ function TabContactos() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Nombre</th>
-              <th className="text-left px-4 py-2 font-medium">Email</th>
-              <th className="text-left px-4 py-2 font-medium">Teléfono</th>
-              <th className="text-left px-4 py-2 font-medium">Empresas</th>
+              <ThOrdenable campo="nombre" orden={orden} onOrdenar={toggleOrden}>Nombre</ThOrdenable>
+              <ThOrdenable campo="email" orden={orden} onOrdenar={toggleOrden}>Email</ThOrdenable>
+              <ThOrdenable campo="telefono_e164" orden={orden} onOrdenar={toggleOrden}>Teléfono</ThOrdenable>
+              <ThOrdenable campo="empresas" orden={orden} onOrdenar={toggleOrden}>Empresas</ThOrdenable>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -848,10 +929,19 @@ const TRAMO_COLOR = {
 
 // Reporte de antigüedad de saldos: agrupa saldo_app (el saldo propio del
 // CRM) por tramo de mora — al día, 1-15, 16-30, 31-60, 61-90, +90 días.
+const EXTRACTORES_REPORTES = {
+  folio: d => Number(d.folio) || 0,
+  nombre_cliente: d => d.nombre_cliente || '',
+  fecha_vencimiento: d => d.fecha_vencimiento || '',
+  dias_atraso: d => Number(d.dias_atraso) || 0,
+  saldo_app: d => Number(d.saldo_app) || 0,
+};
+
 function TabReportes() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [tramoFiltro, setTramoFiltro] = useState('');
+  const [orden, toggleOrden] = useOrden();
 
   useEffect(() => {
     api.get('/cobranza/reportes/antiguedad').then(({ data }) => setData(data)).catch(() => setError('No se pudo cargar el reporte.'));
@@ -860,7 +950,10 @@ function TabReportes() {
   if (error) return <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>;
   if (!data) return <div className="text-gray-400 text-sm">Cargando…</div>;
 
-  const filtrados = tramoFiltro ? data.documentos.filter(d => d.tramo === tramoFiltro) : data.documentos;
+  const filtrados = ordenar(
+    tramoFiltro ? data.documentos.filter(d => d.tramo === tramoFiltro) : data.documentos,
+    orden, EXTRACTORES_REPORTES
+  );
 
   const exportarCsv = () => {
     const headers = ['Folio', 'Código cliente', 'Cliente', 'RUT', 'Vencimiento', 'Días atraso', 'Tramo', 'Saldo'];
@@ -905,11 +998,11 @@ function TabReportes() {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-gray-600">
             <tr>
-              <th className="text-left px-4 py-2 font-medium">Folio</th>
-              <th className="text-left px-4 py-2 font-medium">Cliente</th>
-              <th className="text-left px-4 py-2 font-medium">Vencimiento</th>
-              <th className="text-right px-4 py-2 font-medium">Días atraso</th>
-              <th className="text-right px-4 py-2 font-medium">Saldo</th>
+              <ThOrdenable campo="folio" orden={orden} onOrdenar={toggleOrden}>Folio</ThOrdenable>
+              <ThOrdenable campo="nombre_cliente" orden={orden} onOrdenar={toggleOrden}>Cliente</ThOrdenable>
+              <ThOrdenable campo="fecha_vencimiento" orden={orden} onOrdenar={toggleOrden}>Vencimiento</ThOrdenable>
+              <ThOrdenable campo="dias_atraso" orden={orden} onOrdenar={toggleOrden} align="right">Días atraso</ThOrdenable>
+              <ThOrdenable campo="saldo_app" orden={orden} onOrdenar={toggleOrden} align="right">Saldo</ThOrdenable>
             </tr>
           </thead>
           <tbody>
