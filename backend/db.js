@@ -2211,10 +2211,10 @@ async function initDb() {
 
   // Cola de la encuesta de causa de no cierre: se llena cuando el cliente
   // responde "No realizaré la compra" al seguimiento de su cotización, y se
-  // envía 1 minuto después (no al toque, para no sentirse un bot
-  // instantáneo). Un minuto no calza con el intervalo de 15 min que usa el
-  // resto de los jobs del proyecto, así que este se revisa aparte, cada 1
-  // min (ver server.js).
+  // envía 5 segundos después (no al toque, para no sentirse un bot
+  // instantáneo). No calza con el intervalo de 15 min que usa el resto de
+  // los jobs del proyecto, así que este se revisa aparte, cada 5 segundos
+  // (ver server.js).
   await db.run(`
     CREATE TABLE IF NOT EXISTS whatsapp_encuesta_no_cierre (
       id SERIAL PRIMARY KEY,

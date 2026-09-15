@@ -83,7 +83,7 @@ async function manejarBotonSeguimiento(negocioId, textoBoton) {
       console.error('[seguimientoBoton] Pipeline', negocio.pipeline_id, 'sin etapa "perdida" — no se pudo mover el negocio', negocioId);
       return false;
     }
-    // Causa pendiente: se pregunta por encuesta 1 minuto después (ver
+    // Causa pendiente: se pregunta por encuesta 5 segundos después (ver
     // enviarEncuestasPendientesSiCorresponde) — cambiarEtapaNegocio la exige
     // por defecto, permitirPerdidaSinCausa es justo para este caso.
     await cambiarEtapaNegocio(negocio.id, etapaPerdida.id, {
@@ -92,7 +92,7 @@ async function manejarBotonSeguimiento(negocioId, textoBoton) {
     }, null);
     await db.run(
       `INSERT INTO whatsapp_encuesta_no_cierre (negocio_id, contacto_id, enviar_en)
-       VALUES ($1, $2, now() + interval '1 minute')
+       VALUES ($1, $2, now() + interval '5 seconds')
        ON CONFLICT (negocio_id) DO NOTHING`,
       [negocio.id, negocio.contacto_id]
     );
@@ -169,10 +169,10 @@ async function manejarRespuestaEncuesta(negocioId, causaIdStr) {
   return true;
 }
 
-// Job cada 1 minuto (server.js) — envía la encuesta a quienes ya cumplieron
-// el minuto de espera desde que dijeron que no comprarán. No usa el
-// intervalo de 15 min del resto de los jobs del proyecto porque acá el
-// minuto de espera es parte del requisito, no un detalle de implementación.
+// Job cada 5 segundos (server.js) — envía la encuesta a quienes ya cumplieron
+// la espera desde que dijeron que no comprarán. No usa el intervalo de 15
+// min del resto de los jobs del proyecto porque acá la espera es parte del
+// requisito (5 segundos), no un detalle de implementación.
 async function enviarEncuestasPendientesSiCorresponde() {
   const pendientes = await db.all(
     `SELECT e.id, e.negocio_id, e.contacto_id, c.telefono_e164

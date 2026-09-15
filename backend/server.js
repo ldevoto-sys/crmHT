@@ -166,14 +166,14 @@ if (require.main === module) {
       setInterval(() => {
         purgarInactivosSiCorresponde().catch(err => console.error('[privacidad] Error en purga:', err));
       }, QUINCE_MIN);
-      // Encuesta de causa de no cierre (bot WhatsApp): se manda 1 minuto
+      // Encuesta de causa de no cierre (bot WhatsApp): se manda 5 segundos
       // después de que el cliente indica que no comprará — no calza con el
-      // intervalo de 15 min del resto de los jobs, así que este corre cada 1
-      // min (ver services/seguimientoBoton.js).
-      const UN_MIN = 60 * 1000;
+      // intervalo de 15 min del resto de los jobs, así que este corre cada 5
+      // segundos (ver services/seguimientoBoton.js).
+      const CINCO_SEG = 5 * 1000;
       setInterval(() => {
         enviarEncuestasPendientesSiCorresponde().catch(err => console.error('[seguimientoBoton] Error al enviar encuestas:', err));
-      }, UN_MIN);
+      }, CINCO_SEG);
     })
     .catch((err) => {
       console.error('[Server] Error al inicializar DB:', err);

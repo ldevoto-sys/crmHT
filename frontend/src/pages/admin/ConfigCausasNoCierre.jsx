@@ -126,7 +126,7 @@ export default function ConfigCausasNoCierre() {
         <h2 className="font-semibold text-ht-navy mb-1">Encuesta automática por WhatsApp</h2>
         <p className="text-gray-500 text-sm mb-4">
           Cuando un cliente responde "No realizaré la compra" al seguimiento de su cotización, se le manda este
-          mensaje 1 minuto después con las causas de arriba como opciones (en orden aleatorio, "Otro" siempre al
+          mensaje 5 segundos después con las causas de arriba como opciones (en orden aleatorio, "Otro" siempre al
           final). Al elegir una, se le responde con el mensaje de agradecimiento.
         </p>
         {errorCfg && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorCfg}</div>}
