@@ -63,6 +63,36 @@ router.delete('/causas-no-cierre/:id', authorize('administrador', 'jefe_comercia
   }
 });
 
+// GET /api/config/causas-no-cierre-config — textos de la encuesta automática
+// de causa de no cierre por WhatsApp (ver services/seguimientoBoton.js)
+router.get('/causas-no-cierre-config', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT mensaje_encuesta, mensaje_agradecimiento FROM causa_no_cierre_config WHERE id = 1');
+    res.json(cfg);
+  } catch (err) {
+    console.error('[config/causas-no-cierre-config GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/config/causas-no-cierre-config (admin) {mensaje_encuesta, mensaje_agradecimiento}
+router.put('/causas-no-cierre-config', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { mensaje_encuesta, mensaje_agradecimiento } = req.body;
+    if (!mensaje_encuesta?.trim() || !mensaje_agradecimiento?.trim()) {
+      return res.status(400).json({ error: 'Ambos mensajes son obligatorios' });
+    }
+    await db.run(
+      'UPDATE causa_no_cierre_config SET mensaje_encuesta = $1, mensaje_agradecimiento = $2 WHERE id = 1',
+      [mensaje_encuesta.trim(), mensaje_agradecimiento.trim()]
+    );
+    res.json({ message: 'Mensajes actualizados' });
+  } catch (err) {
+    console.error('[config/causas-no-cierre-config PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // --- Pipelines (áreas comerciales: Ventas Directas, Operaciones, ...) ---
 
 // GET /api/config/pipelines — todos los activos, para el selector del tablero

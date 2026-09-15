@@ -9,11 +9,31 @@ export default function ConfigCausasNoCierre() {
   const [editId, setEditId] = useState(null);
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
 
+  // Mensajes de la encuesta automática de causa de no cierre por WhatsApp
+  // (se manda cuando un cliente responde "No realizaré la compra" al
+  // seguimiento de su cotización — ver services/seguimientoBoton.js).
+  const [cfgEncuesta, setCfgEncuesta] = useState(null);
+  const [guardandoCfg, setGuardandoCfg] = useState(false);
+  const [errorCfg, setErrorCfg] = useState(''); const [msgCfg, setMsgCfg] = useState('');
+
   const cargar = async () => {
     try { setCausas((await api.get('/config/causas-no-cierre')).data); }
     catch { setError('No se pudieron cargar las causas de no cierre.'); }
   };
   useEffect(() => { cargar(); }, []);
+  useEffect(() => {
+    api.get('/config/causas-no-cierre-config').then(r => setCfgEncuesta(r.data))
+      .catch(() => setErrorCfg('No se pudieron cargar los mensajes de la encuesta.'));
+  }, []);
+
+  const guardarCfgEncuesta = async e => {
+    e.preventDefault(); setErrorCfg(''); setMsgCfg(''); setGuardandoCfg(true);
+    try {
+      await api.put('/config/causas-no-cierre-config', cfgEncuesta);
+      setMsgCfg('Mensajes actualizados.');
+    } catch (err) { setErrorCfg(err.response?.data?.error || 'Error al guardar.'); }
+    finally { setGuardandoCfg(false); }
+  };
 
   const resetForm = () => { setForm(vacio); setEditId(null); };
 
@@ -100,6 +120,37 @@ export default function ConfigCausasNoCierre() {
             </table>
           </div>
         </div>
+      </div>
+
+      <div className="mt-8 bg-white border border-gray-200 rounded-lg p-5">
+        <h2 className="font-semibold text-ht-navy mb-1">Encuesta automática por WhatsApp</h2>
+        <p className="text-gray-500 text-sm mb-4">
+          Cuando un cliente responde "No realizaré la compra" al seguimiento de su cotización, se le manda este
+          mensaje 5 segundos después con las causas de arriba como opciones (en orden aleatorio, "Otro" siempre al
+          final). Al elegir una, se le responde con el mensaje de agradecimiento.
+        </p>
+        {errorCfg && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{errorCfg}</div>}
+        {msgCfg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msgCfg}</div>}
+        {cfgEncuesta && (
+          <form onSubmit={guardarCfgEncuesta} className="space-y-4 max-w-2xl">
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Mensaje de la encuesta</label>
+              <textarea required rows={2} value={cfgEncuesta.mensaje_encuesta}
+                onChange={e => setCfgEncuesta({ ...cfgEncuesta, mensaje_encuesta: e.target.value })}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Mensaje de agradecimiento</label>
+              <textarea required rows={2} value={cfgEncuesta.mensaje_agradecimiento}
+                onChange={e => setCfgEncuesta({ ...cfgEncuesta, mensaje_agradecimiento: e.target.value })}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+            </div>
+            <button type="submit" disabled={guardandoCfg}
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-40">
+              {guardandoCfg ? 'Guardando…' : 'Guardar'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

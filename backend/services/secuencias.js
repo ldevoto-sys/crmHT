@@ -38,11 +38,20 @@ function fechaVencimientoCotizacion(cot) {
   return base.toLocaleDateString('es-CL');
 }
 const PLANTILLAS_WHATSAPP = {
+  // La clave quedó fija en "envio_cotizacion" (sin "_v2") aunque la
+  // plantilla real en Meta es "envio_cotizacion_v2" — cambiar la clave
+  // obligaría a migrar cualquier secuencia ya configurada con esta opción
+  // (columna secuencia_pasos.whatsapp_template). Bug corregido 14-09-2026:
+  // antes se mandaba el nombre de plantilla viejo tal cual la clave (Meta
+  // lo rechazaba en silencio, ver cotizaciones.js#PLANTILLA_ENVIO_COTIZACION)
+  // y faltaba el parámetro "link" que la plantilla sí exige.
   envio_cotizacion: {
     label: 'Envío de cotización',
+    metaTemplate: 'envio_cotizacion_v2',
     parametros: (contacto, cot) => [
       { nombre: 'customer_name', valor: nombreCompleto(contacto) },
       { nombre: 'coti_id', valor: cot.numero },
+      { nombre: 'link', valor: `${process.env.APP_URL || ''}/c/${cot.token_publico}` },
     ],
   },
   vencimiento_cotizacion: {
@@ -69,6 +78,23 @@ async function pasoSiguiente(secuenciaId, orden) {
   );
 }
 
+// Resumen de ítems de la cotización para la variable {{producto_resumen}} —
+// "2x Bomba XYZ, 1x Filtro ABC" — capado a 4 ítems para no alargar el correo
+// cuando la cotización tiene muchas líneas.
+async function resumenProductos(cotizacionId) {
+  const items = await db.all(
+    `SELECT ci.cantidad, COALESCE(ci.descripcion, p.nombre, 'ítem') AS nombre
+     FROM cotizacion_items ci LEFT JOIN productos p ON p.id = ci.producto_id
+     WHERE ci.cotizacion_id = $1 ORDER BY ci.id`,
+    [cotizacionId]
+  );
+  if (!items.length) return '';
+  const formatoCantidad = c => (Number.isInteger(Number(c)) ? String(Number(c)) : Number(c).toFixed(2));
+  const visibles = items.slice(0, 4).map(it => `${formatoCantidad(it.cantidad)}x ${it.nombre}`);
+  const resto = items.length - visibles.length;
+  return resto > 0 ? `${visibles.join(', ')} y ${resto} más` : visibles.join(', ');
+}
+
 // Intenta enviar el paso 'correo' solo, por Brevo — el mismo servicio que ya
 // usa la cotización inicial. Adjunta el link a la última cotización del
 // negocio (si existe) como "Ver cotización online". Nunca lanza: devuelve
@@ -79,12 +105,12 @@ async function intentarEnviarCorreo(ns, paso) {
   if (!contacto?.email) return { enviado: false, motivo: 'el contacto no tiene correo registrado' };
   const vendedor = ns.vendedor_id ? await db.get('SELECT nombre, email, telefono FROM users WHERE id = $1', [ns.vendedor_id]) : null;
   const ultimaCot = await db.get(
-    'SELECT token_publico, numero, version FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+    'SELECT id, token_publico, numero, version, total, moneda FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
   );
   const linkPublico = ultimaCot ? `${process.env.APP_URL || ''}/c/${ultimaCot.token_publico}` : null;
-  const nombreContacto = [contacto.nombre, contacto.apellido].filter(Boolean).join(' ');
+  const productoResumen = ultimaCot ? await resumenProductos(ultimaCot.id) : '';
   const resultado = await email.seguimiento(
-    contacto.email, vendedor, { nombre: nombreContacto }, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico
+    contacto.email, vendedor, contacto, { titulo: ns.negocio_titulo }, ultimaCot, paso, linkPublico, productoResumen
   );
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el correo' };
   return { enviado: true, destinatario: contacto.email };
@@ -99,12 +125,12 @@ async function intentarEnviarWhatsapp(ns, paso) {
   const contacto = await db.get('SELECT nombre, apellido, telefono_e164 FROM contactos WHERE id = $1', [ns.contacto_id]);
   if (!contacto?.telefono_e164) return { enviado: false, motivo: 'el contacto no tiene teléfono registrado' };
   const ultimaCot = await db.get(
-    'SELECT numero, validez_dias, fecha_envio, created_at FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
+    'SELECT numero, validez_dias, fecha_envio, created_at, token_publico FROM cotizaciones WHERE negocio_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.negocio_id]
   );
   if (!ultimaCot) return { enviado: false, motivo: 'el negocio no tiene ninguna cotización registrada' };
   const plantilla = PLANTILLAS_WHATSAPP[paso.whatsapp_template];
   if (!plantilla) return { enviado: false, motivo: `plantilla de WhatsApp "${paso.whatsapp_template}" desconocida` };
-  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
+  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, plantilla.metaTemplate || paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el WhatsApp' };
   if (paso.whatsapp_template === 'seguimiento_coti' && resultado.wa_message_id) {
     // Para reconocer a qué negocio corresponde si el cliente toca uno de

@@ -150,6 +150,13 @@ export default function ConfigSecuencias() {
 
           <div className="space-y-3">
             <label className="block text-sm font-medium text-ht-navy">Pasos (en orden)</label>
+            <p className="text-xs text-gray-400 -mt-2">
+              Los días/horas de espera de cada paso cuentan desde que se ejecutó el paso anterior (o desde que se
+              activa la secuencia, para el primer paso) — no desde el inicio de la secuencia. Es acumulativo: si el
+              paso 1 espera 1 día y el paso 2 espera 1 día más, el paso 2 se dispara ~2 días después de activada la
+              secuencia. Con "Respetar horario hábil" activo, un paso que espera fuera de horario corre recién cuando
+              abre, y el reloj del siguiente paso arranca desde ese momento real — el atraso se arrastra.
+            </p>
             {pasos.map((p, i) => (
               <div key={i} className="border border-gray-200 rounded p-4 flex flex-wrap gap-3 items-start">
                 <div>
@@ -213,10 +220,20 @@ export default function ConfigSecuencias() {
                 ) : (
                   <div className="flex-1 min-w-[280px] basis-full">
                     <label className="block text-xs text-gray-500 mb-1">
-                      {p.canal === 'correo' ? 'Mensaje (se envía tal cual, sin editar)' : 'Mensaje / guion'}
+                      {p.canal === 'correo' ? 'Mensaje' : 'Mensaje / guion'}
                     </label>
                     <textarea required rows={5} value={p.mensaje} onChange={e => cambiarPaso(i, 'mensaje', e.target.value)}
                       className="w-full border border-gray-300 rounded px-3 py-2 text-base" />
+                    {p.canal === 'correo' && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        El correo sale exactamente como escribas acá — nada se agrega solo (ni saludo, ni firma, ni
+                        referencia a la cotización). Variables disponibles en asunto y mensaje:{' '}
+                        <code>{'{{nombre_cliente}}'}</code>, <code>{'{{apellido_cliente}}'}</code>, <code>{'{{n_cotizacion}}'}</code>,{' '}
+                        <code>{'{{negocio_titulo}}'}</code>, <code>{'{{monto_cotizacion}}'}</code>, <code>{'{{producto_resumen}}'}</code>,{' '}
+                        <code>{'{{link_cotizacion}}'}</code>, <code>{'{{nombre_vendedor}}'}</code>, <code>{'{{email_vendedor}}'}</code>,{' '}
+                        <code>{'{{telefono_vendedor}}'}</code>.
+                      </p>
+                    )}
                   </div>
                 )}
                 {pasos.length > 1 && (
