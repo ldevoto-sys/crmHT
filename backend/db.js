@@ -2227,6 +2227,27 @@ async function initDb() {
   `);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_encuesta_no_cierre_pendientes ON whatsapp_encuesta_no_cierre (enviado_en, enviar_en)`);
 
+  // Textos configurables de la encuesta de causa de no cierre (15-09-2026,
+  // editable desde Config → Causas de no cierre) — mensaje_encuesta es la
+  // pregunta que se manda con la lista de causas; mensaje_agradecimiento se
+  // manda aparte cuando el cliente responde (ver services/seguimientoBoton.js).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS causa_no_cierre_config (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      mensaje_encuesta TEXT NOT NULL,
+      mensaje_agradecimiento TEXT NOT NULL,
+      CONSTRAINT causa_no_cierre_config_unica CHECK (id = 1)
+    )
+  `);
+  await db.run(
+    `INSERT INTO causa_no_cierre_config (id, mensaje_encuesta, mensaje_agradecimiento) VALUES (1, $1, $2)
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      '¿Cuál fue el motivo principal por el que no continuarás con la compra? Nos ayuda a mejorar.',
+      'Gracias por tu respuesta 🙏',
+    ]
+  );
+
   console.log('[DB] Base de datos lista.');
 }
 

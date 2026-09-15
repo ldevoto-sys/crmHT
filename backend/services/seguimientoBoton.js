@@ -23,7 +23,25 @@ const { cambiarEtapaNegocio } = require('../routes/negocios');
 const BOTON_NO_COMPRA = 'no realizaré la compra';
 const BOTON_MAS_INFO = 'necesito más información';
 
-const MENSAJE_ENCUESTA = '¿Cuál fue el motivo principal por el que no continuarás con la compra? Nos ayuda a mejorar.';
+// Mensajes configurables desde Config → Causas de no cierre (ver
+// routes/config.js GET/PUT /causas-no-cierre-config) — estos son solo el
+// respaldo por si la fila de config no existiera (no debería pasar, initDb
+// la siembra siempre).
+const MENSAJE_ENCUESTA_DEFAULT = '¿Cuál fue el motivo principal por el que no continuarás con la compra? Nos ayuda a mejorar.';
+const MENSAJE_AGRADECIMIENTO_DEFAULT = 'Gracias por tu respuesta 🙏';
+
+// Devuelve una copia de las causas en orden aleatorio (para no sesgar la
+// respuesta por posición) con "Otro" siempre al final si está en la lista —
+// no tiene sentido que el catch-all rompa el orden esperado.
+function ordenAleatorioConOtroAlFinal(causas) {
+  const otro = causas.filter(c => c.nombre.trim().toLowerCase() === 'otro');
+  const resto = causas.filter(c => c.nombre.trim().toLowerCase() !== 'otro');
+  for (let i = resto.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [resto[i], resto[j]] = [resto[j], resto[i]];
+  }
+  return [...resto, ...otro];
+}
 
 // Punto de entrada único desde routes/public.js#procesarMensaje. Devuelve
 // true si la respuesta se identificó y ya se actuó sobre ella (el llamador
@@ -115,13 +133,32 @@ async function manejarRespuestaEncuesta(negocioId, causaIdStr) {
   if (!causaId) return false;
   const causa = await db.get('SELECT id FROM causas_no_cierre WHERE id = $1 AND activo = true', [causaId]);
   if (!causa) return false;
-  const negocio = await db.get('SELECT id, contacto_id, empresa_id FROM negocios WHERE id = $1', [negocioId]);
+  const negocio = await db.get(
+    `SELECT n.id, n.contacto_id, n.empresa_id, c.telefono_e164
+     FROM negocios n JOIN contactos c ON c.id = n.contacto_id WHERE n.id = $1`, [negocioId]
+  );
   if (!negocio) return false;
+  // Ya cuenta en las estadísticas de causas de no cierre que existen en
+  // Reportes/Pipeline: es el mismo campo negocios.causa_no_cierre_id que
+  // usa cualquier otro camino (marcar Perdido a mano, importador CSV) — no
+  // hace falta ningún conteo aparte para esta encuesta.
   await db.run('UPDATE negocios SET causa_no_cierre_id = $1, causa_no_cierre_detalle = NULL WHERE id = $2', [causaId, negocioId]);
   await timeline.registrar({
     negocio_id: negocioId, contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id,
     tipo: 'seguimiento_auto', descripcion: 'Cliente respondió la encuesta de causa de no cierre por WhatsApp.',
   });
+  if (negocio.telefono_e164) {
+    const cfg = await db.get('SELECT mensaje_agradecimiento FROM causa_no_cierre_config WHERE id = 1');
+    const mensajeAgradecimiento = cfg?.mensaje_agradecimiento || MENSAJE_AGRADECIMIENTO_DEFAULT;
+    const resultado = await whatsapp.enviar(negocio.telefono_e164, mensajeAgradecimiento);
+    if (resultado.enviado) {
+      await mensajes.registrar({
+        contacto_id: negocio.contacto_id, direccion: 'saliente', texto: mensajeAgradecimiento, wa_message_id: resultado.wa_message_id,
+      });
+    } else {
+      console.error('[seguimientoBoton] No se pudo enviar el agradecimiento de la encuesta (negocio', negocioId, '):', resultado.motivo);
+    }
+  }
   return true;
 }
 
@@ -143,10 +180,14 @@ async function enviarEncuestasPendientesSiCorresponde() {
     console.error('[seguimientoBoton] No hay causas de no cierre activas configuradas — no se puede enviar la encuesta');
     return;
   }
-  const opciones = causas.map(c => ({ id: c.id, label: c.nombre }));
+  const cfg = await db.get('SELECT mensaje_encuesta FROM causa_no_cierre_config WHERE id = 1');
+  const mensajeEncuesta = cfg?.mensaje_encuesta || MENSAJE_ENCUESTA_DEFAULT;
 
   for (const p of pendientes) {
-    const resultado = await whatsapp.enviarLista(p.telefono_e164, MENSAJE_ENCUESTA, opciones);
+    // Orden aleatorio por cada envío (no una sola vez para todo el lote), así
+    // dos clientes que la reciben en el mismo minuto no ven el mismo orden.
+    const opciones = ordenAleatorioConOtroAlFinal(causas).map(c => ({ id: c.id, label: c.nombre }));
+    const resultado = await whatsapp.enviarLista(p.telefono_e164, mensajeEncuesta, opciones);
     if (!resultado.enviado) {
       console.error('[seguimientoBoton] No se pudo enviar la encuesta de causa de no cierre (negocio', p.negocio_id, '):', resultado.motivo);
       continue;
@@ -159,7 +200,7 @@ async function enviarEncuestasPendientesSiCorresponde() {
         [resultado.wa_message_id, p.negocio_id]
       );
     }
-    await mensajes.registrar({ contacto_id: p.contacto_id, direccion: 'saliente', texto: MENSAJE_ENCUESTA });
+    await mensajes.registrar({ contacto_id: p.contacto_id, direccion: 'saliente', texto: mensajeEncuesta, wa_message_id: resultado.wa_message_id });
   }
 }
 
