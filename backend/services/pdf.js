@@ -104,13 +104,22 @@ async function generarCotizacionPDF(data, stream) {
 
   y = Math.max(yc, yi) + 16;
 
-  // Tabla de ítems.
+  // Tabla de ítems. Columnas de la derecha (desde x=330 hasta el borde de la
+  // tabla en 555): Cant. / P. unitario / Desc. % / Total, con 6pt de aire
+  // entre cada una — quedan apretadas (sobre todo en UF, con más dígitos),
+  // pero es lo que entra sin invadir el ancho de Descripción.
+  const X_CANT = 330, W_CANT = 32;
+  const X_PU = X_CANT + W_CANT + 6, W_PU = 68;
+  const X_DESC = X_PU + W_PU + 6, W_DESC = 38;
+  const X_TOTAL = X_DESC + W_DESC + 6, W_TOTAL = 69; // termina en 555 = M+515
+
   doc.rect(M, y, 515, 22).fill(NAVY);
   doc.fillColor('#fff').fontSize(9).font('Helvetica-Bold')
     .text('Descripción', M + 8, y + 7)
-    .text('Cant.', 330, y + 7, { width: 45, align: 'right' })
-    .text('P. unitario', 385, y + 7, { width: 80, align: 'right' })
-    .text('Total', 475, y + 7, { width: 72, align: 'right' });
+    .text('Cant.', X_CANT, y + 7, { width: W_CANT, align: 'right' })
+    .text('P. Unit.', X_PU, y + 7, { width: W_PU, align: 'right' })
+    .text('Desc. %', X_DESC, y + 7, { width: W_DESC, align: 'right' })
+    .text('Total', X_TOTAL, y + 7, { width: W_TOTAL, align: 'right' });
   y += 22;
   doc.font('Helvetica').fontSize(9);
   items.forEach((it, idx) => {
@@ -119,9 +128,6 @@ async function generarCotizacionPDF(data, stream) {
     const imagenBuf = imagenes[idx];
     const fichaPublica = (it.mostrar_ficha !== false && esImagenPublica(it.ficha_tecnica_url)) ? it.ficha_tecnica_url : null;
     const descripcionCompleta = (it.mostrar_descripcion !== false && it.descripcion_completa) ? it.descripcion_completa : null;
-    // No hay espacio para una columna más en la tabla (Cant./P.unitario/Total
-    // ya ocupan todo el ancho que queda) — se muestra como una segunda línea
-    // chica bajo el precio unitario, dentro de esa misma columna.
     const descuentoLinea = Number(it.descuento_pct) || 0;
     const textoX = imagenBuf ? M + 34 : M + 8;
     const textoAncho = imagenBuf ? 274 : 300;
@@ -129,7 +135,6 @@ async function generarCotizacionPDF(data, stream) {
     const nombreAltura = doc.font('Helvetica-Bold').fontSize(9).heightOfString(nombre, { width: textoAncho });
     let contenidoH = nombreAltura + 7;
     if (sub) contenidoH += 11;
-    if (descuentoLinea > 0) contenidoH += 11;
     let descAltura = 0;
     if (descripcionCompleta) {
       descAltura = doc.font('Helvetica').fontSize(7.5).heightOfString(descripcionCompleta, { width: textoAncho });
@@ -154,14 +159,11 @@ async function generarCotizacionPDF(data, stream) {
     }
     doc.fontSize(9);
     doc.fillColor('#000').font('Helvetica')
-      .text(String(Number(it.cantidad)), 330, y + 6, { width: 45, align: 'right' })
-      .text(moneyEn(it.precio_unitario, cot.moneda), 385, y + 6, { width: 80, align: 'right' });
-    if (descuentoLinea > 0) {
-      doc.fillColor(CYAN).font('Helvetica-Bold').fontSize(7.5)
-        .text(`-${descuentoLinea}%`, 385, y + 17, { width: 80, align: 'right' });
-      doc.fontSize(9);
-    }
-    doc.fillColor(NAVY).font('Helvetica-Bold').text(moneyEn(it.total_linea, cot.moneda), 475, y + 6, { width: 72, align: 'right' });
+      .text(String(Number(it.cantidad)), X_CANT, y + 6, { width: W_CANT, align: 'right' })
+      .text(moneyEn(it.precio_unitario, cot.moneda), X_PU, y + 6, { width: W_PU, align: 'right' });
+    doc.fillColor(descuentoLinea > 0 ? CYAN : '#bbb').font(descuentoLinea > 0 ? 'Helvetica-Bold' : 'Helvetica')
+      .text(descuentoLinea > 0 ? `${descuentoLinea}%` : '—', X_DESC, y + 6, { width: W_DESC, align: 'right' });
+    doc.fillColor(NAVY).font('Helvetica-Bold').text(moneyEn(it.total_linea, cot.moneda), X_TOTAL, y + 6, { width: W_TOTAL, align: 'right' });
     y += h;
     if (y > 700) { doc.addPage(); y = 40; }
   });
