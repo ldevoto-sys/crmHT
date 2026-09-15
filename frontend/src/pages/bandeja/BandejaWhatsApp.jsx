@@ -37,6 +37,9 @@ export default function BandejaWhatsApp() {
   const [indiceMatch, setIndiceMatch] = useState(0);
   const [grabando, setGrabando] = useState(false);
   const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
+  const [respondiendoA, setRespondiendoA] = useState(null); // mensaje al que se está citando, o null
+  const [reaccionandoA, setReaccionandoA] = useState(null); // id del mensaje con el selector de emoji abierto
+  const [enviandoReaccion, setEnviandoReaccion] = useState(false);
   const hiloRef = useRef(null);
   const inputTextoRef = useRef(null);
   const archivoInputRef = useRef(null);
@@ -175,16 +178,42 @@ export default function BandejaWhatsApp() {
     inputTextoRef.current?.focus();
   };
 
+  const responderMensaje = (m) => {
+    setRespondiendoA(m);
+    inputTextoRef.current?.focus();
+  };
+
   const enviar = async (e) => {
     e.preventDefault();
     if (!texto.trim()) return;
     setErrorEnvio('');
     try {
-      await api.post(`/whatsapp/conversaciones/${seleccionada}/mensajes`, { texto: texto.trim() });
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/mensajes`, {
+        texto: texto.trim(),
+        respondido_a_id: respondiendoA?.id || undefined,
+      });
       setTexto('');
+      setRespondiendoA(null);
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el mensaje.'); }
+  };
+
+  const EMOJIS_REACCION = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  const reaccionar = async (m, emoji) => {
+    setReaccionandoA(null);
+    setEnviandoReaccion(true);
+    setErrorEnvio('');
+    try {
+      // Tocar el mismo emoji que ya está puesto la quita (mismo gesto que en
+      // el teléfono).
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/mensajes/${m.id}/reaccion`, {
+        emoji: m.reaccion_emoji === emoji ? '' : emoji,
+      });
+      cargarHilo(seleccionada);
+    } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar la reacción.'); }
+    finally { setEnviandoReaccion(false); }
   };
 
   const subirYEnviarArchivo = async (archivo) => {
@@ -404,9 +433,20 @@ export default function BandejaWhatsApp() {
               <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map((m) => (
                   <div key={m.id} ref={el => { matchRefs.current[m.id] = el; }}
-                    className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-accent/15 text-ht-navy' : 'bg-slate-100 text-gray-800'}`}>
+                    className={`relative max-w-[70%] rounded-lg px-3 py-2 pb-3.5 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-accent/15 text-ht-navy' : 'bg-slate-100 text-gray-800'}`}>
+                    {m.reaccion_emoji && (
+                      <span className={`absolute -bottom-2.5 bg-white border border-gray-200 rounded-full w-5 h-5 flex items-center justify-center text-[11px] shadow-sm ${m.direccion === 'saliente' ? 'left-1' : 'right-1'}`}
+                        title={m.reaccion_por === 'cliente' ? 'Reacción del cliente' : 'Tu reacción'}>
+                        {m.reaccion_emoji}
+                      </span>
+                    )}
                     {m.enviado_por_nombre && (
                       <div className={`text-xs font-bold mb-1 ${m.direccion === 'saliente' ? 'text-ht-navy/70' : 'text-ht-navy'}`}>{m.enviado_por_nombre}</div>
+                    )}
+                    {m.respondido_a_id && (
+                      <div className="text-xs opacity-70 border-l-2 border-current pl-2 mb-1 truncate">
+                        {m.respondido_a_texto || 'Mensaje original no disponible'}
+                      </div>
                     )}
                     {m.tiene_archivo && m.tipo === 'imagen' && (
                       mediaUrls[m.id]
@@ -438,6 +478,22 @@ export default function BandejaWhatsApp() {
                     <div className="whitespace-pre-wrap">{resaltar(m.texto, mensajesConMatch[indiceMatch]?.id === m.id)}</div>
                     <div className={`text-[10px] mt-1 flex items-center gap-2 ${m.direccion === 'saliente' ? 'text-ht-navy/50' : 'text-gray-400'}`}>
                       <span>{fecha(m.created_at)}</span>
+                      {m.se_puede_reaccionar_responder && (
+                        <>
+                          <button type="button" onClick={() => responderMensaje(m)}
+                            disabled={conversacionActual && !conversacionActual.abierta}
+                            title="Responder citando este mensaje"
+                            className="underline hover:no-underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline">
+                            Responder
+                          </button>
+                          <button type="button" onClick={() => setReaccionandoA(v => v === m.id ? null : m.id)}
+                            disabled={(conversacionActual && !conversacionActual.abierta) || enviandoReaccion}
+                            title="Reaccionar con un emoji"
+                            className="underline hover:no-underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline">
+                            Reaccionar
+                          </button>
+                        </>
+                      )}
                       {m.direccion === 'saliente' && (
                         <button type="button" onClick={() => corregirMensaje(m)}
                           disabled={conversacionActual && !conversacionActual.abierta}
@@ -447,11 +503,31 @@ export default function BandejaWhatsApp() {
                         </button>
                       )}
                     </div>
+                    {reaccionandoA === m.id && (
+                      <div className={`absolute z-10 -top-9 flex items-center gap-0.5 bg-white border border-gray-200 rounded-full shadow-md px-1.5 py-1 ${m.direccion === 'saliente' ? 'right-0' : 'left-0'}`}>
+                        {EMOJIS_REACCION.map(emoji => (
+                          <button key={emoji} type="button" onClick={() => reaccionar(m, emoji)}
+                            className={`text-base leading-none rounded-full px-1 py-0.5 hover:scale-125 hover:bg-gray-50 transition-transform ${m.reaccion_emoji === emoji ? 'bg-ht-accent/15' : ''}`}>
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
               <form onSubmit={enviar} className="border-t border-gray-200 p-3">
                 {errorEnvio && <div className="mb-2 text-xs text-red-600">{errorEnvio}</div>}
+                {respondiendoA && (
+                  <div className="mb-2 flex items-start justify-between gap-2 bg-gray-50 border-l-2 border-ht-accent rounded px-2 py-1.5 text-xs">
+                    <div className="min-w-0">
+                      <div className="font-bold text-ht-navy">Respondiendo a</div>
+                      <div className="truncate text-gray-600">{respondiendoA.texto}</div>
+                    </div>
+                    <button type="button" onClick={() => setRespondiendoA(null)} title="Cancelar respuesta"
+                      className="shrink-0 text-gray-400 hover:text-gray-700">✕</button>
+                  </div>
+                )}
                 {conversacionActual && !conversacionActual.abierta && (
                   <div className="mb-2 flex items-center justify-between gap-2 text-xs text-amber-600">
                     <span>Conversación cerrada (pasaron más de 24 h desde el último mensaje del cliente): no se puede enviar texto libre.</span>

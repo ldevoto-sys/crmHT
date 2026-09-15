@@ -140,9 +140,13 @@ router.get('/conversaciones/:contactoId/mensajes', async (req, res) => {
     if (!permitido) return res.status(403).json({ error: 'Sin permiso para ver esta conversación' });
     const hilo = await db.all(
       `SELECT wm.id, wm.direccion, wm.texto, wm.created_at, wm.tipo, wm.archivo_nombre, wm.archivo_mime,
-              (wm.archivo_key IS NOT NULL) AS tiene_archivo, u.nombre AS enviado_por_nombre
+              (wm.archivo_key IS NOT NULL) AS tiene_archivo, u.nombre AS enviado_por_nombre,
+              (wm.wa_message_id IS NOT NULL) AS se_puede_reaccionar_responder,
+              wm.reaccion_emoji, wm.reaccion_por,
+              wm.respondido_a_id, orig.texto AS respondido_a_texto, orig.direccion AS respondido_a_direccion
        FROM whatsapp_mensajes wm
        LEFT JOIN users u ON u.id = wm.enviado_por_id
+       LEFT JOIN whatsapp_mensajes orig ON orig.id = wm.respondido_a_id
        WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC`,
       [req.params.contactoId]
     );
@@ -176,7 +180,7 @@ router.post('/conversaciones/:contactoId/marcar-leido', async (req, res) => {
 // POST /api/whatsapp/conversaciones/:contactoId/mensajes {texto}
 router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
   try {
-    const { texto } = req.body;
+    const { texto, respondido_a_id } = req.body;
     if (!texto || !texto.trim()) return res.status(400).json({ error: 'El mensaje no puede estar vacío' });
 
     const { permitido, lead } = await accesoConversacion(req, req.params.contactoId);
@@ -190,11 +194,24 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
     if (!contacto?.telefono_e164) return res.status(400).json({ error: 'El contacto no tiene teléfono registrado' });
 
+    // Si se está respondiendo a un mensaje puntual, se valida que sea de esta
+    // misma conversación (nunca se confía en el id que manda el cliente) y
+    // que tenga wa_message_id guardado — si no, se manda igual pero como
+    // mensaje normal, sin la burbuja de cita.
+    let waMessageIdCitado = null;
+    if (respondido_a_id) {
+      const original = await db.get(
+        'SELECT wa_message_id FROM whatsapp_mensajes WHERE id = $1 AND contacto_id = $2',
+        [respondido_a_id, req.params.contactoId]
+      );
+      waMessageIdCitado = original?.wa_message_id || null;
+    }
+
     // El cliente ve el nombre de quien le escribe delante del mensaje; en el
     // hilo interno del CRM se guarda el texto tal cual (el nombre ya se
     // muestra aparte, sobre la burbuja) para no duplicarlo con asteriscos.
     const textoConFirma = `*${req.user.nombre}:*\n${texto.trim()}`;
-    const resultado = await whatsapp.enviar(contacto.telefono_e164, textoConFirma);
+    const resultado = await whatsapp.enviar(contacto.telefono_e164, textoConFirma, undefined, waMessageIdCitado);
     if (!resultado.enviado) {
       // No se guarda en el hilo como si se hubiera mandado: evita que la
       // Bandeja muestre un mensaje que en realidad nunca llegó al cliente.
@@ -203,10 +220,46 @@ router.post('/conversaciones/:contactoId/mensajes', async (req, res) => {
     await mensajes.registrar({
       contacto_id: req.params.contactoId, lead_id: lead?.id ?? null,
       direccion: 'saliente', texto: texto.trim(), enviado_por_id: req.user.id,
+      wa_message_id: resultado.wa_message_id, respondido_a_id: waMessageIdCitado ? respondido_a_id : null,
     });
     res.status(201).json({ message: 'Mensaje enviado' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/mensajes]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/mensajes/:mensajeId/reaccion {emoji}
+// emoji vacío o ausente quita la reacción puesta antes. Reacciona a
+// cualquier mensaje del hilo (propio o del cliente) — WhatsApp lo permite
+// en ambos sentidos, igual que en el teléfono.
+router.post('/conversaciones/:contactoId/mensajes/:mensajeId/reaccion', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para responder esta conversación' });
+
+    const abierta = await mensajes.ventanaAbierta(req.params.contactoId);
+    if (!abierta) {
+      return res.status(409).json({ error: 'Conversación cerrada: pasaron más de 24 h desde el último mensaje del cliente, no se puede reaccionar' });
+    }
+
+    const mensaje = await db.get(
+      'SELECT wa_message_id FROM whatsapp_mensajes WHERE id = $1 AND contacto_id = $2',
+      [req.params.mensajeId, req.params.contactoId]
+    );
+    if (!mensaje) return res.status(404).json({ error: 'Mensaje no encontrado' });
+    if (!mensaje.wa_message_id) return res.status(400).json({ error: 'Este mensaje es de antes de que se pudiera reaccionar — no tiene el id de WhatsApp guardado' });
+
+    const contacto = await db.get('SELECT telefono_e164 FROM contactos WHERE id = $1', [req.params.contactoId]);
+    const emoji = (req.body.emoji || '').trim();
+    const resultado = await whatsapp.enviarReaccion(contacto.telefono_e164, mensaje.wa_message_id, emoji);
+    if (!resultado.enviado) {
+      return res.status(502).json({ error: `No se pudo enviar la reacción a WhatsApp: ${resultado.motivo || 'error desconocido'}` });
+    }
+    await mensajes.marcarReaccion(mensaje.wa_message_id, emoji, 'negocio');
+    res.json({ message: emoji ? 'Reacción enviada' : 'Reacción quitada' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/mensajes/:id/reaccion]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
