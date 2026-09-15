@@ -1313,6 +1313,22 @@ async function initDb() {
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS archivo_nombre TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS archivo_mime TEXT`);
 
+  // Responder citando un mensaje y reaccionar con emoji (14-09-2026) — ambos
+  // usan el mismo mecanismo de Meta: el "wamid" que devuelve al enviar
+  // cualquier mensaje. wa_message_id se guarda para los mensajes ENTRANTES
+  // (para poder reaccionarles o citarlos desde el CRM) y para los salientes
+  // que se mandan desde la Bandeja con el endpoint manual — no para los
+  // mensajes automáticos del bot (categorización, avisos), que no lo
+  // necesitan hoy. respondido_a_id es la fila local (no el wamid) del
+  // mensaje citado, para poder pintar la cita en el hilo sin otra consulta.
+  // reaccion_emoji/reaccion_por describen la reacción vigente sobre ESTE
+  // mensaje (la última que llegó o se mandó; vacía = sin reacción o quitada).
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_message_id TEXT`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS respondido_a_id INTEGER REFERENCES whatsapp_mensajes(id)`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_emoji TEXT`);
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_por TEXT CHECK (reaccion_por IN ('cliente','negocio'))`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_wa_message_id ON whatsapp_mensajes (wa_message_id)`);
+
   // Cierre manual de conversación (además del cierre automático por 24h sin
   // actividad, que se calcula al vuelo). Se reabre solo si el cliente vuelve a
   // escribir (ver services/whatsapp_mensajes.js).

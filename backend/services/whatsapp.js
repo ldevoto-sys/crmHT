@@ -29,7 +29,11 @@ function errorAmigable(bodyText) {
   return err.error_data?.details || err.message || bodyText;
 }
 
-async function enviar(telefonoE164, mensaje, cuenta = VENTAS) {
+// contextMessageId (opcional): wamid del mensaje que se está citando/
+// respondiendo — Meta lo muestra como la burbuja de cita sobre el mensaje
+// nuevo. Solo cita mensajes de hasta 30 días; más viejo que eso, Meta lo
+// manda como mensaje normal en vez de fallar.
+async function enviar(telefonoE164, mensaje, cuenta = VENTAS, contextMessageId = null) {
   if (!cuenta?.access_token || !cuenta?.phone_number_id) {
     console.log(`[whatsapp] Sin credenciales configuradas; no se envió a ${telefonoE164}.`);
     return { enviado: false, motivo: 'WhatsApp no configurado' };
@@ -45,6 +49,7 @@ async function enviar(telefonoE164, mensaje, cuenta = VENTAS) {
           to: telefonoE164.replace('+', ''),
           type: 'text',
           text: { body: mensaje },
+          ...(contextMessageId ? { context: { message_id: contextMessageId } } : {}),
         }),
       }
     );
@@ -53,9 +58,44 @@ async function enviar(telefonoE164, mensaje, cuenta = VENTAS) {
       console.error('[whatsapp] Error enviando a', telefonoE164, ':', err);
       return { enviado: false, motivo: errorAmigable(err) };
     }
-    return { enviado: true };
+    const data = await resp.json().catch(() => null);
+    return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
   } catch (e) {
     console.error('[whatsapp] Error enviando a', telefonoE164, ':', e.message);
+    return { enviado: false, motivo: e.message };
+  }
+}
+
+// Reacción con emoji a un mensaje existente (propio o del cliente) — no es
+// un mensaje nuevo, Meta lo muestra pegado al mensaje original. emoji: ''
+// quita la reacción puesta antes.
+async function enviarReaccion(telefonoE164, waMessageId, emoji, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
+    console.log(`[whatsapp] Sin credenciales configuradas; no se envió la reacción a ${telefonoE164}.`);
+    return { enviado: false, motivo: 'WhatsApp no configurado' };
+  }
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: telefonoE164.replace('+', ''),
+          type: 'reaction',
+          reaction: { message_id: waMessageId, emoji: emoji || '' },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error('[whatsapp] Error enviando reacción a', telefonoE164, ':', err);
+      return { enviado: false, motivo: errorAmigable(err) };
+    }
+    return { enviado: true };
+  } catch (e) {
+    console.error('[whatsapp] Error enviando reacción a', telefonoE164, ':', e.message);
     return { enviado: false, motivo: e.message };
   }
 }
@@ -256,4 +296,4 @@ async function descargarMedia(mediaId, cuenta = VENTAS) {
   }
 }
 
-module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, enviarPlantilla, descargarMedia };
+module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, enviarPlantilla, enviarReaccion, descargarMedia };
