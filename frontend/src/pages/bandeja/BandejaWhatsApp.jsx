@@ -435,7 +435,7 @@ export default function BandejaWhatsApp() {
                         ? <a href={mediaUrls[m.id]} download={m.archivo_nombre} className="underline block mb-1">📎 {m.archivo_nombre || 'Documento'}</a>
                         : <div className="text-xs italic opacity-70 mb-1">Cargando documento…</div>
                     )}
-                    <div>{resaltar(m.texto, mensajesConMatch[indiceMatch]?.id === m.id)}</div>
+                    <div className="whitespace-pre-wrap">{resaltar(m.texto, mensajesConMatch[indiceMatch]?.id === m.id)}</div>
                     <div className={`text-[10px] mt-1 flex items-center gap-2 ${m.direccion === 'saliente' ? 'text-ht-navy/50' : 'text-gray-400'}`}>
                       <span>{fecha(m.created_at)}</span>
                       {m.direccion === 'saliente' && (
@@ -461,7 +461,7 @@ export default function BandejaWhatsApp() {
                     </button>
                   </div>
                 )}
-                <div className="flex gap-2 relative">
+                <div className="flex gap-2 relative items-end">
                   <input type="file" ref={archivoInputRef} onChange={adjuntarArchivo} className="hidden" />
                   <button type="button" onClick={() => archivoInputRef.current?.click()}
                     disabled={(conversacionActual && !conversacionActual.abierta) || enviandoArchivo}
@@ -491,9 +491,10 @@ export default function BandejaWhatsApp() {
                       />
                     </div>
                   )}
-                  <input ref={inputTextoRef} value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribe una respuesta..."
+                  <textarea ref={inputTextoRef} value={texto} onChange={e => setTexto(e.target.value)} placeholder="Escribe una respuesta... (Enter para saltar de línea)"
                     disabled={conversacionActual && !conversacionActual.abierta}
-                    className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:bg-gray-50" />
+                    rows={Math.min(6, texto.split('\n').length)}
+                    className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ht-accent disabled:bg-gray-50" />
                   <button type="submit" disabled={conversacionActual && !conversacionActual.abierta}
                     className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-40">
                     Enviar
