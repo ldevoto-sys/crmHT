@@ -271,11 +271,10 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   // services/seguimientoBoton.js). Si no hay vínculo conocido para este
   // mensaje, sigue el flujo normal de abajo sin ningún cambio.
   if (m.type === 'button' || (m.type === 'interactive' && m.interactive?.list_reply)) {
-    const manejado = await seguimientoBoton.manejarRespuesta(m);
-    if (manejado) {
-      await mensajes.registrar({ contacto_id: contacto.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id });
-      return;
-    }
+    // Registra el mensaje entrante ella misma (antes de reaccionar, para que
+    // el orden en el hilo quede bien — ver services/seguimientoBoton.js).
+    const manejado = await seguimientoBoton.manejarRespuesta(m, { contacto, textoEntrante });
+    if (manejado) return;
   }
 
   // Cuentas que no son la de Ventas (ej. el número oficial de la empresa)

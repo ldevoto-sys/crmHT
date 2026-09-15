@@ -48,19 +48,26 @@ function ordenAleatorioConOtroAlFinal(causas) {
 // no debe seguir el flujo normal del bot de categorización de leads); false
 // si no hay vínculo conocido o no se reconoce el contenido — se sigue
 // tratando como un mensaje cualquiera.
-async function manejarRespuesta(m) {
+async function manejarRespuesta(m, { contacto, textoEntrante }) {
   const waMessageId = m.context?.id;
   if (!waMessageId) return false;
   const correlacion = await db.get('SELECT * FROM whatsapp_correlacion WHERE wa_message_id = $1', [waMessageId]);
   if (!correlacion) return false;
 
+  // Se registra ACÁ, antes de reaccionar (mover etapa, mandar la encuesta o
+  // el agradecimiento) — si se registrara después de mandar una respuesta
+  // automática, los dos mensajes quedan con el mismo segundo en el hilo,
+  // pero con el saliente insertado antes que el entrante que lo gatilló:
+  // aparecen en orden invertido en la Bandeja aunque el saliente haya
+  // pasado en verdad después.
+  await mensajes.registrar({ contacto_id: contacto.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id });
+
   if (correlacion.proposito === 'seguimiento_coti' && m.type === 'button') {
-    return manejarBotonSeguimiento(correlacion.negocio_id, m.button?.text || '');
+    await manejarBotonSeguimiento(correlacion.negocio_id, m.button?.text || '');
+  } else if (correlacion.proposito === 'encuesta_no_cierre' && m.type === 'interactive' && m.interactive?.list_reply) {
+    await manejarRespuestaEncuesta(correlacion.negocio_id, m.interactive.list_reply.id);
   }
-  if (correlacion.proposito === 'encuesta_no_cierre' && m.type === 'interactive' && m.interactive?.list_reply) {
-    return manejarRespuestaEncuesta(correlacion.negocio_id, m.interactive.list_reply.id);
-  }
-  return false;
+  return true;
 }
 
 async function manejarBotonSeguimiento(negocioId, textoBoton) {

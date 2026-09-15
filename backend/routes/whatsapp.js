@@ -147,7 +147,7 @@ router.get('/conversaciones/:contactoId/mensajes', async (req, res) => {
        FROM whatsapp_mensajes wm
        LEFT JOIN users u ON u.id = wm.enviado_por_id
        LEFT JOIN whatsapp_mensajes orig ON orig.id = wm.respondido_a_id
-       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC`,
+       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC, wm.id ASC`,
       [req.params.contactoId]
     );
     res.json(hilo);
