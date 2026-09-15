@@ -2170,6 +2170,23 @@ async function initDb() {
   // carga a mano. Se ignora si el ítem sí tiene producto_id.
   await db.run(`ALTER TABLE ot_items ADD COLUMN IF NOT EXISTS codigo TEXT`);
 
+  // Integración con la app de Mantenimiento (15-09-2026, ver
+  // docs/HT-DO-XX-Especificacion-Integracion-Mantenimiento-v1.0.md): estado
+  // que reporta Mantenimiento sobre la ejecución de la OT en terreno. Es un
+  // estado aparte del pipeline Operaciones del CRM — no mueve la etapa del
+  // negocio, el CRM solo lo muestra tal como lo reporta la app externa.
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS estado_mantenimiento TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado_mantenimiento IN ('pendiente','en_progreso','cerrado'))`);
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS fecha_estado_mantenimiento TIMESTAMP`);
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS observaciones_mantenimiento TEXT`);
+  // Nuevo tipo de evento en la línea de tiempo del negocio, para que quede
+  // visible al vendedor cuando Mantenimiento reporta avance/cierre.
+  await db.run(`ALTER TABLE timeline DROP CONSTRAINT IF EXISTS timeline_tipo_check`);
+  await db.run(`ALTER TABLE timeline ADD CONSTRAINT timeline_tipo_check CHECK (tipo IN (
+    'wa_mensaje','correo_enviado','correo_respuesta','cotizacion_enviada',
+    'cotizacion_vista','seguimiento_auto','seguimiento_manual','nota','tarea',
+    'llamada','cambio_etapa','asignacion','encuesta_respondida','ot_mantenimiento'
+  ))`);
+
   // Configurador de materiales/herramientas estándar — solo para los tipos
   // de trabajo que se repiten siempre igual (mantenimiento preventivo,
   // lavado de estanque). Se define una vez en Config → Plantillas OT y se

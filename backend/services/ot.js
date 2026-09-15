@@ -33,9 +33,12 @@ async function ejecutar(client, text, params) {
   return client === db ? db.run(text, params) : client.query(text, params);
 }
 
+// Retorna { id, creada }: creada=false si la OT ya existía (idempotente) —
+// lo usan los llamadores para no notificar dos veces a Mantenimiento por el
+// mismo negocio (ver notificarOTCreada en services/mantenimientoOT.js).
 async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
   const existente = await fila(client, 'SELECT id FROM ordenes_trabajo WHERE negocio_id = $1', [negocio.id]);
-  if (existente) return existente.id;
+  if (existente) return { id: existente.id, creada: false };
 
   let itemsFuente = [];
   let origenItems = 'manual';
@@ -80,7 +83,7 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
     );
   }
 
-  return otId;
+  return { id: otId, creada: true };
 }
 
 module.exports = { crearOTSiNoExiste };

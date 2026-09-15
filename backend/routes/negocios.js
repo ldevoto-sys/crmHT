@@ -6,6 +6,7 @@ const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
 const ot = require('../services/ot');
+const mantenimientoOT = require('../services/mantenimientoOT');
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
@@ -207,7 +208,8 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
       await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaInicial.id]);
     }
     if (entraAAceptado) {
-      await ot.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo }, db, req.user.id);
+      const { creada } = await ot.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo }, db, req.user.id);
+      if (creada) mantenimientoOT.notificarOTCreada(negocio.id);
     }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
@@ -311,7 +313,8 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
      negocioId]
   );
   if (entraAAceptado) {
-    await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: tipoTrabajoFinal }, db, usuarioId);
+    const { creada } = await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: tipoTrabajoFinal }, db, usuarioId);
+    if (creada) mantenimientoOT.notificarOTCreada(negocioId);
   }
   if (etapa.id !== negocio.etapa_id) {
     await db.run(
@@ -837,6 +840,7 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
 
     let creados = 0;
     const omitidos = [];
+    const negociosConOTNueva = []; // se notifica a Mantenimiento recién después del COMMIT
     for (const v of validos) {
       const n = v.negocio;
       const vendedorId = resolverVendedor(n.vendedor);
@@ -868,12 +872,17 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       // tipo_trabajo ya validado en mapearFila), se le genera la OT ahí
       // mismo — mismo comportamiento que el kanban manual, para no divergir.
       if (etapa.nombre.toLowerCase() === 'aceptado') {
-        await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+        const { creada } = await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+        if (creada) negociosConOTNueva.push(negocioId);
       }
       creados++;
     }
 
     await client.query('COMMIT');
+    // Recién ahora, con la transacción ya confirmada: si se notificara antes
+    // y el import terminara en ROLLBACK, Mantenimiento se habría enterado de
+    // OTs que nunca llegaron a existir.
+    for (const negocioId of negociosConOTNueva) mantenimientoOT.notificarOTCreada(negocioId);
     res.json({ message: 'Importación completada', creados, omitidos });
   } catch (err) {
     await client.query('ROLLBACK');
