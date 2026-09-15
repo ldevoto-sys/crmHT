@@ -131,12 +131,22 @@ function puedeVer(negocio, user) {
   return user.rol === 'vendedor' && negocio && negocio.vendedor_id === user.id;
 }
 
-// Calcula subtotal (bruto, antes de descuento), neto (después de descuento,
-// antes de IVA) y total (con descuento e IVA). moneda='UF' redondea a 2
-// decimales en vez de a pesos enteros (redondearMonto) — si no, un ítem en
-// UF pierde su precisión (ej. 11,9 UF quedaría en 12).
+// Calcula subtotal (bruto, antes del descuento TOTAL, pero ya con el
+// descuento de cada línea aplicado — ver totalItem), neto (después del
+// descuento total, antes de IVA) y total (con descuento e IVA). Los dos
+// descuentos se aplican en cascada: primero el de línea sobre esa línea,
+// después el total sobre la suma ya rebajada — así un vendedor puede
+// negociar un producto puntual sin que eso cambie la base del descuento de
+// cierre. moneda='UF' redondea a 2 decimales en vez de a pesos enteros
+// (redondearMonto) — si no, un ítem en UF pierde su precisión (ej. 11,9 UF
+// quedaría en 12).
+function totalItem(it) {
+  const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
+  const descuentoLinea = it.descuento_pct === undefined || it.descuento_pct === null ? 0 : Number(it.descuento_pct);
+  return Number(it.cantidad) * Number(it.precio_unitario) * factor * (1 - descuentoLinea / 100);
+}
 function calcular(items, descuento_pct, iva_pct, moneda = 'CLP') {
-  const subtotal = redondearMonto(items.reduce((s, it) => s + Number(it.cantidad) * Number(it.precio_unitario), 0), moneda);
+  const subtotal = redondearMonto(items.reduce((s, it) => s + totalItem(it), 0), moneda);
   const neto = redondearMonto(subtotal * (1 - (Number(descuento_pct) || 0) / 100), moneda);
   const total = redondearMonto(neto * (1 + (Number(iva_pct) || 0) / 100), moneda);
   return { subtotal, neto, total };
@@ -261,7 +271,8 @@ async function proximoNumero(client) {
 
 function itemsValidos(items) {
   if (!Array.isArray(items) || items.length === 0) return false;
-  return items.every(it => it.cantidad > 0 && it.precio_unitario >= 0);
+  return items.every(it => it.cantidad > 0 && it.precio_unitario >= 0
+    && (it.descuento_pct === undefined || it.descuento_pct === null || (it.descuento_pct >= 0 && it.descuento_pct <= 100)));
 }
 
 // En UF no hay buscador de productos (el maestro solo tiene precio en CLP):
@@ -613,11 +624,12 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
     const cotId = r.rows[0].id;
     for (const it of items) {
       const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
-      const totalLinea = redondearMonto(Number(it.cantidad) * Number(it.precio_unitario) * factor, campos.moneda);
+      const descuentoLinea = it.descuento_pct === undefined || it.descuento_pct === null ? 0 : Number(it.descuento_pct);
+      const totalLinea = redondearMonto(totalItem(it), campos.moneda);
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, descuento_pct, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [cotId, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, descuentoLinea, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
     await sincronizarMontoEstimado(client, negocio_id, neto);
@@ -705,11 +717,12 @@ router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor', 'cal
     await client.query('DELETE FROM cotizacion_items WHERE cotizacion_id = $1', [req.params.id]);
     for (const it of items) {
       const factor = it.factor === undefined || it.factor === null ? 1 : Number(it.factor);
-      const totalLinea = redondearMonto(Number(it.cantidad) * Number(it.precio_unitario) * factor, campos.moneda);
+      const descuentoLinea = it.descuento_pct === undefined || it.descuento_pct === null ? 0 : Number(it.descuento_pct);
+      const totalLinea = redondearMonto(totalItem(it), campos.moneda);
       await client.query(
-        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
+        `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, descuento_pct, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [req.params.id, it.producto_id || null, it.descripcion || null, it.cantidad, it.precio_unitario, factor, descuentoLinea, totalLinea, it.mostrar_imagen !== false, it.mostrar_descripcion !== false, it.mostrar_ficha !== false]
       );
     }
     await sincronizarMontoEstimado(client, negocio.id, neto);
@@ -763,9 +776,13 @@ router.post('/:id/nueva-version', authorize('administrador', 'jefe_comercial', '
        base.moneda, base.subtotal_uf, base.total_uf]
     );
     const nuevaId = r.rows[0].id;
+    // factor y descuento_pct se sumaron acá también: antes de esto (ya desde
+    // que existía "factor" para Cotizador Operaciones) esta consulta no los
+    // clonaba, así que una "nueva versión" los perdía en silencio y volvían
+    // a su default (factor=1, descuento_pct=0).
     await client.query(
-      `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
-       SELECT $1, producto_id, descripcion, cantidad, precio_unitario, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha FROM cotizacion_items WHERE cotizacion_id=$2`,
+      `INSERT INTO cotizacion_items (cotizacion_id, producto_id, descripcion, cantidad, precio_unitario, factor, descuento_pct, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha)
+       SELECT $1, producto_id, descripcion, cantidad, precio_unitario, factor, descuento_pct, total_linea, mostrar_imagen, mostrar_descripcion, mostrar_ficha FROM cotizacion_items WHERE cotizacion_id=$2`,
       [nuevaId, req.params.id]
     );
     await sincronizarMontoEstimado(client, negocio.id, netoDeFila(base));

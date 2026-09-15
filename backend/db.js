@@ -691,6 +691,13 @@ async function initDb() {
   // (nota v1.18); Ventas Directas lo deja siempre en 1.
   await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS factor NUMERIC(6,3) NOT NULL DEFAULT 1`);
 
+  // Descuento por línea (14-09-2026), aparte del descuento_pct de toda la
+  // cotización (tabla cotizaciones) — se aplican en cascada: primero este,
+  // sobre esa línea, y el descuento total después sobre la suma ya
+  // rebajada (ver routes/cotizaciones.js#calcular). Solo en Ventas
+  // Directas, igual que el descuento total — Cotizador Operaciones no lo usa.
+  await db.run(`ALTER TABLE cotizacion_items ADD COLUMN IF NOT EXISTS descuento_pct NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (descuento_pct >= 0 AND descuento_pct <= 100)`);
+
   // === Cotizador Operaciones (v1.17) — HT-AP-03 nota de cambio v1.17 ===
   // Comunas para el cálculo de traslado/tránsito (reemplaza el array
   // hardcodeado de la herramienta standalone). Debe existir ANTES de la FK
