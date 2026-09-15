@@ -40,13 +40,15 @@ export default function Cobranza() {
   );
 }
 
-function TarjetaKpi({ color, label, valor }) {
+function TarjetaKpi({ color, label, valor, onClick, activo }) {
+  const Tag = onClick ? 'button' : 'div';
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 relative overflow-hidden pl-5">
+    <Tag onClick={onClick}
+      className={`bg-white border rounded-lg p-4 relative overflow-hidden pl-5 text-left ${activo ? 'border-ht-navy' : 'border-gray-200'} ${onClick ? 'cursor-pointer hover:bg-gray-50' : ''}`}>
       <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: color }} />
       <div className="text-xs font-semibold text-gray-400 uppercase mb-1">{label}</div>
       <div className="text-2xl font-bold text-ht-navy">{valor}</div>
-    </div>
+    </Tag>
   );
 }
 
@@ -55,6 +57,8 @@ function TabDocumentos() {
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [actualizando, setActualizando] = useState(false);
   const [busqueda, setBusqueda] = useState('');
+  const [estadoFiltro, setEstadoFiltro] = useState('');
+  const [orden, setOrden] = useState(null); // 'asc' | 'desc' | null
 
   const cargar = async () => {
     try { setData((await api.get('/cobranza/documentos')).data); }
@@ -72,12 +76,20 @@ function TabDocumentos() {
     finally { setActualizando(false); }
   };
 
+  const toggleOrdenVencimiento = () => setOrden(orden === 'asc' ? 'desc' : 'asc');
+
   if (!data) return <div className="text-gray-400 text-sm">Cargando…</div>;
 
   const termino = normalizar(busqueda.trim());
-  const filtrados = termino
-    ? data.documentos.filter(d => [d.folio, d.rut_cliente, d.nombre_cliente].some(c => normalizar(c).includes(termino)))
-    : data.documentos;
+  let filtrados = data.documentos
+    .filter(d => !estadoFiltro || d.estado === estadoFiltro)
+    .filter(d => !termino || [d.folio, d.rut_cliente, d.nombre_cliente].some(c => normalizar(c).includes(termino)));
+  if (orden) {
+    filtrados = [...filtrados].sort((a, b) => {
+      const cmp = (a.fecha_vencimiento || '').localeCompare(b.fecha_vencimiento || '');
+      return orden === 'asc' ? cmp : -cmp;
+    });
+  }
 
   return (
     <div>
@@ -96,13 +108,23 @@ function TabDocumentos() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-5">
         <TarjetaKpi color="#112548" label="Total por cobrar" valor={fmtMoney(data.kpis.total_por_cobrar)} />
-        <TarjetaKpi color="#34B3DE" label="A tiempo" valor={fmtMoney(data.kpis.a_tiempo)} />
-        <TarjetaKpi color="#d97706" label="Atrasado (<15 días)" valor={fmtMoney(data.kpis.atrasado)} />
-        <TarjetaKpi color="#dc2626" label="Vencido (>15 días)" valor={fmtMoney(data.kpis.vencido)} />
+        <TarjetaKpi color="#34B3DE" label="A tiempo" valor={fmtMoney(data.kpis.a_tiempo)}
+          activo={estadoFiltro === 'a_tiempo'} onClick={() => setEstadoFiltro(estadoFiltro === 'a_tiempo' ? '' : 'a_tiempo')} />
+        <TarjetaKpi color="#d97706" label="Atrasado (<15 días)" valor={fmtMoney(data.kpis.atrasado)}
+          activo={estadoFiltro === 'atrasado'} onClick={() => setEstadoFiltro(estadoFiltro === 'atrasado' ? '' : 'atrasado')} />
+        <TarjetaKpi color="#dc2626" label="Vencido (>15 días)" valor={fmtMoney(data.kpis.vencido)}
+          activo={estadoFiltro === 'vencido'} onClick={() => setEstadoFiltro(estadoFiltro === 'vencido' ? '' : 'vencido')} />
       </div>
 
-      <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por folio, RUT o cliente…"
-        className="mb-3 border border-gray-300 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por folio, RUT o cliente…"
+          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        {estadoFiltro && (
+          <button onClick={() => setEstadoFiltro('')} className="text-xs text-ht-accent hover:underline">
+            Quitar filtro "{ESTADO_DOC_LABEL[estadoFiltro]}"
+          </button>
+        )}
+      </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
         <table className="w-full text-sm">
@@ -111,7 +133,11 @@ function TabDocumentos() {
               <th className="text-left px-4 py-2 font-medium">Cliente</th>
               <th className="text-left px-4 py-2 font-medium">Folio</th>
               <th className="text-left px-4 py-2 font-medium">Emisión</th>
-              <th className="text-left px-4 py-2 font-medium">Vencimiento</th>
+              <th className="text-left px-4 py-2 font-medium">
+                <button onClick={toggleOrdenVencimiento} className="flex items-center gap-1 hover:text-ht-navy">
+                  Vencimiento {orden === 'asc' ? '▲' : orden === 'desc' ? '▼' : ''}
+                </button>
+              </th>
               <th className="text-right px-4 py-2 font-medium">Monto</th>
               <th className="text-right px-4 py-2 font-medium">Saldo</th>
               <th className="text-left px-4 py-2 font-medium">Estado</th>
@@ -619,12 +645,18 @@ function TabContactos() {
   const [expandido, setExpandido] = useState(null);
   const [nuevo, setNuevo] = useState(null); // { nombre, email, telefono_e164 } | null
   const [importando, setImportando] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
 
   const cargar = async () => {
     try { setContactos((await api.get('/cobranza/contactos')).data); }
     catch { setError('No se pudieron cargar los contactos.'); }
   };
   useEffect(() => { cargar(); }, []);
+
+  const termino = normalizar(busqueda.trim());
+  const contactosFiltrados = termino
+    ? contactos.filter(c => [c.nombre, c.email, c.telefono_e164, ...c.empresas.map(e => e.razon_social)].some(v => normalizar(v).includes(termino)))
+    : contactos;
 
   const crear = async (e) => {
     e.preventDefault(); setError(''); setMsg('');
@@ -647,15 +679,19 @@ function TabContactos() {
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
 
-      <div className="flex justify-end mb-3 gap-2">
-        <button onClick={() => setImportando(true)}
-          className="border border-gray-300 text-gray-600 px-4 py-2 rounded text-sm font-medium hover:bg-gray-50">
-          Importar CSV
-        </button>
-        <button onClick={() => setNuevo({ nombre: '', email: '', telefono_e164: '' })}
-          className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
-          + Nuevo contacto
-        </button>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por nombre, email, teléfono o empresa…"
+          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-72 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        <div className="flex gap-2">
+          <button onClick={() => setImportando(true)}
+            className="border border-gray-300 text-gray-600 px-4 py-2 rounded text-sm font-medium hover:bg-gray-50">
+            Importar CSV
+          </button>
+          <button onClick={() => setNuevo({ nombre: '', email: '', telefono_e164: '' })}
+            className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">
+            + Nuevo contacto
+          </button>
+        </div>
       </div>
 
       {importando && (
@@ -698,7 +734,7 @@ function TabContactos() {
             </tr>
           </thead>
           <tbody>
-            {contactos.map(c => (
+            {contactosFiltrados.map(c => (
               <Fragment key={c.id}>
                 <tr className="border-t border-gray-100 hover:bg-gray-50">
                   <td className="px-4 py-2 text-ht-navy">{c.nombre}</td>
@@ -723,8 +759,10 @@ function TabContactos() {
                 )}
               </Fragment>
             ))}
-            {contactos.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">Sin contactos de cobranza — crea el primero.</td></tr>
+            {contactosFiltrados.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-400">
+                {contactos.length === 0 ? 'Sin contactos de cobranza — crea el primero.' : 'Sin resultados para esa búsqueda.'}
+              </td></tr>
             )}
           </tbody>
         </table>
