@@ -41,6 +41,10 @@ export default function BandejaWhatsApp() {
   const [reaccionandoA, setReaccionandoA] = useState(null); // id del mensaje con el selector de emoji abierto
   const [enviandoReaccion, setEnviandoReaccion] = useState(false);
   const hiloRef = useRef(null);
+  // true mientras el usuario está viendo el final del hilo (o recién lo
+  // abrió) — el refresco automático cada 8s solo baja el scroll solo en ese
+  // caso; si subió a leer mensajes viejos, no lo interrumpe.
+  const estaAlFondoRef = useRef(true);
   const inputTextoRef = useRef(null);
   const archivoInputRef = useRef(null);
   const recorderRef = useRef(null);
@@ -94,6 +98,7 @@ export default function BandejaWhatsApp() {
 
   useEffect(() => {
     setBusquedaHilo('');
+    estaAlFondoRef.current = true; // conversación recién abierta: parte en el último mensaje
     if (!seleccionada) return;
     cargarHilo(seleccionada);
     // Marca la conversación como leída (apaga su indicador de no leído) —
@@ -106,7 +111,17 @@ export default function BandejaWhatsApp() {
     return () => clearInterval(t);
   }, [seleccionada]);
 
-  useEffect(() => { hiloRef.current?.scrollTo(0, hiloRef.current.scrollHeight); }, [hilo]);
+  useEffect(() => {
+    if (estaAlFondoRef.current) hiloRef.current?.scrollTo(0, hiloRef.current.scrollHeight);
+  }, [hilo]);
+
+  // Umbral en px: alcanza con estar "cerca" del final, no exacto, para que
+  // el auto-scroll no se apague por un pixel de diferencia.
+  const alHacerScrollHilo = () => {
+    const el = hiloRef.current;
+    if (!el) return;
+    estaAlFondoRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   // Los medios (foto/audio/video/documento) requieren el token de la sesión,
   // así que no se pueden poner directo en un <img src>: se descargan como blob
@@ -194,6 +209,7 @@ export default function BandejaWhatsApp() {
       });
       setTexto('');
       setRespondiendoA(null);
+      estaAlFondoRef.current = true; // acabas de mandar un mensaje: se ve
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el mensaje.'); }
@@ -222,6 +238,7 @@ export default function BandejaWhatsApp() {
       const form = new FormData();
       form.append('archivo', archivo);
       await api.post(`/whatsapp/conversaciones/${seleccionada}/adjuntos`, form);
+      estaAlFondoRef.current = true;
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar el adjunto.'); }
@@ -264,6 +281,7 @@ export default function BandejaWhatsApp() {
     setErrorEnvio(''); setEnviandoPlantilla(true);
     try {
       await api.post(`/whatsapp/conversaciones/${seleccionada}/reabrir-plantilla`);
+      estaAlFondoRef.current = true;
       cargarHilo(seleccionada);
       cargarConversaciones();
     } catch (err) { setErrorEnvio(err.response?.data?.error || 'No se pudo enviar la plantilla.'); }
@@ -430,7 +448,7 @@ export default function BandejaWhatsApp() {
                   </div>
                 )}
               </div>
-              <div ref={hiloRef} className="flex-1 overflow-y-auto p-4 space-y-2">
+              <div ref={hiloRef} onScroll={alHacerScrollHilo} className="flex-1 overflow-y-auto p-4 space-y-2">
                 {hilo.map((m) => (
                   <div key={m.id} ref={el => { matchRefs.current[m.id] = el; }}
                     className={`relative max-w-[70%] rounded-lg px-3 py-2 pb-3.5 text-sm ${m.direccion === 'saliente' ? 'ml-auto bg-ht-accent/15 text-ht-navy' : 'bg-slate-100 text-gray-800'}`}>
