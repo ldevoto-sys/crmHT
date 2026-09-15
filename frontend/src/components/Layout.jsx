@@ -24,6 +24,11 @@ function reproducirBeepWhatsApp() {
   } catch { /* navegador sin Web Audio, o bloqueado — se ignora */ }
 }
 
+// Búsqueda del menú Configuración: sin distinguir mayúsculas ni tildes
+// (mismo criterio que el buscador de la Bandeja WhatsApp).
+const DIACRITICOS = new RegExp('[̀-ͯ]', 'g');
+const normalizar = s => (s || '').normalize('NFD').replace(DIACRITICOS, '').toLowerCase();
+
 // Sidebar operativo por rol (HT-AP-03 §11). La configuración va en el engranaje.
 const menuByRole = {
   administrador: [
@@ -93,49 +98,67 @@ const menuByRole = {
   ],
 };
 
-// Configuración por rol (menú engranaje).
+// Configuración por rol (menú engranaje) — agrupada por sección (14-09-2026,
+// la lista había crecido a 17 ítems sueltos sin ningún orden). El orden de
+// las secciones sigue al de menuByRole (Pipeline/Ventas primero, luego cada
+// módulo en el orden en que aparece en el sidebar); "Empresa y sistema" al
+// final agrupa lo transversal, que no pertenece a un módulo específico.
+const SECCION_VENTAS = 'Pipeline y Ventas';
+const SECCION_OPERACIONES = 'Operaciones';
+const SECCION_WHATSAPP = 'WhatsApp';
+const SECCION_POSTVENTA = 'Postventa y Servicio Técnico';
+const SECCION_DESPACHO = 'Despacho';
+const SECCION_COBRANZA = 'Cobranza';
+const SECCION_EMPRESA = 'Empresa y sistema';
+// Orden en que se muestran las secciones en el menú (Object.keys no lo
+// garantiza de forma confiable si en algún momento se arma dinámico).
+const ORDEN_SECCIONES = [
+  SECCION_VENTAS, SECCION_OPERACIONES, SECCION_WHATSAPP, SECCION_POSTVENTA,
+  SECCION_DESPACHO, SECCION_COBRANZA, SECCION_EMPRESA,
+];
+
 const configByRole = {
   administrador: [
-    { label: 'Config pipeline', to: '/config/pipeline' },
-    { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
-    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
-    { label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot' },
-    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp' },
-    { label: 'Encuesta post-cierre', to: '/config/encuesta' },
-    { label: 'Datos de empresa', to: '/config/empresa' },
-    { label: 'Usuarios', to: '/usuarios' },
+    { label: 'Config pipeline', to: '/config/pipeline', seccion: SECCION_VENTAS },
+    { label: 'Reglas de asignación', to: '/config/reglas-asignacion', seccion: SECCION_VENTAS },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias', seccion: SECCION_VENTAS },
+    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP },
+    { label: 'Datos de empresa', to: '/config/empresa', seccion: SECCION_EMPRESA },
+    { label: 'Usuarios', to: '/usuarios', seccion: SECCION_EMPRESA },
   ],
   jefe_comercial: [
-    { label: 'Config pipeline', to: '/config/pipeline' },
-    { label: 'Reglas de asignación', to: '/config/reglas-asignacion' },
-    { label: 'Secuencias de seguimiento', to: '/config/secuencias' },
-    { label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot' },
-    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp' },
-    { label: 'Encuesta post-cierre', to: '/config/encuesta' },
-    { label: 'Datos de empresa', to: '/config/empresa' },
+    { label: 'Config pipeline', to: '/config/pipeline', seccion: SECCION_VENTAS },
+    { label: 'Reglas de asignación', to: '/config/reglas-asignacion', seccion: SECCION_VENTAS },
+    { label: 'Secuencias de seguimiento', to: '/config/secuencias', seccion: SECCION_VENTAS },
+    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP },
+    { label: 'Datos de empresa', to: '/config/empresa', seccion: SECCION_EMPRESA },
   ],
   gerencia: [],
 };
 // Config Postventa se agrega solo si el usuario está marcado como encargado
 // (además de administrador/jefe comercial, que ya la ven de por sí).
-configByRole.administrador.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
-configByRole.jefe_comercial.push({ label: 'Config Postventa', to: '/config/postventa-etapas' });
-configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
-configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' });
-configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
-configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones' });
-configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-pago' });
-configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago' });
-configByRole.administrador.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre' });
-configByRole.jefe_comercial.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre' });
-configByRole.administrador.push({ label: 'Cobranza — cuentas contables', to: '/config/cobranza' });
-configByRole.jefe_comercial.push({ label: 'Cobranza — cuentas contables', to: '/config/cobranza' });
-configByRole.administrador.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
-configByRole.jefe_comercial.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas' });
-configByRole.administrador.push({ label: 'Avisar novedades', to: '/config/novedades' });
-configByRole.jefe_comercial.push({ label: 'Avisar novedades', to: '/config/novedades' });
-configByRole.administrador.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad' });
-configByRole.gerencia.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad' });
+configByRole.administrador.push({ label: 'Config Postventa', to: '/config/postventa-etapas', seccion: SECCION_POSTVENTA });
+configByRole.jefe_comercial.push({ label: 'Config Postventa', to: '/config/postventa-etapas', seccion: SECCION_POSTVENTA });
+configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho', seccion: SECCION_DESPACHO });
+configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho', seccion: SECCION_DESPACHO });
+configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/operaciones', seccion: SECCION_OPERACIONES });
+configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones', seccion: SECCION_OPERACIONES });
+configByRole.administrador.push({ label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot', seccion: SECCION_OPERACIONES });
+configByRole.jefe_comercial.push({ label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot', seccion: SECCION_OPERACIONES });
+configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-pago', seccion: SECCION_VENTAS });
+configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago', seccion: SECCION_VENTAS });
+configByRole.administrador.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre', seccion: SECCION_VENTAS });
+configByRole.jefe_comercial.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre', seccion: SECCION_VENTAS });
+configByRole.administrador.push({ label: 'Encuesta post-cierre', to: '/config/encuesta', seccion: SECCION_VENTAS });
+configByRole.jefe_comercial.push({ label: 'Encuesta post-cierre', to: '/config/encuesta', seccion: SECCION_VENTAS });
+configByRole.administrador.push({ label: 'Cobranza — cuentas contables', to: '/config/cobranza', seccion: SECCION_COBRANZA });
+configByRole.jefe_comercial.push({ label: 'Cobranza — cuentas contables', to: '/config/cobranza', seccion: SECCION_COBRANZA });
+configByRole.administrador.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas', seccion: SECCION_POSTVENTA });
+configByRole.jefe_comercial.push({ label: 'Config Servicio Técnico', to: '/config/servicio-tecnico-etapas', seccion: SECCION_POSTVENTA });
+configByRole.administrador.push({ label: 'Avisar novedades', to: '/config/novedades', seccion: SECCION_EMPRESA });
+configByRole.jefe_comercial.push({ label: 'Avisar novedades', to: '/config/novedades', seccion: SECCION_EMPRESA });
+configByRole.administrador.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad', seccion: SECCION_EMPRESA });
+configByRole.gerencia.push({ label: 'Solicitudes de eliminación de datos', to: '/config/privacidad', seccion: SECCION_EMPRESA });
 
 function GearIcon() {
   return (
@@ -230,10 +253,27 @@ export default function Layout() {
   const tieneConfigDespacho = (configByRole[user?.rol] || []).some(i => i.to === '/config/lugares-despacho');
   const config = [
     ...(configByRole[user?.rol] || []),
-    ...(user?.es_encargado_postventa && !tieneConfigPostventa ? [{ label: 'Config Postventa', to: '/config/postventa-etapas' }] : []),
-    ...(user?.es_encargado_despacho && !tieneConfigDespacho ? [{ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho' }] : []),
+    ...(user?.es_encargado_postventa && !tieneConfigPostventa ? [{ label: 'Config Postventa', to: '/config/postventa-etapas', seccion: SECCION_POSTVENTA }] : []),
+    ...(user?.es_encargado_despacho && !tieneConfigDespacho ? [{ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho', seccion: SECCION_DESPACHO }] : []),
   ];
   const [open, setOpen] = useState(false);
+  const [busquedaConfig, setBusquedaConfig] = useState('');
+  // Qué secciones del menú Configuración quedaron colapsadas — se recuerda
+  // entre visitas (localStorage) para no tener que volver a cerrarlas cada
+  // vez que se entra. Guarda solo las CERRADAS: una sección nueva que se
+  // agregue después arranca abierta por default, sin tocar esta lista.
+  const [seccionesCerradas, setSeccionesCerradas] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('config_secciones_cerradas') || '[]')); }
+    catch { return new Set(); }
+  });
+  const alternarSeccion = (seccion) => {
+    setSeccionesCerradas(prev => {
+      const next = new Set(prev);
+      next.has(seccion) ? next.delete(seccion) : next.add(seccion);
+      try { localStorage.setItem('config_secciones_cerradas', JSON.stringify([...next])); } catch { /* localStorage no disponible */ }
+      return next;
+    });
+  };
   const [sidebarAbierto, setSidebarAbierto] = useState(false);
   const [noLeidosWhatsApp, setNoLeidosWhatsApp] = useState(0);
   const ref = useRef(null);
@@ -245,6 +285,9 @@ export default function Layout() {
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
+  // Al cerrar el menú (por cualquier vía: click afuera, Escape, navegar) no
+  // queda la búsqueda escrita de la próxima vez que se abra.
+  useEffect(() => { if (!open) setBusquedaConfig(''); }, [open]);
 
   // Contador global de conversaciones de WhatsApp sin leer — se consulta
   // periódicamente sin importar en qué pantalla del CRM esté el usuario, para
@@ -347,16 +390,48 @@ export default function Layout() {
                 <GearIcon />
               </button>
               {open && (
-                <div className="absolute right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
+                <div className="absolute right-0 mt-1 w-72 max-h-[80vh] overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
                   <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Mi cuenta</div>
                   <button onClick={() => go('/cambiar-password')} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-slate-50">Cambiar contraseña</button>
                   {config.length > 0 && (
                     <>
                       <div className="border-t border-gray-100 my-1" />
-                      <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Configuración</div>
-                      {config.map(c => (
-                        <button key={c.to} onClick={() => go(c.to)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-slate-50">{c.label}</button>
-                      ))}
+                      <div className="px-3 pt-1.5 pb-2">
+                        <input type="text" value={busquedaConfig} onChange={e => setBusquedaConfig(e.target.value)}
+                          placeholder="Buscar en Configuración..."
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+                      </div>
+                      {busquedaConfig.trim() ? (
+                        // Con búsqueda activa: lista plana de coincidencias, sin
+                        // secciones ni colapsar — acá pesa más encontrar rápido
+                        // que el agrupamiento.
+                        (() => {
+                          const termino = normalizar(busquedaConfig);
+                          const encontrados = config.filter(c => normalizar(c.label).includes(termino));
+                          return encontrados.length > 0
+                            ? encontrados.map(c => (
+                                <button key={c.to} onClick={() => go(c.to)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-slate-50">{c.label}</button>
+                              ))
+                            : <div className="px-4 py-2 text-sm text-gray-400">Sin resultados</div>;
+                        })()
+                      ) : (
+                        ORDEN_SECCIONES.filter(seccion => config.some(c => c.seccion === seccion)).map(seccion => {
+                          const items = config.filter(c => c.seccion === seccion);
+                          const cerrada = seccionesCerradas.has(seccion);
+                          return (
+                            <div key={seccion}>
+                              <button onClick={() => alternarSeccion(seccion)}
+                                className="w-full flex items-center justify-between px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400 hover:text-ht-navy">
+                                <span>{seccion}</span>
+                                <span className="text-xs">{cerrada ? '▸' : '▾'}</span>
+                              </button>
+                              {!cerrada && items.map(c => (
+                                <button key={c.to} onClick={() => go(c.to)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-slate-50">{c.label}</button>
+                              ))}
+                            </div>
+                          );
+                        })
+                      )}
                     </>
                   )}
                 </div>
