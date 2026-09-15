@@ -113,6 +113,9 @@ export default function CotizacionPublica() {
                   <div className="flex gap-6 mt-2 text-[11px]">
                     <div><span className="text-gray-500">Cantidad: </span><span className="font-bold" style={{ color: NAVY }}>{Number(it.cantidad)}</span></div>
                     <div><span className="text-gray-500">P. Unit.: </span><span className="font-bold" style={{ color: NAVY }}>{moneyCot(it.precio_unitario)}</span></div>
+                    {it.descuento_pct > 0 && (
+                      <div><span className="text-gray-500">Descuento: </span><span className="font-bold" style={{ color: CYAN }}>{it.descuento_pct}%</span></div>
+                    )}
                   </div>
                   {it.descripcion_completa && (
                     <p className="mt-2 text-[11px] text-gray-600 leading-snug">{it.descripcion_completa}</p>

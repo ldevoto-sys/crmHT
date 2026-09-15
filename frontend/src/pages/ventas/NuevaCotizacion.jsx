@@ -171,7 +171,7 @@ export default function NuevaCotizacion() {
     if (d.items?.length) {
       setItems(d.items.map(it => ({
         producto_id: it.producto_id, descripcion: it.descripcion, cantidad: it.cantidad,
-        precio_unitario: it.precio_unitario, factor: 1,
+        precio_unitario: it.precio_unitario, factor: 1, descuento_pct: 0,
         mostrar_imagen: true, mostrar_descripcion: true, mostrar_ficha: true,
         producto_meta: it.producto_id ? { sku: null, marca: null } : null,
       })));
@@ -184,7 +184,7 @@ export default function NuevaCotizacion() {
     if (!productosPreseleccionados || modoEdicion) return;
     api.get('/productos', { params: { ids: productosPreseleccionados } }).then(r => {
       setItems(r.data.map(p => ({
-        producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0,
+        producto_id: p.id, descripcion: p.nombre, cantidad: 1, precio_unitario: Number(p.precio_lista) || 0, descuento_pct: 0,
         mostrar_imagen: true, mostrar_descripcion: true, mostrar_ficha: true,
         producto_meta: {
           sku: p.sku, marca: p.marca, categoria: p.categoria, url_imagen: p.url_imagen,
@@ -205,7 +205,7 @@ export default function NuevaCotizacion() {
         setValidez(c.validez_dias); setCondiciones(c.condiciones || '');
         setItems(c.items.map(it => ({
           producto_id: it.producto_id, descripcion: it.descripcion || it.producto_nombre,
-          cantidad: it.cantidad, precio_unitario: it.precio_unitario, factor: it.factor ?? 1,
+          cantidad: it.cantidad, precio_unitario: it.precio_unitario, factor: it.factor ?? 1, descuento_pct: it.descuento_pct ?? 0,
           mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
           mostrar_ficha: it.mostrar_ficha !== false,
           producto_meta: it.producto_id
@@ -338,7 +338,7 @@ export default function NuevaCotizacion() {
     } : it));
   };
   const agregarLibre = () => setItems(is => [...is, {
-    producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0, factor: 1,
+    producto_id: null, descripcion: '', cantidad: 1, precio_unitario: 0, factor: 1, descuento_pct: 0,
     mostrar_imagen: true, mostrar_descripcion: true, mostrar_ficha: true, producto_meta: null,
   }]);
   const setItem = (i, campo, val) => setItems(is => is.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
@@ -350,7 +350,10 @@ export default function NuevaCotizacion() {
   const redondear = v => (esUF ? Math.round(v * 100) / 100 : Math.round(v));
   // El total de Operaciones incluye markup + mano de obra (services/operacionesCalculo.js):
   // este cálculo simple de Ventas Directas no aplica, se muestra el resultado real recién al guardar.
-  const subtotal = items.reduce((s, it) => s + Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1), 0);
+  // En cascada, igual que el backend (routes/cotizaciones.js#totalItem): primero
+  // el descuento de línea sobre esa línea, después el descuento total sobre la suma ya rebajada.
+  const totalLineaItem = it => Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1) * (1 - Number(it.descuento_pct ?? 0) / 100);
+  const subtotal = items.reduce((s, it) => s + totalLineaItem(it), 0);
   const descMonto = redondear(subtotal * (Number(descuento) || 0) / 100);
   const neto = subtotal - descMonto;
   const ivaMonto = redondear(neto * (Number(iva) || 0) / 100);
@@ -388,7 +391,7 @@ export default function NuevaCotizacion() {
         otras_consideraciones_texto: otrasConsideracionesTexto || null,
         items: items.map(it => ({
           producto_id: it.producto_id, descripcion: it.descripcion, cantidad: Number(it.cantidad),
-          precio_unitario: Number(it.precio_unitario), factor: Number(it.factor ?? 1),
+          precio_unitario: Number(it.precio_unitario), factor: Number(it.factor ?? 1), descuento_pct: Number(it.descuento_pct ?? 0),
           mostrar_imagen: it.mostrar_imagen !== false, mostrar_descripcion: it.mostrar_descripcion !== false,
           mostrar_ficha: it.mostrar_ficha !== false,
         })),
@@ -612,6 +615,7 @@ export default function NuevaCotizacion() {
               <th className="text-right py-1 font-medium w-20">Cant.</th>
               <th className="text-right py-1 font-medium w-32">P. unitario {esUF && '(UF)'}</th>
               {esOperaciones && <th className="text-right py-1 font-medium w-20">Factor</th>}
+              {!esOperaciones && <th className="text-right py-1 font-medium w-20">Desc. %</th>}
               <th className="text-right py-1 font-medium w-28">Total</th>
               <th className="text-center py-1 font-medium w-16">Imagen</th>
               <th className="text-center py-1 font-medium w-16">Descripción completa</th>
@@ -655,7 +659,14 @@ export default function NuevaCotizacion() {
                       className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
                   </td>
                 )}
-                <td className="py-2 text-right text-ht-navy">{moneyCot(Number(it.cantidad || 0) * Number(it.precio_unitario || 0) * Number(it.factor ?? 1))}</td>
+                {!esOperaciones && (
+                  <td className="py-2 pl-2">
+                    <input type="number" step="1" min="0" max="100" value={it.descuento_pct ?? 0} onChange={e => setItem(i, 'descuento_pct', e.target.value)}
+                      title="Descuento de esta línea (además del descuento total de la cotización)"
+                      className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-ht-accent" />
+                  </td>
+                )}
+                <td className="py-2 text-right text-ht-navy">{moneyCot(totalLineaItem(it))}</td>
                 <td className="py-2 text-center">
                   {(() => {
                     const tieneImagen = !!(it.producto_id && it.producto_meta?.url_imagen);
@@ -692,7 +703,7 @@ export default function NuevaCotizacion() {
                 <td className="py-2 text-right"><button onClick={() => quitar(i)} className="text-red-400 hover:text-red-600">✕</button></td>
               </tr>
             ))}
-            {items.length === 0 && <tr><td colSpan={esOperaciones ? 9 : 8} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={9} className="py-4 text-center text-gray-400">Agrega una línea y busca el producto en el maestro.</td></tr>}
           </tbody>
         </table>
         <button onClick={agregarLibre} className="mt-2 text-sm text-ht-accent hover:underline">+ Agregar línea</button>

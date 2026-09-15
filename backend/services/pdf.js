@@ -119,12 +119,17 @@ async function generarCotizacionPDF(data, stream) {
     const imagenBuf = imagenes[idx];
     const fichaPublica = (it.mostrar_ficha !== false && esImagenPublica(it.ficha_tecnica_url)) ? it.ficha_tecnica_url : null;
     const descripcionCompleta = (it.mostrar_descripcion !== false && it.descripcion_completa) ? it.descripcion_completa : null;
+    // No hay espacio para una columna más en la tabla (Cant./P.unitario/Total
+    // ya ocupan todo el ancho que queda) — se muestra como una segunda línea
+    // chica bajo el precio unitario, dentro de esa misma columna.
+    const descuentoLinea = Number(it.descuento_pct) || 0;
     const textoX = imagenBuf ? M + 34 : M + 8;
     const textoAncho = imagenBuf ? 274 : 300;
 
     const nombreAltura = doc.font('Helvetica-Bold').fontSize(9).heightOfString(nombre, { width: textoAncho });
     let contenidoH = nombreAltura + 7;
     if (sub) contenidoH += 11;
+    if (descuentoLinea > 0) contenidoH += 11;
     let descAltura = 0;
     if (descripcionCompleta) {
       descAltura = doc.font('Helvetica').fontSize(7.5).heightOfString(descripcionCompleta, { width: textoAncho });
@@ -150,8 +155,13 @@ async function generarCotizacionPDF(data, stream) {
     doc.fontSize(9);
     doc.fillColor('#000').font('Helvetica')
       .text(String(Number(it.cantidad)), 330, y + 6, { width: 45, align: 'right' })
-      .text(moneyEn(it.precio_unitario, cot.moneda), 385, y + 6, { width: 80, align: 'right' })
-      .fillColor(NAVY).font('Helvetica-Bold').text(moneyEn(it.total_linea, cot.moneda), 475, y + 6, { width: 72, align: 'right' });
+      .text(moneyEn(it.precio_unitario, cot.moneda), 385, y + 6, { width: 80, align: 'right' });
+    if (descuentoLinea > 0) {
+      doc.fillColor(CYAN).font('Helvetica-Bold').fontSize(7.5)
+        .text(`-${descuentoLinea}%`, 385, y + 17, { width: 80, align: 'right' });
+      doc.fontSize(9);
+    }
+    doc.fillColor(NAVY).font('Helvetica-Bold').text(moneyEn(it.total_linea, cot.moneda), 475, y + 6, { width: 72, align: 'right' });
     y += h;
     if (y > 700) { doc.addPage(); y = 40; }
   });
