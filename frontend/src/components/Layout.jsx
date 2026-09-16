@@ -119,8 +119,8 @@ const configByRole = {
     { label: 'Config pipeline', to: '/config/pipeline', seccion: SECCION_VENTAS },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion', seccion: SECCION_VENTAS },
     { label: 'Secuencias de seguimiento', to: '/config/secuencias', seccion: SECCION_VENTAS },
-    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP },
-    { label: 'Alertas de respuesta WhatsApp', to: '/config/alertas-respuesta', seccion: SECCION_WHATSAPP },
+    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP, alias: 'feriados calendario horario excepciones dias habiles' },
+    { label: 'Alertas de respuesta WhatsApp', to: '/config/alertas-respuesta', seccion: SECCION_WHATSAPP, alias: 'callcenter jefe comercial gerencia escalamiento sla teams' },
     { label: 'Datos de empresa', to: '/config/empresa', seccion: SECCION_EMPRESA },
     { label: 'Usuarios', to: '/usuarios', seccion: SECCION_EMPRESA },
   ],
@@ -128,8 +128,8 @@ const configByRole = {
     { label: 'Config pipeline', to: '/config/pipeline', seccion: SECCION_VENTAS },
     { label: 'Reglas de asignación', to: '/config/reglas-asignacion', seccion: SECCION_VENTAS },
     { label: 'Secuencias de seguimiento', to: '/config/secuencias', seccion: SECCION_VENTAS },
-    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP },
-    { label: 'Alertas de respuesta WhatsApp', to: '/config/alertas-respuesta', seccion: SECCION_WHATSAPP },
+    { label: 'Bot de WhatsApp', to: '/config/bot-whatsapp', seccion: SECCION_WHATSAPP, alias: 'feriados calendario horario excepciones dias habiles' },
+    { label: 'Alertas de respuesta WhatsApp', to: '/config/alertas-respuesta', seccion: SECCION_WHATSAPP, alias: 'callcenter jefe comercial gerencia escalamiento sla teams' },
     { label: 'Datos de empresa', to: '/config/empresa', seccion: SECCION_EMPRESA },
   ],
   gerencia: [],
@@ -397,7 +397,11 @@ export default function Layout() {
                         // que el agrupamiento.
                         (() => {
                           const termino = normalizar(busquedaConfig);
-                          const encontrados = config.filter(c => normalizar(c.label).includes(termino));
+                          // alias: palabras clave de lo que hay DENTRO de la pantalla
+                          // pero no en su nombre (ej. "Bot de WhatsApp" incluye la
+                          // sección de feriados/horario) — sin esto, nadie encuentra
+                          // algo que no sabe bajo qué título quedó agrupado.
+                          const encontrados = config.filter(c => normalizar(`${c.label} ${c.alias || ''}`).includes(termino));
                           return encontrados.length > 0
                             ? encontrados.map(c => (
                                 <button key={c.to} onClick={() => go(c.to)} className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-slate-50">{c.label}</button>
