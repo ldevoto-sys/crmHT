@@ -13,9 +13,13 @@ const NIVEL_ROL = { 2: 'callcenter', 3: 'jefe_comercial', 4: 'gerencia' };
 
 // Conversaciones candidatas: la última respuesta del hilo es del cliente
 // (direccion='entrante'), el lead más reciente de ese contacto ya fue
-// derivado a un vendedor, y pendiente_desde es el mensaje entrante más
-// antiguo desde la última respuesta saliente (el reloj no se resetea si el
-// cliente insiste con más mensajes, arranca en el primero sin responder).
+// derivado a un vendedor, no está cerrada a mano desde la Bandeja (botón
+// "Cerrar conversación" — decisión explícita de que no hace falta responder
+// más, cuenta igual que si se hubiera respondido; se reabre sola si el
+// cliente vuelve a escribir, ver whatsapp_mensajes.js#registrar), y
+// pendiente_desde es el mensaje entrante más antiguo desde la última
+// respuesta saliente (el reloj no se resetea si el cliente insiste con más
+// mensajes, arranca en el primero sin responder).
 async function conversacionesPendientes() {
   return db.all(`
     SELECT c.id AS contacto_id, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
@@ -25,6 +29,7 @@ async function conversacionesPendientes() {
     FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
     JOIN contactos c ON c.id = base.contacto_id
     LEFT JOIN empresas em ON em.id = c.empresa_id
+    LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
     JOIN LATERAL (
       SELECT * FROM leads WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1
     ) l ON true
@@ -43,6 +48,7 @@ async function conversacionesPendientes() {
     ) pend ON true
     WHERE l.bot_estado = 'derivado' AND l.vendedor_id IS NOT NULL
       AND ult.direccion = 'entrante' AND pend.pendiente_desde IS NOT NULL
+      AND NOT COALESCE(wc.cerrada_manual, false)
   `);
 }
 
