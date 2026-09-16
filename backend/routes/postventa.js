@@ -2,10 +2,14 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const crypto = require('crypto');
+const { PDFDocument: PDFLibDocument } = require('pdf-lib');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
 const { enviarPostventaVencidosSiHay, enviarAvisoCasoNuevo } = require('../services/postventaVencidos');
+const { generarInformePostventaPDFBuffer, generarCotizacionPDFBuffer, generarOTPDFBuffer } = require('../services/pdf');
+const { fetchCompleta: fetchCotizacionCompleta } = require('../services/cotizacion_data');
+const { cargarOTCompleta } = require('../services/ot');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -384,6 +388,101 @@ router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
   } catch (err) {
     console.error('[postventa GET /adjuntos/:adjuntoId/archivo]', err);
     res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// GET /api/postventa/:id/informe-pdf — informe completo del caso: datos,
+// adjuntos (fotos incrustadas; el resto listado — un video no se puede
+// incrustar en un PDF de ninguna forma), y la cotización/OT del negocio de
+// origen si existen, fusionadas página por página con pdf-lib (PDFKit genera
+// contenido nuevo, pero no puede importar páginas de un PDF ya existente).
+router.get('/:id/informe-pdf', async (req, res) => {
+  try {
+    const caso = await db.get(
+      `SELECT cp.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo,
+              c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
+              e.razon_social AS empresa_nombre, p.nombre AS producto_nombre,
+              t.nombre AS tecnico_nombre, u.nombre AS creado_por_nombre,
+              n.titulo AS negocio_titulo
+       FROM casos_postventa cp
+       LEFT JOIN postventa_etapas pe ON pe.id = cp.etapa_id
+       JOIN contactos c ON c.id = cp.contacto_id
+       LEFT JOIN empresas e ON e.id = cp.empresa_id
+       LEFT JOIN productos p ON p.id = cp.producto_id
+       LEFT JOIN users t ON t.id = cp.tecnico_asignado_id
+       LEFT JOIN users u ON u.id = cp.creado_por_id
+       LEFT JOIN negocios n ON n.id = cp.negocio_id
+       WHERE cp.id = $1`,
+      [req.params.id]
+    );
+    if (!caso) return res.status(404).json({ error: 'Caso no encontrado' });
+    if (!puedeAccederCaso(caso, req.user)) return res.status(403).json({ error: 'Sin permiso' });
+
+    const adjuntos = await db.all(
+      `SELECT pa.*, u.nombre AS subido_por_nombre FROM postventa_adjuntos pa
+       LEFT JOIN users u ON u.id = pa.subido_por_id WHERE pa.caso_id = $1 ORDER BY pa.created_at`,
+      [req.params.id]
+    );
+
+    const fotos = [];
+    const otrosAdjuntos = [];
+    const adjuntosPdfBuffers = [];
+    for (const a of adjuntos) {
+      const mime = a.archivo_mime || '';
+      if (mime.startsWith('image/') || mime === 'application/pdf') {
+        const archivo = await r2.descargarDespacho(a.archivo_key);
+        if (!archivo) { otrosAdjuntos.push(a); continue; }
+        if (mime.startsWith('image/')) fotos.push({ ...a, buffer: archivo.buffer });
+        else adjuntosPdfBuffers.push(archivo.buffer);
+      } else {
+        otrosAdjuntos.push(a);
+      }
+    }
+
+    const buffers = [await generarInformePostventaPDFBuffer({ caso, fotos, otrosAdjuntos })];
+
+    if (caso.negocio_id) {
+      const cot = await db.get(
+        `SELECT id FROM cotizaciones WHERE negocio_id = $1
+         AND version = (SELECT MAX(version) FROM cotizaciones WHERE negocio_id = $1)`,
+        [caso.negocio_id]
+      );
+      if (cot) {
+        const cotCompleta = await fetchCotizacionCompleta({ id: cot.id });
+        if (cotCompleta) buffers.push(await generarCotizacionPDFBuffer(cotCompleta));
+      }
+
+      const otCompleta = await cargarOTCompleta('o.negocio_id', caso.negocio_id);
+      if (otCompleta) {
+        const emisor = await db.get('SELECT * FROM config_empresa WHERE id = 1') || {};
+        buffers.push(await generarOTPDFBuffer({
+          ot: otCompleta.ot,
+          items: otCompleta.items,
+          cliente: {
+            contacto_nombre: otCompleta.ot.contacto_nombre, contacto_apellido: otCompleta.ot.contacto_apellido,
+            contacto_email: otCompleta.ot.contacto_email, empresa_nombre: otCompleta.ot.empresa_nombre,
+            empresa_direccion: otCompleta.ot.empresa_direccion, empresa_comuna: otCompleta.ot.empresa_comuna,
+          },
+          emisor,
+        }));
+      }
+    }
+    buffers.push(...adjuntosPdfBuffers);
+
+    const final = await PDFLibDocument.create();
+    for (const buf of buffers) {
+      const src = await PDFLibDocument.load(buf);
+      const paginas = await final.copyPages(src, src.getPageIndices());
+      paginas.forEach(pagina => final.addPage(pagina));
+    }
+    const bytes = await final.save();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="Informe-${caso.folio || caso.id}.pdf"`);
+    res.send(Buffer.from(bytes));
+  } catch (err) {
+    console.error('[postventa GET /:id/informe-pdf]', err);
+    res.status(500).json({ error: 'Error al generar el informe' });
   }
 });
 

@@ -83,4 +83,30 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
   return otId;
 }
 
-module.exports = { crearOTSiNoExiste };
+// Trae la OT completa (cabecera + cliente + ítems) por id de OT o por
+// negocio_id — antes vivía como función interna de routes/ordenes_trabajo.js;
+// se movió acá para poder reusarla también desde routes/postventa.js (informe
+// de Postventa) sin cambiar la forma en que ese router se exporta (server.js
+// lo consume directo como middleware de Express).
+async function cargarOTCompleta(where, param) {
+  const ot = await db.get(
+    `SELECT o.*, n.titulo AS negocio_titulo, n.tipo_trabajo, n.vendedor_id,
+            ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.email AS contacto_email, ct.telefono_e164 AS contacto_telefono,
+            e.razon_social AS empresa_nombre, e.rut AS empresa_rut, e.direccion AS empresa_direccion, e.comuna AS empresa_comuna
+     FROM ordenes_trabajo o
+     JOIN negocios n ON n.id = o.negocio_id
+     JOIN contactos ct ON ct.id = n.contacto_id
+     LEFT JOIN empresas e ON e.id = n.empresa_id
+     WHERE ${where} = $1`,
+    [param]
+  );
+  if (!ot) return null;
+  const items = await db.all(
+    `SELECT oi.*, p.nombre AS producto_nombre, p.sku FROM ot_items oi LEFT JOIN productos p ON p.id = oi.producto_id
+     WHERE oi.ot_id = $1 ORDER BY oi.id`,
+    [ot.id]
+  );
+  return { ot, items };
+}
+
+module.exports = { crearOTSiNoExiste, cargarOTCompleta };
