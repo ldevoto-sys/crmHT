@@ -377,6 +377,32 @@ module.exports = {
     );
   },
 
+  // Alerta de respuesta por WhatsApp (15-09-2026): un cliente ya derivado a
+  // un vendedor lleva sin respuesta más de lo que toca — escala en 4 niveles
+  // acumulativos (ver services/alertasRespuestaWhatsapp.js). datos: {
+  //   nivel (1-4), nivelLabel, contactoNombre, empresaNombre, vendedorNombre,
+  //   minutosHabiles, ultimoMensaje, contactoId }
+  alertaSinResponderWhatsapp: (usuario, datos) => {
+    const horas = Math.floor(datos.minutosHabiles / 60);
+    const minutos = datos.minutosHabiles % 60;
+    const tiempo = horas > 0 ? `${horas} h ${minutos} min` : `${minutos} min`;
+    const colorNivel = { 1: '#34B3DE', 2: '#f59e0b', 3: '#f97316', 4: '#b91c1c' }[datos.nivel] || '#f59e0b';
+    return enviar(
+      usuario.email,
+      `WhatsApp sin responder (${tiempo} hábiles) — ${datos.contactoNombre}`,
+      template('Cliente sin responder por WhatsApp', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p style="color:${colorNivel}; font-weight:bold; font-size:15px;">
+          Nivel ${datos.nivel} — ${datos.nivelLabel}: ${tiempo} hábiles sin respuesta.
+        </p>
+        <p><strong>${datos.contactoNombre}</strong>${datos.empresaNombre ? ` · ${datos.empresaNombre}` : ''}</p>
+        <p style="color:#555555; font-size:13px;">Vendedor asignado: ${datos.vendedorNombre || '— sin asignar —'}</p>
+        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${datos.ultimoMensaje}"</p>` : ''}
+        ${boton(`${APP_URL}/bandeja?contacto_id=${datos.contactoId}`, 'Ver conversación')}
+      `)
+    );
+  },
+
   // Aviso al crear un caso nuevo de Postventa (15-09-2026) — caso: fila de
   // services/postventaVencidos.js (enviarAvisoCasoNuevo), con
   // cliente_nombre ya resuelto (empresa si tiene, si no nombre del contacto).

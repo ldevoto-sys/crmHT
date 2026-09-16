@@ -249,6 +249,122 @@ export default function ConfigBotWhatsApp() {
 
         <button type="submit" className="bg-ht-accent text-ht-navy px-5 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar configuración</button>
       </form>
+
+      <div className="max-w-3xl mt-6">
+        <ExcepcionesHorario />
+      </div>
+    </div>
+  );
+}
+
+const excepcionVacia = () => ({ fecha: '', tipo: 'feriado', nombre: '', hora_inicio: '', hora_fin: '' });
+
+// Feriados y horarios especiales puntuales (17-09-2026): no hay ninguna
+// fuente automática de feriados chilenos disponible (la API oficial del
+// Estado dejó de existir) — se carga y ajusta a mano. La usa
+// esHorarioHabil()/minutosHabilesEntre() (services/horario.js), y por lo
+// tanto el bot de WhatsApp, secuencias con "respetar horario", y las
+// alertas de respuesta más abajo (Config → Alertas de respuesta WhatsApp).
+function ExcepcionesHorario() {
+  const [excepciones, setExcepciones] = useState([]);
+  const [form, setForm] = useState(excepcionVacia());
+  const [error, setError] = useState(''); const [msg, setMsg] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = () => api.get('/config/horario-excepciones').then(r => setExcepciones(r.data)).catch(() => setError('No se pudieron cargar las excepciones.'));
+  useEffect(() => { cargar(); }, []);
+
+  const agregar = async e => {
+    e.preventDefault(); setError(''); setMsg(''); setGuardando(true);
+    try {
+      await api.post('/config/horario-excepciones', form);
+      setForm(excepcionVacia()); setMsg('Excepción guardada.'); cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar.'); }
+    finally { setGuardando(false); }
+  };
+
+  const eliminar = async fecha => {
+    if (!window.confirm(`¿Eliminar la excepción del ${fecha}?`)) return;
+    try { await api.delete(`/config/horario-excepciones/${fecha}`); cargar(); }
+    catch { setError('No se pudo eliminar.'); }
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-5">
+      <h2 className="font-semibold text-ht-navy mb-1">Excepciones de horario</h2>
+      <p className="text-gray-500 text-sm mb-4">
+        Feriados (el día no cuenta como hábil) u horarios especiales puntuales — ej. el 17 de septiembre no es
+        feriado, pero la empresa trabaja solo hasta las 13:00. Sin esto cargado, esos días se tratan como un día
+        hábil normal.
+      </p>
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+      {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+
+      <form onSubmit={agregar} className="flex flex-wrap items-end gap-2 mb-4">
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Fecha</label>
+          <input type="date" required value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-500 mb-1">Tipo</label>
+          <select value={form.tipo} onChange={e => setForm({ ...form, tipo: e.target.value })}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm">
+            <option value="feriado">Feriado (no laborable)</option>
+            <option value="horario_especial">Horario especial</option>
+          </select>
+        </div>
+        {form.tipo === 'horario_especial' && (
+          <>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
+              <input type="time" value={form.hora_inicio} onChange={e => setForm({ ...form, hora_inicio: e.target.value })}
+                placeholder="Igual al horario normal si se deja vacío"
+                className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
+              <input type="time" required value={form.hora_fin} onChange={e => setForm({ ...form, hora_fin: e.target.value })}
+                className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+            </div>
+          </>
+        )}
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-xs text-gray-500 mb-1">Nombre (opcional)</label>
+          <input value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Fiestas Patrias"
+            className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm" />
+        </div>
+        <button type="submit" disabled={guardando}
+          className="bg-ht-accent text-ht-navy px-4 py-1.5 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-40">
+          {guardando ? 'Guardando…' : 'Agregar'}
+        </button>
+      </form>
+
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-gray-600">
+          <tr>
+            <th className="text-left px-3 py-2 font-medium">Fecha</th>
+            <th className="text-left px-3 py-2 font-medium">Tipo</th>
+            <th className="text-left px-3 py-2 font-medium">Horario</th>
+            <th className="text-left px-3 py-2 font-medium">Nombre</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {excepciones.map(ex => (
+            <tr key={ex.fecha} className="border-t border-gray-100">
+              <td className="px-3 py-2 text-ht-navy font-medium">{new Date(ex.fecha.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL')}</td>
+              <td className="px-3 py-2">{ex.tipo === 'feriado' ? 'Feriado' : 'Horario especial'}</td>
+              <td className="px-3 py-2 text-gray-500">{ex.tipo === 'horario_especial' ? `${(ex.hora_inicio || '').slice(0, 5) || 'normal'}–${(ex.hora_fin || '').slice(0, 5)}` : '—'}</td>
+              <td className="px-3 py-2 text-gray-500">{ex.nombre || '—'}</td>
+              <td className="px-3 py-2 text-right"><button onClick={() => eliminar(ex.fecha.slice(0, 10))} className="text-red-500 hover:underline text-xs">Eliminar</button></td>
+            </tr>
+          ))}
+          {excepciones.length === 0 && (
+            <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">Sin excepciones cargadas.</td></tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

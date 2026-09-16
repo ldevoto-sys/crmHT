@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import EmojiPicker from 'emoji-picker-react';
 import Recorder from 'opus-recorder';
 import api from '../../api';
@@ -16,6 +17,7 @@ const ROLES_REASIGNAN_A_CUALQUIERA = ['administrador', 'jefe_comercial', 'callce
 
 export default function BandejaWhatsApp() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [conversaciones, setConversaciones] = useState([]);
   const [vendedores, setVendedores] = useState([]);
   const [usuariosFiltro, setUsuariosFiltro] = useState([]);
@@ -89,6 +91,13 @@ export default function BandejaWhatsApp() {
   useEffect(() => { api.get('/users/activos').then(r => setUsuariosFiltro(r.data)).catch(() => {}); }, []);
   useEffect(() => { cargarConversaciones(); }, [filtroVendedor, filtroEstado, filtroAbierta, verArchivadas, soloNoLeidos]);
   useEffect(() => { cargarCantidadNoLeidos(); }, []);
+  // Deep-link desde un correo/aviso externo (ej. alerta de respuesta) que
+  // manda directo a una conversación puntual: /bandeja?contacto_id=123.
+  useEffect(() => {
+    const contactoId = searchParams.get('contacto_id');
+    if (contactoId) setSeleccionada(Number(contactoId));
+    // eslint-disable-next-line
+  }, []);
 
   // Refresco periódico simple: lista cada 15s, hilo abierto cada 8s.
   useEffect(() => {
