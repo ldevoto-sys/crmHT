@@ -13,6 +13,9 @@ export default function ConfigAlertasRespuesta() {
   const [minGerencia, setMinGerencia] = useState(240);
   const [teamsConfigurado, setTeamsConfigurado] = useState(false);
 
+  const [probando, setProbando] = useState(false);
+  const [resultadoPrueba, setResultadoPrueba] = useState(null);
+
   useEffect(() => {
     api.get('/config/alertas-respuesta').then(r => {
       setActivo(r.data.activo);
@@ -35,6 +38,15 @@ export default function ConfigAlertasRespuesta() {
       setMsg('Configuración guardada.');
     } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar.'); }
     finally { setGuardando(false); }
+  };
+
+  const probarAhora = async () => {
+    setError(''); setResultadoPrueba(null); setProbando(true);
+    try {
+      const { data } = await api.post('/config/alertas-respuesta/probar-ahora');
+      setResultadoPrueba(data);
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo probar.'); }
+    finally { setProbando(false); }
   };
 
   const formatoHoras = min => {
@@ -95,6 +107,55 @@ export default function ConfigAlertasRespuesta() {
           {guardando ? 'Guardando…' : 'Guardar configuración'}
         </button>
       </form>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 max-w-xl mt-6">
+        <h2 className="font-semibold text-ht-navy mb-1">Probar ahora</h2>
+        <p className="text-gray-500 text-sm mb-3">
+          El chequeo normal corre cada 15 minutos, pero recién empieza a contar desde el último reinicio del
+          servidor (no es inmediato al desplegar) — este botón lo dispara al toque, para probar sin esperar.
+        </p>
+        <button type="button" onClick={probarAhora} disabled={probando}
+          className="border border-ht-navy text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/5 disabled:opacity-40">
+          {probando ? 'Revisando…' : 'Probar ahora'}
+        </button>
+
+        {resultadoPrueba && (
+          <div className="mt-4">
+            {resultadoPrueba.activo === false ? (
+              <p className="text-sm text-amber-700">Las alertas están desactivadas — no se revisó nada.</p>
+            ) : (
+              <>
+                <p className="text-sm text-gray-600 mb-2">
+                  {resultadoPrueba.evaluadas} conversación{resultadoPrueba.evaluadas === 1 ? '' : 'es'} evaluada{resultadoPrueba.evaluadas === 1 ? '' : 's'},
+                  {' '}{resultadoPrueba.alertadas} alerta{resultadoPrueba.alertadas === 1 ? '' : 's'} enviada{resultadoPrueba.alertadas === 1 ? '' : 's'}.
+                </p>
+                {resultadoPrueba.detalle.length > 0 && (
+                  <table className="w-full text-xs">
+                    <thead className="text-gray-500">
+                      <tr>
+                        <th className="text-left py-1 font-medium">Contacto</th>
+                        <th className="text-left py-1 font-medium">Min. hábiles</th>
+                        <th className="text-left py-1 font-medium">Nivel</th>
+                        <th className="text-left py-1 font-medium">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resultadoPrueba.detalle.map((d, i) => (
+                        <tr key={i} className="border-t border-gray-100">
+                          <td className="py-1.5 text-ht-navy">{d.contacto}</td>
+                          <td className="py-1.5 text-gray-500">{d.minutosHabiles}</td>
+                          <td className="py-1.5 text-gray-500">{d.nivel || '—'}</td>
+                          <td className={`py-1.5 ${d.enviado ? 'text-green-700' : 'text-gray-400'}`}>{d.motivo}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
