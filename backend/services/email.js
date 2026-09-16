@@ -377,6 +377,24 @@ module.exports = {
     );
   },
 
+  // Aviso al crear un caso nuevo de Postventa (15-09-2026) — caso: fila de
+  // services/postventaVencidos.js (enviarAvisoCasoNuevo), con
+  // cliente_nombre ya resuelto (empresa si tiene, si no nombre del contacto).
+  postventaCasoNuevo: (usuario, caso) => {
+    return enviar(
+      usuario.email,
+      `Nuevo caso de Postventa: ${caso.folio}`,
+      template('Nuevo caso de Postventa', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p>Se creó un nuevo caso de Postventa:</p>
+        ${tablaInforme(['Folio', 'Caso', 'Cliente', 'Prioridad'], [
+          filaInforme([caso.folio, caso.titulo, caso.cliente_nombre, caso.prioridad]),
+        ])}
+        ${boton(`${APP_URL}/postventa`, 'Ver Postventa')}
+      `)
+    );
+  },
+
   // services/privacidad.js (registrarSolicitudEliminacion) — aviso al DPO de
   // que un contacto pidió eliminar sus datos (Ley 21.719). No se anonimiza
   // nada automáticamente: esto solo notifica que hay que revisarlo.

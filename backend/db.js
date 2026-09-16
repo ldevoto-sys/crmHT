@@ -401,6 +401,28 @@ async function initDb() {
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_etapa ON casos_postventa (etapa_id)`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_casos_postventa_creador ON casos_postventa (creado_por_id)`);
 
+  // Folio de cara al cliente/encargado (PV-000001...) — el id SERIAL interno
+  // no sirve para eso. Mismo patrón de correlativo atómico que Cotizaciones
+  // (ver cotizacion_correlativo_global más abajo): tabla contador de una sola
+  // fila, INSERT...ON CONFLICT DO UPDATE...RETURNING dentro de la
+  // transacción de creación del caso (routes/postventa.js).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS postventa_correlativo_global (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      ultimo INTEGER NOT NULL DEFAULT 0
+    )
+  `);
+  await db.run(`ALTER TABLE casos_postventa ADD COLUMN IF NOT EXISTS folio TEXT UNIQUE`);
+  // Texto obligatorio al cerrar un caso (mover a "Resuelto"/"Rechazado") —
+  // qué se hizo o por qué se rechazó, para que quede registro (15-09-2026).
+  // Se limpia si el caso se reabre (ver PUT /:id/etapa).
+  await db.run(`ALTER TABLE casos_postventa ADD COLUMN IF NOT EXISTS comentario_cierre TEXT`);
+  // Referencia libre a una cotización o venta asociada cuando no corresponde
+  // (o no conviene) re-vincular el negocio real del CRM — ej. una venta
+  // antigua no registrada acá. No reemplaza a negocio_id, que sigue siendo
+  // el vínculo real cuando existe.
+  await db.run(`ALTER TABLE casos_postventa ADD COLUMN IF NOT EXISTS referencia_cotizacion_venta TEXT`);
+
   // Historial de adjuntos de un caso de postventa (fotos/videos del cliente,
   // informes técnicos, otros documentos) — una fila por archivo, mismo patrón
   // que whatsapp_mensajes: la key de R2 no se expone directa al frontend, se

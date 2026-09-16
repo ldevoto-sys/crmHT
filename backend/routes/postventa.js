@@ -5,7 +5,7 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
-const { enviarPostventaVencidosSiHay } = require('../services/postventaVencidos');
+const { enviarPostventaVencidosSiHay, enviarAvisoCasoNuevo } = require('../services/postventaVencidos');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
@@ -195,15 +195,42 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor'), async
 
     const primeraEtapa = await db.get(`SELECT id FROM postventa_etapas WHERE tipo = 'abierta' AND activo = true ORDER BY orden LIMIT 1`);
 
-    const r = await db.run(
-      `INSERT INTO casos_postventa
-         (negocio_id, contacto_id, empresa_id, producto_id, detalle_equipo, titulo, descripcion, prioridad, fecha_limite_respuesta, creado_por_id, etapa_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [negocioFinal, contactoFinal, empresaFinal, producto_id || null, detalle_equipo || null,
-       titulo, descripcion || null, prioridad || 'media', fecha_limite_respuesta || null,
-       req.user.id, primeraEtapa ? primeraEtapa.id : null]
-    );
-    res.status(201).json(r.rows[0]);
+    const client = await db.pool.connect();
+    let caso;
+    try {
+      await client.query('BEGIN');
+      // Folio PV-000001: correlativo atómico, mismo patrón que Cotizaciones
+      // (proximoNumero en routes/cotizaciones.js) — INSERT...ON CONFLICT DO
+      // UPDATE...RETURNING dentro de la transacción evita folios repetidos
+      // ante creación concurrente de casos.
+      const correlativo = await client.query(
+        `INSERT INTO postventa_correlativo_global (id, ultimo) VALUES (1, 1)
+         ON CONFLICT (id) DO UPDATE SET ultimo = postventa_correlativo_global.ultimo + 1
+         RETURNING ultimo`
+      );
+      const folio = `PV-${String(correlativo.rows[0].ultimo).padStart(6, '0')}`;
+
+      const r = await client.query(
+        `INSERT INTO casos_postventa
+           (folio, negocio_id, contacto_id, empresa_id, producto_id, detalle_equipo, titulo, descripcion, prioridad, fecha_limite_respuesta, creado_por_id, etapa_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+        [folio, negocioFinal, contactoFinal, empresaFinal, producto_id || null, detalle_equipo || null,
+         titulo, descripcion || null, prioridad || 'media', fecha_limite_respuesta || null,
+         req.user.id, primeraEtapa ? primeraEtapa.id : null]
+      );
+      await client.query('COMMIT');
+      caso = r.rows[0];
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    res.status(201).json(caso);
+    // Aviso a quienes gestionan Postventa — no bloquea la respuesta ni la
+    // hace fallar si el correo no sale (ver services/postventaVencidos.js).
+    enviarAvisoCasoNuevo(caso.id).catch(err => console.error('[postventa] Error al avisar caso nuevo:', err));
   } catch (err) {
     console.error('[postventa POST /]', err);
     res.status(500).json({ error: 'Error interno' });
@@ -217,15 +244,38 @@ router.put('/:id', async (req, res) => {
     const caso = await db.get('SELECT * FROM casos_postventa WHERE id = $1', [req.params.id]);
     if (!caso) return res.status(404).json({ error: 'Caso no encontrado' });
 
-    const { titulo, descripcion, producto_id, detalle_equipo, prioridad, fecha_limite_respuesta, tecnico_asignado_id } = req.body;
+    const {
+      titulo, descripcion, producto_id, detalle_equipo, prioridad, fecha_limite_respuesta, tecnico_asignado_id,
+      negocio_id, referencia_cotizacion_venta,
+    } = req.body;
+
+    // Re-vincular el negocio/venta de origen: si cambia, el cliente/empresa
+    // del caso se recalculan desde el negocio nuevo — mismo criterio que al
+    // crear el caso (POST /), para no dejar contacto_id/empresa_id
+    // desalineados con el negocio que ahora aparece como origen.
+    let negocioFinal = caso.negocio_id, contactoFinal = caso.contacto_id, empresaFinal = caso.empresa_id;
+    if (negocio_id !== undefined && negocio_id !== caso.negocio_id) {
+      if (negocio_id) {
+        const negocio = await db.get('SELECT id, contacto_id, empresa_id FROM negocios WHERE id = $1', [negocio_id]);
+        if (!negocio) return res.status(400).json({ error: 'Negocio inexistente' });
+        negocioFinal = negocio.id; contactoFinal = negocio.contacto_id; empresaFinal = negocio.empresa_id;
+      } else {
+        negocioFinal = null;
+      }
+    }
+
     await db.run(
       `UPDATE casos_postventa SET titulo=$1, descripcion=$2, producto_id=$3, detalle_equipo=$4,
-              prioridad=$5, fecha_limite_respuesta=$6, tecnico_asignado_id=$7, ultima_actividad=now()
-       WHERE id=$8`,
+              prioridad=$5, fecha_limite_respuesta=$6, tecnico_asignado_id=$7,
+              negocio_id=$8, contacto_id=$9, empresa_id=$10, referencia_cotizacion_venta=$11,
+              ultima_actividad=now()
+       WHERE id=$12`,
       [titulo || caso.titulo, descripcion ?? caso.descripcion, producto_id ?? caso.producto_id,
        detalle_equipo ?? caso.detalle_equipo, prioridad || caso.prioridad,
        fecha_limite_respuesta !== undefined ? (fecha_limite_respuesta || null) : caso.fecha_limite_respuesta,
        tecnico_asignado_id !== undefined ? (tecnico_asignado_id || null) : caso.tecnico_asignado_id,
+       negocioFinal, contactoFinal, empresaFinal,
+       referencia_cotizacion_venta !== undefined ? (referencia_cotizacion_venta || null) : caso.referencia_cotizacion_venta,
        req.params.id]
     );
     res.json({ message: 'Caso actualizado' });
@@ -239,7 +289,7 @@ router.put('/:id', async (req, res) => {
 router.put('/:id/etapa', async (req, res) => {
   try {
     if (!puedeGestionar(req.user)) return res.status(403).json({ error: 'Sin permiso' });
-    const { etapa_id } = req.body;
+    const { etapa_id, comentario_cierre } = req.body;
     const etapa = await db.get('SELECT * FROM postventa_etapas WHERE id = $1', [etapa_id]);
     if (!etapa) return res.status(400).json({ error: 'Etapa inválida' });
 
@@ -247,9 +297,12 @@ router.put('/:id/etapa', async (req, res) => {
     if (!caso) return res.status(404).json({ error: 'Caso no encontrado' });
 
     const cierra = etapa.tipo === 'resuelto' || etapa.tipo === 'rechazado';
+    if (cierra && !comentario_cierre?.trim()) {
+      return res.status(400).json({ error: 'Debes indicar qué se hizo (o por qué se rechaza) antes de cerrar el caso' });
+    }
     await db.run(
-      `UPDATE casos_postventa SET etapa_id=$1, fecha_cierre=$2, ultima_actividad=now() WHERE id=$3`,
-      [etapa.id, cierra ? new Date().toISOString() : null, req.params.id]
+      `UPDATE casos_postventa SET etapa_id=$1, fecha_cierre=$2, comentario_cierre=$3, ultima_actividad=now() WHERE id=$4`,
+      [etapa.id, cierra ? new Date().toISOString() : null, cierra ? comentario_cierre.trim() : null, req.params.id]
     );
     res.json({ message: 'Etapa actualizada' });
   } catch (err) {
