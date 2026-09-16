@@ -2270,6 +2270,57 @@ async function initDb() {
     ]
   );
 
+  // Excepciones al horario de atención semanal fijo (config_horario_atencion):
+  // feriados (no laborable ese día completo) u horarios especiales puntuales
+  // (ej. 17-09: laborable pero solo hasta las 13:00). Sin fuente automática
+  // de feriados chilenos — la API oficial del Estado dejó de existir
+  // (investigado 15-09-2026); se carga y edita a mano desde Config. La usan
+  // esHorarioHabil()/minutosHabilesEntre() (services/horario.js), y por lo
+  // tanto todo lo que dependa de horario hábil: el bot de WhatsApp,
+  // secuencias con "respetar horario", y las alertas de respuesta.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_horario_excepciones (
+      fecha DATE PRIMARY KEY,
+      tipo TEXT NOT NULL CHECK (tipo IN ('feriado','horario_especial')),
+      nombre TEXT,
+      hora_inicio TIME,
+      hora_fin TIME
+    )
+  `);
+
+  // Alertas de respuesta por WhatsApp (15-09-2026): cuando un cliente queda
+  // sin responder después de que el bot ya lo derivó a un vendedor, escala
+  // por correo + Teams en 4 niveles (vendedor → callcenter → jefe comercial
+  // → gerencia), acumulativo — cada nivel nuevo incluye a los anteriores.
+  // Umbrales en minutos de horario hábil acumulado (ver
+  // services/horario.js#minutosHabilesEntre).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS config_alertas_respuesta (
+      id INTEGER PRIMARY KEY DEFAULT 1,
+      activo BOOLEAN NOT NULL DEFAULT true,
+      minutos_vendedor INTEGER NOT NULL DEFAULT 15,
+      minutos_callcenter INTEGER NOT NULL DEFAULT 60,
+      minutos_jefe_comercial INTEGER NOT NULL DEFAULT 120,
+      minutos_gerencia INTEGER NOT NULL DEFAULT 240,
+      CONSTRAINT config_alertas_respuesta_unica CHECK (id = 1)
+    )
+  `);
+  await db.run('INSERT INTO config_alertas_respuesta (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+
+  // Estado de escalamiento por conversación — evita re-notificar el mismo
+  // nivel dos veces. pendiente_desde identifica la "racha" actual sin
+  // responder (el mensaje entrante más antiguo desde la última respuesta
+  // saliente); si cambia, es una racha nueva y se resetea nivel_alertado
+  // (ver services/alertasRespuestaWhatsapp.js).
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_alertas_respuesta (
+      contacto_id INTEGER PRIMARY KEY REFERENCES contactos(id),
+      pendiente_desde TIMESTAMP NOT NULL,
+      nivel_alertado INTEGER NOT NULL DEFAULT 0,
+      actualizado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
   console.log('[DB] Base de datos lista.');
 }
 

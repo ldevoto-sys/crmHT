@@ -340,6 +340,84 @@ router.put('/horario-atencion', authorize('administrador', 'jefe_comercial'), as
   }
 });
 
+// --- Excepciones al horario de atención (feriados / horario especial puntual) ---
+
+// GET /api/config/horario-excepciones
+router.get('/horario-excepciones', async (req, res) => {
+  try {
+    const excepciones = await db.all('SELECT * FROM config_horario_excepciones ORDER BY fecha');
+    res.json(excepciones);
+  } catch (err) {
+    console.error('[config/horario-excepciones GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/config/horario-excepciones {fecha, tipo, nombre, hora_inicio, hora_fin}
+// Reemplaza si ya existía una excepción para esa fecha (una sola por día).
+router.post('/horario-excepciones', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { fecha, tipo, nombre, hora_inicio, hora_fin } = req.body;
+    if (!fecha) return res.status(400).json({ error: 'La fecha es requerida' });
+    if (!['feriado', 'horario_especial'].includes(tipo)) return res.status(400).json({ error: 'Tipo inválido' });
+    await db.run(
+      `INSERT INTO config_horario_excepciones (fecha, tipo, nombre, hora_inicio, hora_fin) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (fecha) DO UPDATE SET tipo=$2, nombre=$3, hora_inicio=$4, hora_fin=$5`,
+      [fecha, tipo, nombre || null, tipo === 'horario_especial' ? (hora_inicio || null) : null, tipo === 'horario_especial' ? (hora_fin || null) : null]
+    );
+    res.status(201).json({ message: 'Excepción guardada' });
+  } catch (err) {
+    console.error('[config/horario-excepciones POST]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// DELETE /api/config/horario-excepciones/:fecha
+router.delete('/horario-excepciones/:fecha', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    await db.run('DELETE FROM config_horario_excepciones WHERE fecha = $1', [req.params.fecha]);
+    res.json({ message: 'Excepción eliminada' });
+  } catch (err) {
+    console.error('[config/horario-excepciones DELETE]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// --- Alertas de respuesta por WhatsApp (escalamiento vendedor → callcenter → jefe comercial → gerencia) ---
+
+// GET /api/config/alertas-respuesta
+router.get('/alertas-respuesta', async (req, res) => {
+  try {
+    const cfg = await db.get('SELECT * FROM config_alertas_respuesta WHERE id = 1');
+    res.json({ ...cfg, teams_configurado: !!process.env.TEAMS_WEBHOOK_URL });
+  } catch (err) {
+    console.error('[config/alertas-respuesta GET]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/config/alertas-respuesta (admin/jefe_comercial)
+router.put('/alertas-respuesta', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const { activo, minutos_vendedor, minutos_callcenter, minutos_jefe_comercial, minutos_gerencia } = req.body;
+    const minutos = [minutos_vendedor, minutos_callcenter, minutos_jefe_comercial, minutos_gerencia];
+    if (minutos.some(m => !Number.isInteger(m) || m <= 0)) {
+      return res.status(400).json({ error: 'Los 4 umbrales deben ser números enteros mayores a 0' });
+    }
+    if (minutos_vendedor >= minutos_callcenter || minutos_callcenter >= minutos_jefe_comercial || minutos_jefe_comercial >= minutos_gerencia) {
+      return res.status(400).json({ error: 'Cada nivel debe tener un umbral mayor que el anterior' });
+    }
+    await db.run(
+      `UPDATE config_alertas_respuesta SET activo=$1, minutos_vendedor=$2, minutos_callcenter=$3, minutos_jefe_comercial=$4, minutos_gerencia=$5 WHERE id=1`,
+      [activo !== false, minutos_vendedor, minutos_callcenter, minutos_jefe_comercial, minutos_gerencia]
+    );
+    res.json({ message: 'Configuración actualizada' });
+  } catch (err) {
+    console.error('[config/alertas-respuesta PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // --- Bot de WhatsApp: mensajes, opciones de categorización y pasos de recontacto ---
 router.get('/whatsapp-bot', async (req, res) => {
   try {

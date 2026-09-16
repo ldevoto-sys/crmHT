@@ -16,6 +16,7 @@ const { enviarAvisoCuentasPasoSiCorresponde } = require('./services/cobranzaCuen
 const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
 const { purgarInactivosSiCorresponde } = require('./services/privacidad');
 const { enviarEncuestasPendientesSiCorresponde } = require('./services/seguimientoBoton');
+const { revisarAlertasRespuestaSiHay } = require('./services/alertasRespuestaWhatsapp');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -165,6 +166,14 @@ if (require.main === module) {
       // privacidad_purga_ejecuciones).
       setInterval(() => {
         purgarInactivosSiCorresponde().catch(err => console.error('[privacidad] Error en purga:', err));
+      }, QUINCE_MIN);
+      // Alertas de respuesta por WhatsApp: escala vendedor → callcenter →
+      // jefe comercial → gerencia si un cliente ya derivado queda sin
+      // responder (ver services/alertasRespuestaWhatsapp.js). Revisa cada
+      // 15 min igual que el resto — el dedup por nivel/racha vive en la
+      // tabla whatsapp_alertas_respuesta, no en el intervalo del scheduler.
+      setInterval(() => {
+        revisarAlertasRespuestaSiHay().catch(err => console.error('[alertasRespuestaWhatsapp] Error:', err));
       }, QUINCE_MIN);
       // Encuesta de causa de no cierre (bot WhatsApp): se manda 5 segundos
       // después de que el cliente indica que no comprará — no calza con el

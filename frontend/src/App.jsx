@@ -14,6 +14,7 @@ import ConfigEmpresa from './pages/admin/ConfigEmpresa';
 import ConfigSecuencias from './pages/admin/ConfigSecuencias';
 import ConfigPlantillasOT from './pages/admin/ConfigPlantillasOT';
 import ConfigBotWhatsApp from './pages/admin/ConfigBotWhatsApp';
+import ConfigAlertasRespuesta from './pages/admin/ConfigAlertasRespuesta';
 import ConfigEncuesta from './pages/admin/ConfigEncuesta';
 import ColaAsignacion from './pages/bandeja/ColaAsignacion';
 import BandejaWhatsApp from './pages/bandeja/BandejaWhatsApp';
@@ -226,6 +227,9 @@ export default function App() {
             } />
             <Route path="config/bot-whatsapp" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigBotWhatsApp /></ProtectedRoute>
+            } />
+            <Route path="config/alertas-respuesta" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigAlertasRespuesta /></ProtectedRoute>
             } />
             <Route path="config/encuesta" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigEncuesta /></ProtectedRoute>
