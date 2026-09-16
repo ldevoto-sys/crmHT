@@ -22,6 +22,7 @@ const { db } = require('../db');
 const timeline = require('./timeline');
 const email = require('./email');
 const whatsapp = require('./whatsapp');
+const mensajes = require('./whatsapp_mensajes');
 const { esHorarioHabil } = require('./horario');
 
 // Plantillas de WhatsApp aprobadas por Meta que puede usar un paso de
@@ -142,6 +143,17 @@ async function intentarEnviarWhatsapp(ns, paso) {
       [resultado.wa_message_id, ns.negocio_id]
     );
   }
+  // Bug corregido 16-09-2026: el envío quedaba solo en la línea de tiempo
+  // del negocio, nunca en whatsapp_mensajes — el mensaje sí le llegaba al
+  // cliente por WhatsApp, pero no aparecía en la Bandeja. Mismo patrón que
+  // el resto de los envíos automáticos de plantilla (ver
+  // routes/cotizaciones.js#enviar-whatsapp).
+  const lead = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.contacto_id]);
+  await mensajes.registrar({
+    contacto_id: ns.contacto_id, lead_id: lead?.id ?? null, direccion: 'saliente',
+    texto: `📋 Plantilla "${plantilla.label}" enviada automáticamente por la secuencia de seguimiento`,
+    wa_message_id: resultado.wa_message_id || null,
+  });
   return { enviado: true, destinatario: contacto.telefono_e164 };
 }
 
