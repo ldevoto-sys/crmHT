@@ -12,9 +12,12 @@ export default function ConfigAlertasRespuesta() {
   const [minJefe, setMinJefe] = useState(120);
   const [minGerencia, setMinGerencia] = useState(240);
   const [teamsConfigurado, setTeamsConfigurado] = useState(false);
+  const [ultimaRevisionAutomatica, setUltimaRevisionAutomatica] = useState(null);
 
   const [probando, setProbando] = useState(false);
   const [resultadoPrueba, setResultadoPrueba] = useState(null);
+  const [probandoTeams, setProbandoTeams] = useState(false);
+  const [resultadoTeams, setResultadoTeams] = useState(null);
 
   useEffect(() => {
     api.get('/config/alertas-respuesta').then(r => {
@@ -24,6 +27,7 @@ export default function ConfigAlertasRespuesta() {
       setMinJefe(r.data.minutos_jefe_comercial);
       setMinGerencia(r.data.minutos_gerencia);
       setTeamsConfigurado(r.data.teams_configurado);
+      setUltimaRevisionAutomatica(r.data.ultima_revision_automatica);
     }).catch(() => setError('No se pudo cargar la configuración.'))
       .finally(() => setCargando(false));
   }, []);
@@ -47,6 +51,15 @@ export default function ConfigAlertasRespuesta() {
       setResultadoPrueba(data);
     } catch (err) { setError(err.response?.data?.error || 'No se pudo probar.'); }
     finally { setProbando(false); }
+  };
+
+  const probarTeams = async () => {
+    setError(''); setResultadoTeams(null); setProbandoTeams(true);
+    try {
+      const { data } = await api.post('/config/alertas-respuesta/probar-teams');
+      setResultadoTeams(data);
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo probar.'); }
+    finally { setProbandoTeams(false); }
   };
 
   const formatoHoras = min => {
@@ -75,6 +88,13 @@ export default function ConfigAlertasRespuesta() {
           las alertas solo salen por correo.
         </div>
       )}
+
+      <div className="mb-4 p-3 bg-slate-50 border border-gray-200 rounded text-sm text-gray-600">
+        Último chequeo automático (cada 15 min):{' '}
+        {ultimaRevisionAutomatica
+          ? new Date(ultimaRevisionAutomatica).toLocaleString('es-CL')
+          : <span className="text-amber-700">todavía no corrió ninguno desde el último reinicio del servidor</span>}
+      </div>
 
       <form onSubmit={guardar} className="space-y-4 max-w-xl">
         <label className="flex items-center gap-2 text-sm text-gray-700 bg-white border border-gray-200 rounded-lg p-4">
@@ -154,6 +174,26 @@ export default function ConfigAlertasRespuesta() {
               </>
             )}
           </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 max-w-xl mt-6">
+        <h2 className="font-semibold text-ht-navy mb-1">Probar conexión con Teams</h2>
+        <p className="text-gray-500 text-sm mb-3">
+          Manda un mensaje de prueba directo al webhook, sin depender de que haya un caso real pendiente — sirve
+          para confirmar que la URL y el formato del mensaje son los que espera el Workflow de Teams.
+        </p>
+        <button type="button" onClick={probarTeams} disabled={probandoTeams || !teamsConfigurado}
+          className="border border-ht-navy text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-navy/5 disabled:opacity-40">
+          {probandoTeams ? 'Enviando…' : 'Probar conexión con Teams'}
+        </button>
+        {!teamsConfigurado && <p className="text-xs text-amber-700 mt-2">Falta TEAMS_WEBHOOK_URL para poder probar.</p>}
+        {resultadoTeams && (
+          <p className={`text-sm mt-3 ${resultadoTeams.enviado ? 'text-green-700' : 'text-red-700'}`}>
+            {resultadoTeams.enviado
+              ? 'Enviado — revisá el canal de Teams.'
+              : `No se pudo enviar: ${resultadoTeams.motivo}`}
+          </p>
         )}
       </div>
     </div>

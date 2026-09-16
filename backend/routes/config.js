@@ -3,6 +3,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { revisarAlertasRespuestaSiHay } = require('../services/alertasRespuestaWhatsapp');
+const { enviarAlertaTeams } = require('../services/teams');
 
 router.use(authenticate);
 
@@ -426,10 +427,25 @@ router.put('/alertas-respuesta', authorize('administrador', 'jefe_comercial'), a
 // evaluada, para poder ver por qué una en particular no avisó nada.
 router.post('/alertas-respuesta/probar-ahora', authorize('administrador', 'jefe_comercial'), async (req, res) => {
   try {
-    const resultado = await revisarAlertasRespuestaSiHay();
+    const resultado = await revisarAlertasRespuestaSiHay({ manual: true });
     res.json(resultado);
   } catch (err) {
     console.error('[config/alertas-respuesta/probar-ahora]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/config/alertas-respuesta/probar-teams — prueba de conexión
+// aislada: manda un mensaje fijo directo al webhook, sin pasar por ninguna
+// conversación real. Sirve para diagnosticar el Workflow de Teams en sí
+// (URL mal copiada, formato de tarjeta rechazado, etc.) sin depender de que
+// haya un caso real pendiente que dispare el flujo completo.
+router.post('/alertas-respuesta/probar-teams', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const resultado = await enviarAlertaTeams('Prueba de conexión — CRM HidroTecnica', 'Si ves este mensaje en el canal, la conexión con Teams quedó bien configurada.');
+    res.json(resultado);
+  } catch (err) {
+    console.error('[config/alertas-respuesta/probar-teams]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
