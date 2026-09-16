@@ -8,6 +8,19 @@ const DIAS = [
 const opcionVacia = () => ({ label: '', categoria: '' });
 const pasoVacio = () => ({ tiempo_espera_horas: 1, mensaje: '' });
 
+// <input type="time"> nativo no tiene forma estándar de forzar formato 24h —
+// en Chrome lo decide la configuración del sistema operativo, no el idioma
+// de la página (verificado 16-09-2026). Texto con patrón validado en vez de
+// eso: garantiza HH:MM (13:00, 17:00...) sin importar el navegador.
+function InputHora({ value, onChange, required, className = '' }) {
+  return (
+    <input type="text" inputMode="numeric" required={required} placeholder="HH:MM"
+      pattern="([01][0-9]|2[0-3]):[0-5][0-9]" title="Formato 24 horas, ej: 13:00"
+      value={value} onChange={e => onChange(e.target.value)} maxLength={5}
+      className={`border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent ${className}`} />
+  );
+}
+
 export default function ConfigBotWhatsApp() {
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [cargando, setCargando] = useState(true);
@@ -113,13 +126,11 @@ export default function ConfigBotWhatsApp() {
           <div className="flex gap-4">
             <div>
               <label className="block text-sm text-gray-700 mb-1">Hora inicio</label>
-              <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              <InputHora required value={horaInicio} onChange={setHoraInicio} />
             </div>
             <div>
               <label className="block text-sm text-gray-700 mb-1">Hora fin</label>
-              <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+              <InputHora required value={horaFin} onChange={setHoraFin} />
             </div>
           </div>
         </section>
@@ -317,15 +328,12 @@ function ExcepcionesHorario() {
         {form.tipo === 'horario_especial' && (
           <>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Hora inicio</label>
-              <input type="time" value={form.hora_inicio} onChange={e => setForm({ ...form, hora_inicio: e.target.value })}
-                placeholder="Igual al horario normal si se deja vacío"
-                className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <label className="block text-xs text-gray-500 mb-1">Hora inicio (vacío = igual al horario normal)</label>
+              <InputHora value={form.hora_inicio} onChange={v => setForm({ ...form, hora_inicio: v })} />
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1">Hora fin</label>
-              <input type="time" required value={form.hora_fin} onChange={e => setForm({ ...form, hora_fin: e.target.value })}
-                className="border border-gray-300 rounded px-2 py-1.5 text-sm" />
+              <InputHora required value={form.hora_fin} onChange={v => setForm({ ...form, hora_fin: v })} />
             </div>
           </>
         )}

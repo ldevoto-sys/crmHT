@@ -2287,6 +2287,34 @@ async function initDb() {
       hora_fin TIME
     )
   `);
+  // Precarga de los feriados legales de Chile para 2026 (16-09-2026,
+  // investigado vía WebSearch cruzando varias fuentes — Dirección del
+  // Trabajo, Ley 2.977, Ley 20.299 — ante la baja de la API oficial del
+  // Estado). No incluye feriados regionales (solo aplican a comunas
+  // puntuales, no a toda la empresa) ni ningún horario especial de la
+  // empresa (ej. medio día antes de Fiestas Patrias) — eso se agrega a mano
+  // si corresponde, es política interna, no algo que se pueda "investigar".
+  // ON CONFLICT DO NOTHING: si ya se editó o borró una fecha a mano desde
+  // Config, esto no la pisa ni la vuelve a crear.
+  await db.run(`
+    INSERT INTO config_horario_excepciones (fecha, tipo, nombre) VALUES
+      ('2026-01-01', 'feriado', 'Año Nuevo'),
+      ('2026-04-03', 'feriado', 'Viernes Santo'),
+      ('2026-04-04', 'feriado', 'Sábado Santo'),
+      ('2026-05-01', 'feriado', 'Día del Trabajo'),
+      ('2026-05-21', 'feriado', 'Día de las Glorias Navales'),
+      ('2026-06-21', 'feriado', 'Día Nacional de los Pueblos Indígenas'),
+      ('2026-06-29', 'feriado', 'San Pedro y San Pablo'),
+      ('2026-08-15', 'feriado', 'Asunción de la Virgen'),
+      ('2026-09-18', 'feriado', 'Fiestas Patrias'),
+      ('2026-09-19', 'feriado', 'Día de las Glorias del Ejército'),
+      ('2026-10-12', 'feriado', 'Encuentro de Dos Mundos'),
+      ('2026-10-31', 'feriado', 'Día de las Iglesias Evangélicas y Protestantes'),
+      ('2026-11-01', 'feriado', 'Día de Todos los Santos'),
+      ('2026-12-08', 'feriado', 'Inmaculada Concepción'),
+      ('2026-12-25', 'feriado', 'Navidad')
+    ON CONFLICT (fecha) DO NOTHING
+  `);
 
   // Alertas de respuesta por WhatsApp (15-09-2026): cuando un cliente queda
   // sin responder después de que el bot ya lo derivó a un vendedor, escala
