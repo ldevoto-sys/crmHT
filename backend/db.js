@@ -1979,6 +1979,17 @@ async function initDb() {
     )
   `);
 
+  // Cuándo un lead pasó a bot_estado='derivado' (16-09-2026) — hacía falta
+  // para poder alertar leads que categorizaron su necesidad pero a los que
+  // sugerirVendedor() no encontró a quién asignar (quedan en "Cola de
+  // asignación", vendedor_id NULL): ahí no hay ningún mensaje saliente que
+  // sirva de referencia de tiempo (a veces el bot ya mandó la confirmación
+  // automática), así que no se puede reusar el mismo criterio de "último
+  // mensaje sin responder" que el resto de las alertas — se necesita este
+  // timestamp propio. Nullable: los leads derivados antes de esta columna
+  // quedan sin él, no se les puede calcular espera retroactiva.
+  await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS derivado_en TIMESTAMP`);
+
   console.log('[DB] Base de datos lista.');
 }
 

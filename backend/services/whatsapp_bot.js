@@ -10,6 +10,7 @@ const { db } = require('../db');
 const whatsapp = require('./whatsapp');
 const { esHorarioHabil } = require('./horario');
 const mensajes = require('./whatsapp_mensajes');
+const { avisarLeadCerradoPorBot } = require('./alertasRespuestaWhatsapp');
 
 // Avanza todos los leads en flujo de bot cuya próxima acción ya venció:
 // envía el siguiente mensaje de recontacto, o cierra el lead si ya se
@@ -42,6 +43,7 @@ async function avanzarRecontactosPendientes() {
         [lead.id]
       );
       cerrados++;
+      avisarLeadCerradoPorBot(lead).catch(err => console.error('[whatsapp_bot] Error al avisar cierre:', err));
       continue;
     }
 
@@ -57,6 +59,7 @@ async function avanzarRecontactosPendientes() {
         [lead.bot_paso_recontacto + 1, lead.id]
       );
       cerrados++;
+      avisarLeadCerradoPorBot(lead).catch(err => console.error('[whatsapp_bot] Error al avisar cierre:', err));
     } else {
       const siguiente = pasos[lead.bot_paso_recontacto + 1];
       const proximaAccion = new Date(Date.now() + siguiente.tiempo_espera_horas * 3600000);
