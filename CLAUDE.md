@@ -48,7 +48,49 @@ sea la excepción de solo documentación de arriba:
 - Si es una corrección de error, sigue aplicando la regla de horario de
   arriba salvo que sea crítico.
 
-## Pendientes (actualizado 06-09-2026)
+**Excepción puntual (16-09-2026):** Luis Devoto pidió explícitamente
+promover a `main` todo lo acumulado en `staging` **excepto** Cobranza y
+Operaciones ("Arranque de Trabajos") — instrucción específica para esa
+tanda, no un levantamiento general de la regla. Los próximos cambios
+vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
+avise lo contrario otra vez.
+
+## Pendientes (actualizado 16-09-2026)
+
+**Promovido a `main` el 16-09-2026** (instrucción explícita de Luis
+Devoto — ver excepción puntual arriba), commits `ff15bf8`..`b090ddc`:
+- **Postventa**: aviso por correo al encargado al crear un caso nuevo,
+  nombre del cliente con link a su ficha, folio (`PV-000001`), cierre con
+  comentario obligatorio, edición ampliada del caso (título/descripción/
+  producto/negocio de origen/referencia de cotización o venta), y botón
+  **"Generar informe"** (PDF con portada + datos del caso + fotos + tabla
+  de otros adjuntos + cotización vigente del negocio, fusionados con
+  pdf-lib). **Sin la sección de Orden de Trabajo** que tiene en `staging`
+  (commit `e77989c`, adaptado de `9e3195c`) — la OT depende de Arranque de
+  Trabajos, que sigue sin promover; se agrega cuando esa fase se promueva.
+- **Alertas de respuesta WhatsApp**: escalamiento acumulativo vendedor →
+  callcenter → jefe comercial → gerencia cuando un cliente ya derivado
+  queda sin responder (umbrales configurables en `Config → Alertas de
+  respuesta WhatsApp`, horario hábil con feriados/excepciones editables a
+  mano en `Config → Bot de WhatsApp`), aviso por correo y por Microsoft
+  Teams (Workflow — requiere `TEAMS_WEBHOOK_URL` en Railway producción,
+  **falta configurarla** si se quiere el canal Teams ahí; sin ella el
+  sistema sigue funcionando solo por correo). Cubre también leads sin
+  asignar y el cierre automático del bot de recontacto. "Cerrar
+  conversación" apaga la alerta. Buscador de `Config` con alias por
+  palabra clave (no solo el título de cada ítem).
+
+**Lo demás del 06-09-2026 sigue vigente sin cambios** (ver abajo):
+migración de WhatsApp oficial, herramienta de reenvío entre entornos, Ley
+21.719 — todo ya en producción desde antes.
+
+**Cobranza**: sigue en `staging`, explícitamente excluido de la promoción
+de hoy — módulo con desarrollo pendiente.
+
+**Operaciones — "Arranque de Trabajos"**: sigue en `staging`, explícitamente
+excluido de la promoción de hoy. Ver detalle completo de la Fase 1 más abajo.
+
+## Pendientes (histórico, actualizado 06-09-2026)
 
 **Migración del WhatsApp oficial — COMPLETADA (06-09-2026).**
 
