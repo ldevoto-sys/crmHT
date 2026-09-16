@@ -35,7 +35,9 @@ async function enviarAlertaTeams(titulo, texto) {
     if (!resp.ok) {
       const cuerpo = await resp.text().catch(() => '');
       console.error('[teams] Error al enviar aviso:', resp.status, cuerpo);
-      return { enviado: false, motivo: `HTTP ${resp.status}` };
+      // El cuerpo va en el motivo (truncado) para poder ver la causa exacta
+      // desde la pantalla de Config, sin tener que mirar los logs de Railway.
+      return { enviado: false, motivo: `HTTP ${resp.status}${cuerpo ? ` — ${cuerpo.slice(0, 300)}` : ''}` };
     }
     return { enviado: true };
   } catch (e) {

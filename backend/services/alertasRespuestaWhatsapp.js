@@ -150,7 +150,7 @@ async function procesarCandidato(conv, cfg, calcularNivel, ahora) {
     try { await email.alertaSinResponderWhatsapp(usuario, datosCorreo); }
     catch (err) { console.error('[alertasRespuestaWhatsapp] Error correo a', usuario.email, ':', err.message); }
   }
-  await teams.enviarAlertaTeams(
+  const resultadoTeams = await teams.enviarAlertaTeams(
     `WhatsApp sin responder — Nivel ${nivel} (${NIVEL_LABEL[nivel]})`,
     `${nombreCompleto}${conv.empresa_nombre ? ' · ' + conv.empresa_nombre : ''} lleva ${formatoTiempo(minutos)} hábiles ${vendedor ? 'sin respuesta' : 'sin asignar (Cola de asignación)'}.${vendedor ? ` Vendedor: ${conv.vendedor_nombre || '—'}.` : ''}`
   );
@@ -161,14 +161,22 @@ async function procesarCandidato(conv, cfg, calcularNivel, ahora) {
      ON CONFLICT (contacto_id) DO UPDATE SET pendiente_desde=$2, nivel_alertado=$3, actualizado_en=now()`,
     [conv.contacto_id, conv.pendiente_desde, nivel]
   );
-  return { contacto: nombreCompleto, minutosHabiles: minutos, nivel, enviado: true, motivo: `Avisado a ${destinatarios.length} destinatario(s)` };
+  return {
+    contacto: nombreCompleto, minutosHabiles: minutos, nivel, enviado: true,
+    motivo: `Correo: avisado a ${destinatarios.length} destinatario(s). Teams: ${resultadoTeams.enviado ? 'enviado' : `no enviado (${resultadoTeams.motivo})`}`,
+  };
 }
 
 // Devuelve un diagnóstico por conversación evaluada (usado por el botón
-// "Probar ahora" en Config → Alertas de respuesta).
-async function revisarAlertasRespuestaSiHay() {
+// "Probar ahora" en Config → Alertas de respuesta). manual=false (el job
+// programado de server.js) actualiza ultima_revision_automatica, para poder
+// confirmar desde la pantalla que el chequeo de cada 15 min corre de
+// verdad — manual=true (el botón "Probar ahora") no la toca, para no
+// confundir "corrió el job automático" con "alguien lo probó a mano".
+async function revisarAlertasRespuestaSiHay({ manual = false } = {}) {
   const cfg = await db.get('SELECT * FROM config_alertas_respuesta WHERE id = 1');
   if (!cfg || !cfg.activo) return { activo: false, evaluadas: 0, alertadas: 0, detalle: [] };
+  if (!manual) await db.run('UPDATE config_alertas_respuesta SET ultima_revision_automatica = now() WHERE id = 1');
 
   const ahora = new Date();
   const [conVendedor, sinAsignar] = await Promise.all([conversacionesPendientes(), leadsSinAsignar()]);

@@ -1964,6 +1964,11 @@ async function initDb() {
     )
   `);
   await db.run('INSERT INTO config_alertas_respuesta (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
+  // Cuándo corrió el chequeo automático por última vez (16-09-2026) — para
+  // poder confirmar desde la pantalla si el job de cada 15 min está
+  // corriendo de verdad, sin depender de mirar los logs de Railway. Solo lo
+  // actualiza el job programado (server.js), no el botón "Probar ahora".
+  await db.run(`ALTER TABLE config_alertas_respuesta ADD COLUMN IF NOT EXISTS ultima_revision_automatica TIMESTAMP`);
 
   // Estado de escalamiento por conversación — evita re-notificar el mismo
   // nivel dos veces. pendiente_desde identifica la "racha" actual sin
