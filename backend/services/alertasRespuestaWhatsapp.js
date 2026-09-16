@@ -88,24 +88,37 @@ function formatoTiempo(minutos) {
   return horas > 0 ? `${horas} h ${mins} min` : `${mins} min`;
 }
 
+// Devuelve un diagnóstico por conversación evaluada (usado por el botón
+// "Probar ahora" en Config → Alertas de respuesta, para que se pueda ver
+// por qué una conversación puntual no disparó nada — ej. todavía no cruza
+// ningún umbral, o ese nivel ya se avisó para esta racha — sin tener que
+// mirar los logs de Railway).
 async function revisarAlertasRespuestaSiHay() {
   const cfg = await db.get('SELECT * FROM config_alertas_respuesta WHERE id = 1');
-  if (!cfg || !cfg.activo) return;
+  if (!cfg || !cfg.activo) return { activo: false, evaluadas: 0, alertadas: 0, detalle: [] };
 
   const pendientes = await conversacionesPendientes();
   const ahora = new Date();
+  const detalle = [];
+  let alertadas = 0;
 
   for (const conv of pendientes) {
+    const nombreCompleto = `${conv.contacto_nombre} ${conv.contacto_apellido || ''}`.trim();
     const minutos = await minutosHabilesEntre(new Date(conv.pendiente_desde), ahora);
     const nivel = nivelParaMinutos(minutos, cfg);
-    if (nivel === 0) continue;
+    if (nivel === 0) {
+      detalle.push({ contacto: nombreCompleto, minutosHabiles: minutos, nivel: 0, enviado: false, motivo: 'Todavía no cruza el umbral del nivel 1' });
+      continue;
+    }
 
     const estado = await db.get('SELECT * FROM whatsapp_alertas_respuesta WHERE contacto_id = $1', [conv.contacto_id]);
     const esRachaNueva = !estado || new Date(estado.pendiente_desde).getTime() !== new Date(conv.pendiente_desde).getTime();
     const nivelAlertado = esRachaNueva ? 0 : estado.nivel_alertado;
-    if (nivel <= nivelAlertado) continue; // ya se avisó este nivel (o uno mayor) para esta racha
+    if (nivel <= nivelAlertado) {
+      detalle.push({ contacto: nombreCompleto, minutosHabiles: minutos, nivel, enviado: false, motivo: `Nivel ${nivel} ya avisado para esta racha` });
+      continue;
+    }
 
-    const nombreCompleto = `${conv.contacto_nombre} ${conv.contacto_apellido || ''}`.trim();
     const destinatarios = await destinatariosNivel(nivel, { nombre: conv.vendedor_nombre, email: conv.vendedor_email });
     const datosCorreo = {
       nivel, nivelLabel: NIVEL_LABEL[nivel], contactoNombre: nombreCompleto, empresaNombre: conv.empresa_nombre,
@@ -119,6 +132,8 @@ async function revisarAlertasRespuestaSiHay() {
       `WhatsApp sin responder — Nivel ${nivel} (${NIVEL_LABEL[nivel]})`,
       `${nombreCompleto}${conv.empresa_nombre ? ' · ' + conv.empresa_nombre : ''} lleva ${formatoTiempo(minutos)} hábiles sin respuesta. Vendedor: ${conv.vendedor_nombre || '—'}.`
     );
+    alertadas++;
+    detalle.push({ contacto: nombreCompleto, minutosHabiles: minutos, nivel, enviado: true, motivo: `Avisado a ${destinatarios.length} destinatario(s)` });
 
     await db.run(
       `INSERT INTO whatsapp_alertas_respuesta (contacto_id, pendiente_desde, nivel_alertado, actualizado_en)
@@ -127,6 +142,8 @@ async function revisarAlertasRespuestaSiHay() {
       [conv.contacto_id, conv.pendiente_desde, nivel]
     );
   }
+
+  return { activo: true, evaluadas: pendientes.length, alertadas, detalle };
 }
 
 module.exports = { revisarAlertasRespuestaSiHay };

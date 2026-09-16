@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
+const { revisarAlertasRespuestaSiHay } = require('../services/alertasRespuestaWhatsapp');
 
 router.use(authenticate);
 
@@ -414,6 +415,21 @@ router.put('/alertas-respuesta', authorize('administrador', 'jefe_comercial'), a
     res.json({ message: 'Configuración actualizada' });
   } catch (err) {
     console.error('[config/alertas-respuesta PUT]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/config/alertas-respuesta/probar-ahora — dispara la revisión
+// fuera de su ciclo de 15 min (el job normal recién corre 15 min después de
+// cada reinicio del servidor, no apenas arranca — este botón es para no
+// tener que esperar eso al probar). Devuelve el detalle por conversación
+// evaluada, para poder ver por qué una en particular no avisó nada.
+router.post('/alertas-respuesta/probar-ahora', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+  try {
+    const resultado = await revisarAlertasRespuestaSiHay();
+    res.json(resultado);
+  } catch (err) {
+    console.error('[config/alertas-respuesta/probar-ahora]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
