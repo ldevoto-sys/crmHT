@@ -72,6 +72,41 @@ async function enviarPostventaVencidosSiHay(hoy = fechaChileHoy()) {
   return { enviados, casos: casos.length };
 }
 
+// Aviso al crear un caso nuevo (15-09-2026) — mismos destinatarios que el
+// aviso de vencidos (quien gestiona Postventa + línea de mando comercial).
+// Se llama desde routes/postventa.js justo después de crear el caso, sin
+// bloquear la respuesta al usuario que lo creó. Recibe el id (no la fila
+// cruda del INSERT) porque el correo necesita el nombre del cliente, que
+// esa fila no trae — se vuelve a consultar con el join correspondiente.
+async function enviarAvisoCasoNuevo(casoId) {
+  const caso = await db.get(
+    `SELECT cp.id, cp.folio, cp.titulo, cp.prioridad,
+            coalesce(e.razon_social, trim(c.nombre || ' ' || coalesce(c.apellido, ''))) AS cliente_nombre
+     FROM casos_postventa cp
+     JOIN contactos c ON c.id = cp.contacto_id
+     LEFT JOIN empresas e ON e.id = cp.empresa_id
+     WHERE cp.id = $1`,
+    [casoId]
+  );
+  if (!caso) return { enviados: 0 };
+
+  const usuarios = await destinatarios();
+  if (!usuarios.length) {
+    console.warn('[postventaVencidos] Caso nuevo sin destinatarios configurados; no se envía aviso.');
+    return { enviados: 0 };
+  }
+  let enviados = 0;
+  for (const usuario of usuarios) {
+    try {
+      const resultado = await email.postventaCasoNuevo(usuario, caso);
+      if (resultado.enviado) enviados++;
+    } catch (err) {
+      console.error(`[postventaVencidos] Error avisando caso nuevo a ${usuario.email}:`, err.message);
+    }
+  }
+  return { enviados };
+}
+
 // Llamado desde el chequeo horario de server.js: dispara solo entre las
 // 8:30 y las 8:44 hora de Chile (el chequeo corre cada 15 min, así que cae
 // en algún punto de esa ventana), y solo una vez por día.
@@ -94,4 +129,4 @@ async function enviarPostventaVencidosSiCorresponde() {
   await db.run('INSERT INTO postventa_vencidos_envios (fecha) VALUES ($1) ON CONFLICT (fecha) DO NOTHING', [hoy]);
 }
 
-module.exports = { enviarPostventaVencidosSiHay, enviarPostventaVencidosSiCorresponde, casosVencidos, fechaChileHoy };
+module.exports = { enviarPostventaVencidosSiHay, enviarPostventaVencidosSiCorresponde, enviarAvisoCasoNuevo, casosVencidos, fechaChileHoy };

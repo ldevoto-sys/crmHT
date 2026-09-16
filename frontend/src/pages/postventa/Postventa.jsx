@@ -36,6 +36,8 @@ export default function Postventa() {
   const [showNuevo, setShowNuevo] = useState(false);
   const [detalle, setDetalle] = useState(null); // caso abierto en el panel lateral
   const [filtroSla, setFiltroSla] = useState('todos'); // todos | vencido | proximo
+  const [modalCierre, setModalCierre] = useState(null); // {caso, etapa} — mover a etapa terminal
+  const [comentarioCierre, setComentarioCierre] = useState('');
 
   const cargar = async () => {
     try { setCasos((await api.get('/postventa')).data); }
@@ -55,8 +57,25 @@ export default function Postventa() {
 
   const mover = async (caso, etapa) => {
     if (!puedeGestionar || caso.etapa_id === etapa.id) return;
+    // Etapas terminales (Resuelto/Rechazado) exigen dejar por escrito qué se
+    // hizo o por qué se rechaza — se pide antes de confirmar el cambio, no
+    // después, para que no quede un caso cerrado sin comentario.
+    if (etapa.tipo === 'resuelto' || etapa.tipo === 'rechazado') {
+      setModalCierre({ caso, etapa }); setComentarioCierre('');
+      return;
+    }
     try { await api.put(`/postventa/${caso.id}/etapa`, { etapa_id: etapa.id }); cargar(); }
     catch (err) { setError(err.response?.data?.error || 'No se pudo cambiar la etapa.'); }
+  };
+
+  const confirmarCierre = async () => {
+    if (!comentarioCierre.trim()) return;
+    try {
+      await api.put(`/postventa/${modalCierre.caso.id}/etapa`, {
+        etapa_id: modalCierre.etapa.id, comentario_cierre: comentarioCierre.trim(),
+      });
+      setModalCierre(null); cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo cerrar el caso.'); }
   };
 
   const onDrop = etapa => {
@@ -146,6 +165,23 @@ export default function Postventa() {
           puedeSubir={puedeGestionar || detalle.creado_por_id === user?.id} tecnicos={tecnicos}
           onClose={() => setDetalle(null)} onGuardar={guardarGestion} />
       )}
+
+      {modalCierre && (
+        <Modal onClose={() => setModalCierre(null)}>
+          <h2 className="font-semibold text-ht-navy text-lg mb-1">Cerrar caso — {modalCierre.etapa.nombre}</h2>
+          <p className="text-sm text-gray-500 mb-3">
+            Cuenta qué se hizo (o por qué se rechaza) antes de mover "{modalCierre.caso.titulo}" a "{modalCierre.etapa.nombre}".
+          </p>
+          <textarea required rows={4} value={comentarioCierre} onChange={e => setComentarioCierre(e.target.value)}
+            placeholder="Qué se hizo / motivo del rechazo…"
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          <div className="flex gap-2">
+            <button onClick={confirmarCierre} disabled={!comentarioCierre.trim()}
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">Confirmar</button>
+            <button onClick={() => setModalCierre(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -157,7 +193,10 @@ function TarjetaCaso({ c, etapas, etapaActualId, puedeGestionar, onDragStart, on
     <div draggable={puedeGestionar} onDragStart={() => onDragStart(c)}
       onClick={() => onClick(c)}
       className={`bg-white rounded-md border border-gray-200 ${estilo.borde} p-3 hover:border-ht-accent cursor-pointer ${puedeGestionar ? 'cursor-move' : ''}`}>
-      <div className="text-sm font-medium text-ht-navy">{c.titulo}</div>
+      <div className="flex items-baseline justify-between gap-2">
+        <div className="text-sm font-medium text-ht-navy">{c.titulo}</div>
+        {c.folio && <div className="text-[10px] font-mono text-gray-400 flex-shrink-0">{c.folio}</div>}
+      </div>
       <div className="text-xs text-gray-500 mt-1">{c.contacto_nombre} {c.contacto_apellido}{c.empresa_nombre ? ` · ${c.empresa_nombre}` : ''}</div>
       {c.producto_nombre && <div className="text-xs text-gray-400">{c.producto_nombre}</div>}
       <div className="flex items-center justify-between mt-2">
@@ -382,28 +421,121 @@ function NuevoCaso({ negocioIdInicial, onClose, onCreado }) {
 }
 
 function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGuardar }) {
+  const [titulo, setTitulo] = useState(caso.titulo);
+  const [descripcion, setDescripcion] = useState(caso.descripcion || '');
   const [prioridad, setPrioridad] = useState(caso.prioridad);
   const [tecnicoId, setTecnicoId] = useState(caso.tecnico_asignado_id || '');
   const [fechaLimite, setFechaLimite] = useState(caso.fecha_limite_respuesta ? caso.fecha_limite_respuesta.slice(0, 10) : '');
+  const [referenciaCotVenta, setReferenciaCotVenta] = useState(caso.referencia_cotizacion_venta || '');
+
+  const [productoQ, setProductoQ] = useState(''); const [productos, setProductos] = useState([]);
+  const [productoSel, setProductoSel] = useState(caso.producto_id ? { id: caso.producto_id, nombre: caso.producto_nombre } : null);
+  const buscarProducto = async val => {
+    setProductoQ(val);
+    if (val.length < 2) { setProductos([]); return; }
+    try { setProductos((await api.get('/productos', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
+  };
+
+  const [negocioQ, setNegocioQ] = useState(''); const [negociosResultados, setNegociosResultados] = useState([]);
+  const [negocioSel, setNegocioSel] = useState(caso.negocio_id ? { id: caso.negocio_id, titulo: caso.negocio_titulo } : null);
+  const buscarNegocio = async val => {
+    setNegocioQ(val);
+    if (val.length < 2) { setNegociosResultados([]); return; }
+    try { setNegociosResultados((await api.get('/negocios', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
+  };
 
   return (
     <Modal onClose={onClose}>
-      <h2 className="font-semibold text-ht-navy text-lg mb-1">{caso.titulo}</h2>
-      <p className="text-xs text-gray-400 mb-3">{caso.negocio_id ? `Venta de origen: ${caso.negocio_titulo}` : 'Sin venta previa asociada'}</p>
+      <div className="flex items-baseline justify-between mb-1">
+        <h2 className="font-semibold text-ht-navy text-lg">{caso.titulo}</h2>
+        {caso.folio && <span className="text-xs font-mono text-gray-400">{caso.folio}</span>}
+      </div>
       {caso.descripcion && <p className="text-sm text-gray-600 mb-3">{caso.descripcion}</p>}
       <dl className="grid grid-cols-2 gap-2 text-sm mb-4">
-        <div><dt className="text-xs text-gray-500">Contacto</dt><dd className="text-ht-navy">{caso.contacto_nombre} {caso.contacto_apellido}</dd></div>
+        <div>
+          <dt className="text-xs text-gray-500">Contacto</dt>
+          <dd><Link to={`/contactos/${caso.contacto_id}`} className="text-ht-accent hover:underline">{caso.contacto_nombre} {caso.contacto_apellido}</Link></dd>
+        </div>
         <div><dt className="text-xs text-gray-500">Empresa</dt><dd className="text-ht-navy">{caso.empresa_nombre || '—'}</dd></div>
-        <div><dt className="text-xs text-gray-500">Equipo</dt><dd className="text-ht-navy">{caso.producto_nombre || '—'}</dd></div>
         <div><dt className="text-xs text-gray-500">Detalle equipo</dt><dd className="text-ht-navy">{caso.detalle_equipo || '—'}</dd></div>
         <div><dt className="text-xs text-gray-500">Creado por</dt><dd className="text-ht-navy">{caso.creado_por_nombre}</dd></div>
         <div><dt className="text-xs text-gray-500">Etapa</dt><dd className="text-ht-navy">{caso.etapa_nombre}</dd></div>
+        {caso.comentario_cierre && (
+          <div className="col-span-2"><dt className="text-xs text-gray-500">Comentario de cierre</dt><dd className="text-ht-navy">{caso.comentario_cierre}</dd></div>
+        )}
       </dl>
 
       <AdjuntosCaso casoId={caso.id} puedeSubir={puedeSubir} puedeGestionar={puedeGestionar} />
 
       {puedeGestionar ? (
         <div className="space-y-3 border-t border-gray-100 pt-3">
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Título</label>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Descripción</label>
+            <textarea rows={3} value={descripcion} onChange={e => setDescripcion(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">Producto / equipo</label>
+            {productoSel ? (
+              <div className="flex items-center justify-between border border-gray-300 rounded px-3 py-2 text-sm">
+                <span>{productoSel.nombre}</span>
+                <button type="button" onClick={() => setProductoSel(null)} className="text-ht-accent text-xs hover:underline">cambiar</button>
+              </div>
+            ) : (
+              <>
+                <input value={productoQ} onChange={e => buscarProducto(e.target.value)} placeholder="Buscar producto…"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                {productos.length > 0 && (
+                  <div className="border border-gray-200 rounded mt-1 max-h-32 overflow-y-auto">
+                    {productos.map(p => (
+                      <button type="button" key={p.id} onClick={() => { setProductoSel(p); setProductos([]); setProductoQ(''); }}
+                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50">{p.nombre}</button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-sm text-gray-700">Venta de origen</label>
+              {negocioSel && (
+                <button type="button" onClick={() => setNegocioSel(null)} className="text-red-500 text-xs hover:underline">Quitar venta asociada</button>
+              )}
+            </div>
+            {negocioSel ? (
+              <div className="flex items-center justify-between border border-gray-300 rounded px-3 py-2 text-sm">
+                <span>{negocioSel.titulo}</span>
+                <button type="button" onClick={() => setNegocioSel(null)} className="text-ht-accent text-xs hover:underline">cambiar</button>
+              </div>
+            ) : (
+              <>
+                <input value={negocioQ} onChange={e => buscarNegocio(e.target.value)} placeholder="Buscar negocio por título, cliente o empresa…"
+                  className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                {negociosResultados.length > 0 && (
+                  <div className="border border-gray-200 rounded mt-1 max-h-32 overflow-y-auto">
+                    {negociosResultados.map(nd => (
+                      <button type="button" key={nd.id} onClick={() => { setNegocioSel(nd); setNegociosResultados([]); setNegocioQ(''); }}
+                        className="block w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50">
+                        {nd.titulo} <span className="text-gray-400">· {nd.contacto_nombre} {nd.contacto_apellido || ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm text-gray-700 mb-1">N° cotización o venta (referencia libre)</label>
+            <input value={referenciaCotVenta} onChange={e => setReferenciaCotVenta(e.target.value)}
+              placeholder="Ej: cotización antigua sin registro en el CRM"
+              className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+          </div>
           <div>
             <label className="block text-sm text-gray-700 mb-1">Prioridad</label>
             <select value={prioridad} onChange={e => setPrioridad(e.target.value)}
@@ -424,11 +556,14 @@ function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGu
             <input type="date" value={fechaLimite} onChange={e => setFechaLimite(e.target.value)}
               className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           </div>
-          <button onClick={() => onGuardar(caso, { prioridad, tecnico_asignado_id: tecnicoId || null, fecha_limite_respuesta: fechaLimite || null })}
-            className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
+          <button onClick={() => onGuardar(caso, {
+            titulo, descripcion: descripcion || null, producto_id: productoSel?.id || null,
+            negocio_id: negocioSel?.id || null, referencia_cotizacion_venta: referenciaCotVenta || null,
+            prioridad, tecnico_asignado_id: tecnicoId || null, fecha_limite_respuesta: fechaLimite || null,
+          })} className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90">Guardar</button>
         </div>
       ) : (
-        <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Solo el encargado de postventa puede editar prioridad, técnico y SLA.</p>
+        <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Solo el encargado de postventa puede editar el caso.</p>
       )}
 
       <div className="mt-3 flex items-center justify-between">
