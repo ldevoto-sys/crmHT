@@ -223,4 +223,113 @@ async function generarCotizacionPDFBuffer(data) {
   return listo;
 }
 
-module.exports = { generarCotizacionPDF, generarCotizacionPDFBuffer };
+const TIPO_ADJUNTO_LABEL = {
+  foto_cliente: 'Foto cliente', video_cliente: 'Video cliente', informe_tecnico: 'Informe técnico', otro: 'Otro',
+};
+
+// Portada + datos del caso + adjuntos del informe de Postventa (15-09-2026).
+// La cotización y los adjuntos que sean PDF NO se dibujan acá — se fusionan
+// aparte como páginas completas con pdf-lib (ver routes/postventa.js, PDFKit
+// no puede importar páginas de un PDF ya existente). Esta función solo
+// genera la parte "propia" del informe: portada + fotos incrustadas + tabla
+// de los demás adjuntos (los que no se pueden ni incrustar como imagen ni
+// fusionar como PDF, ej. video — el formato PDF no lo admite de ninguna
+// forma, quedan solo listados para bajarlos aparte desde el caso).
+async function generarInformePostventaPDF(data, stream) {
+  const { caso, fotos = [], otrosAdjuntos = [] } = data;
+  const doc = new PDFDocument({ size: 'A4', margin: 0 });
+  doc.pipe(stream);
+  const M = 40;
+
+  doc.rect(0, 0, 595, 96).fill(NAVY);
+  if (fs.existsSync(LOGO)) { try { doc.image(LOGO, M, 20, { height: 30 }); } catch { /* opcional */ } }
+  doc.fillColor(CYAN).fontSize(18).font('Helvetica-Bold').text('INFORME DE POSTVENTA', 200, 22, { width: 355, align: 'right' });
+  doc.fillColor('#fff').fontSize(11).font('Helvetica-Bold').text(caso.folio || `Caso #${caso.id}`, 200, 46, { width: 355, align: 'right' });
+  doc.rect(0, 96, 595, 4).fill(CYAN);
+
+  let y = 116;
+  doc.fillColor(NAVY).fontSize(13).font('Helvetica-Bold').text(caso.titulo, M, y, { width: 515 });
+  y += doc.heightOfString(caso.titulo, { width: 515 }) + 12;
+
+  const nombreCliente = caso.empresa_nombre || `${caso.contacto_nombre || ''} ${caso.contacto_apellido || ''}`.trim();
+  const campo = (label, valor) => {
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(label, M, y, { width: 150 });
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(NAVY).text(valor || '—', M + 150, y, { width: 365 });
+    y += Math.max(14, doc.heightOfString(valor || '—', { width: 365 }) + 4);
+  };
+  campo('Cliente', nombreCliente);
+  campo('Producto / equipo', caso.producto_nombre);
+  campo('Detalle equipo', caso.detalle_equipo);
+  campo('Prioridad', caso.prioridad);
+  campo('Etapa', caso.etapa_nombre);
+  campo('Creado por', caso.creado_por_nombre);
+  campo('Técnico asignado', caso.tecnico_nombre);
+  campo('Fecha límite de respuesta', caso.fecha_limite_respuesta ? fechaCorta(caso.fecha_limite_respuesta) : null);
+  campo('Fecha de cierre', caso.fecha_cierre ? fechaCorta(caso.fecha_cierre) : null);
+  campo('Venta de origen', caso.negocio_titulo);
+  campo('N° cotización o venta (referencia)', caso.referencia_cotizacion_venta);
+
+  if (caso.descripcion) {
+    y += 8;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('DESCRIPCIÓN', M, y);
+    y += 14;
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(caso.descripcion, M, y, { width: 515 });
+    y += doc.heightOfString(caso.descripcion, { width: 515 }) + 12;
+  }
+  if (caso.comentario_cierre) {
+    y += 8;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('COMENTARIO DE CIERRE', M, y);
+    y += 14;
+    doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(caso.comentario_cierre, M, y, { width: 515 });
+    y += doc.heightOfString(caso.comentario_cierre, { width: 515 }) + 12;
+  }
+
+  if (otrosAdjuntos.length) {
+    if (y > 680) { doc.addPage(); y = 40; }
+    y += 8;
+    doc.font('Helvetica-Bold').fontSize(9).fillColor(CYAN).text('OTROS ADJUNTOS (descárgalos desde el caso en el CRM)', M, y, { width: 515 });
+    y += 16;
+    otrosAdjuntos.forEach(a => {
+      if (y > 780) { doc.addPage(); y = 40; }
+      const linea = `${TIPO_ADJUNTO_LABEL[a.tipo] || 'Otro'} — ${a.archivo_nombre || 'archivo'} · subido por ${a.subido_por_nombre || 'sistema'} · ${fechaCorta(a.created_at)}`;
+      doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(linea, M, y, { width: 515 });
+      y += doc.heightOfString(linea, { width: 515 }) + 6;
+    });
+  }
+
+  // Cada foto en su propia página, a tamaño legible, con pie de foto.
+  for (const foto of fotos) {
+    doc.addPage();
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(NAVY).text(foto.archivo_nombre || 'Foto', M, 40, { width: 515 });
+    try {
+      doc.image(foto.buffer, M, 64, { fit: [515, 650], align: 'center' });
+    } catch {
+      doc.font('Helvetica').fontSize(9).fillColor(GRAY).text('No se pudo incrustar esta imagen.', M, 64);
+    }
+    doc.font('Helvetica').fontSize(8).fillColor(GRAY)
+      .text(`Subido por ${foto.subido_por_nombre || 'sistema'} · ${fechaCorta(foto.created_at)}`, M, 730, { width: 515 });
+  }
+
+  doc.end();
+}
+
+// Como Buffer — el informe de Postventa siempre se arma completo en memoria
+// antes de responder (routes/postventa.js necesita fusionarlo con pdf-lib
+// junto a la cotización/adjuntos PDF, no puede pipear directo a la
+// respuesta como sí hace generarCotizacionPDF).
+async function generarInformePostventaPDFBuffer(data) {
+  const stream = new PassThrough();
+  const chunks = [];
+  stream.on('data', chunk => chunks.push(chunk));
+  const listo = new Promise((resolve, reject) => {
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+  await generarInformePostventaPDF(data, stream);
+  return listo;
+}
+
+module.exports = {
+  generarCotizacionPDF, generarCotizacionPDFBuffer,
+  generarInformePostventaPDF, generarInformePostventaPDFBuffer,
+};

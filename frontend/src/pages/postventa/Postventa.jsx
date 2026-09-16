@@ -444,6 +444,17 @@ function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGu
     try { setNegociosResultados((await api.get('/negocios', { params: { q: val } })).data.slice(0, 8)); } catch { /* */ }
   };
 
+  const [errorInforme, setErrorInforme] = useState('');
+  const [generandoInforme, setGenerandoInforme] = useState(false);
+  const generarInforme = async () => {
+    setErrorInforme(''); setGenerandoInforme(true);
+    try {
+      const { data } = await api.get(`/postventa/${caso.id}/informe-pdf`, { responseType: 'blob' });
+      window.open(URL.createObjectURL(data), '_blank');
+    } catch { setErrorInforme('No se pudo generar el informe.'); }
+    finally { setGenerandoInforme(false); }
+  };
+
   return (
     <Modal onClose={onClose}>
       <div className="flex items-baseline justify-between mb-1">
@@ -566,11 +577,18 @@ function DetalleCaso({ caso, puedeGestionar, puedeSubir, tecnicos, onClose, onGu
         <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">Solo el encargado de postventa puede editar el caso.</p>
       )}
 
-      <div className="mt-3 flex items-center justify-between">
+      {errorInforme && <div className="mt-3 text-xs text-red-600">{errorInforme}</div>}
+      <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
         {caso.negocio_id ? (
           <Link to={`/negocios/${caso.negocio_id}`} className="text-sm text-ht-accent hover:underline">Ver negocio de origen →</Link>
         ) : <span />}
-        <Link to={`/despacho?caso_postventa_id=${caso.id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={generarInforme} disabled={generandoInforme}
+            className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5 disabled:opacity-50">
+            {generandoInforme ? 'Generando…' : 'Generar informe'}
+          </button>
+          <Link to={`/despacho?caso_postventa_id=${caso.id}`} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">Crear despacho</Link>
+        </div>
       </div>
     </Modal>
   );
