@@ -409,18 +409,45 @@ module.exports = {
     const minutos = datos.minutosHabiles % 60;
     const tiempo = horas > 0 ? `${horas} h ${minutos} min` : `${minutos} min`;
     const colorNivel = { 1: '#34B3DE', 2: '#f59e0b', 3: '#f97316', 4: '#b91c1c' }[datos.nivel] || '#f59e0b';
+    // sinAsignar (16-09-2026): el bot categorizó al cliente pero no encontró
+    // vendedor a quien asignarlo — queda en la Cola de asignación en vez de
+    // en la Bandeja de un vendedor puntual, así que el texto y el link
+    // cambian (services/alertasRespuestaWhatsapp.js#leadsSinAsignar).
     return enviar(
       usuario.email,
-      `WhatsApp sin responder (${tiempo} hábiles) — ${datos.contactoNombre}`,
-      template('Cliente sin responder por WhatsApp', `
+      `WhatsApp ${datos.sinAsignar ? 'sin asignar' : 'sin responder'} (${tiempo} hábiles) — ${datos.contactoNombre}`,
+      template(datos.sinAsignar ? 'Cliente esperando asignación' : 'Cliente sin responder por WhatsApp', `
         <p>Hola <strong>${usuario.nombre}</strong>,</p>
         <p style="color:${colorNivel}; font-weight:bold; font-size:15px;">
-          Nivel ${datos.nivel} — ${datos.nivelLabel}: ${tiempo} hábiles sin respuesta.
+          Nivel ${datos.nivel} — ${datos.nivelLabel}: ${tiempo} hábiles ${datos.sinAsignar ? 'esperando en la Cola de asignación' : 'sin respuesta'}.
         </p>
         <p><strong>${datos.contactoNombre}</strong>${datos.empresaNombre ? ` · ${datos.empresaNombre}` : ''}</p>
-        <p style="color:#555555; font-size:13px;">Vendedor asignado: ${datos.vendedorNombre || '— sin asignar —'}</p>
+        ${datos.sinAsignar
+          ? `<p style="color:#555555; font-size:13px;">Categorizó su necesidad por WhatsApp, pero no se pudo asignar automáticamente a ningún vendedor.</p>`
+          : `<p style="color:#555555; font-size:13px;">Vendedor asignado: ${datos.vendedorNombre || '— sin asignar —'}</p>`}
         ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${datos.ultimoMensaje}"</p>` : ''}
-        ${boton(`${APP_URL}/bandeja?contacto_id=${datos.contactoId}`, 'Ver conversación')}
+        ${datos.sinAsignar
+          ? boton(`${APP_URL}/cola`, 'Ver Cola de asignación')
+          : boton(`${APP_URL}/bandeja?contacto_id=${datos.contactoId}`, 'Ver conversación')}
+      `)
+    );
+  },
+
+  // Aviso único (no escalada) cuando el bot cierra un lead solo porque el
+  // cliente nunca respondió la categorización, tras agotar los reintentos
+  // configurados (services/whatsapp_bot.js) — para que quede registro de que
+  // se perdió el contacto, en vez de desaparecer en silencio.
+  alertaLeadCerradoSinRespuesta: (usuario, datos) => {
+    return enviar(
+      usuario.email,
+      `Lead cerrado sin respuesta del cliente — ${datos.contactoNombre}`,
+      template('Se cerró un contacto sin respuesta', `
+        <p>Hola <strong>${usuario.nombre}</strong>,</p>
+        <p style="color:#b91c1c; font-weight:bold; font-size:15px;">
+          El bot de WhatsApp cerró este contacto: nunca respondió a la categorización, tras agotar los reintentos.
+        </p>
+        <p><strong>${datos.contactoNombre}</strong>${datos.empresaNombre ? ` · ${datos.empresaNombre}` : ''}</p>
+        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${datos.ultimoMensaje}"</p>` : ''}
       `)
     );
   },

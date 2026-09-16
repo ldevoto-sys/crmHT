@@ -317,12 +317,15 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       if (sug.vendedor_id) {
         await db.run(
           `UPDATE leads SET estado='asignado', vendedor_id=$1, vendedor_sugerido_id=$1, asignacion_modo='automatica_apertura',
-                  bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$2`,
+                  bot_estado='derivado', bot_proxima_accion=NULL, derivado_en=now() WHERE id=$2`,
           [sug.vendedor_id, lead.id]
         );
       } else {
+        // Sin candidato: el lead queda 'nuevo' esperando en la Cola de
+        // asignación — derivado_en marca desde cuándo, para poder alertar si
+        // nadie lo toma (services/alertasRespuestaWhatsapp.js).
         await db.run(
-          `UPDATE leads SET vendedor_sugerido_id=NULL, bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$1`,
+          `UPDATE leads SET vendedor_sugerido_id=NULL, bot_estado='derivado', bot_proxima_accion=NULL, derivado_en=now() WHERE id=$1`,
           [lead.id]
         );
       }
