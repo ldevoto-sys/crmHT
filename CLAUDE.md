@@ -55,7 +55,84 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
-## Pendientes (actualizado 16-09-2026)
+## Pendientes (actualizado 23-09-2026)
+
+**Promoción a `main` del 23-09-2026 — primer intento falló, producción
+quedó caída ~15 minutos, revertida y vuelta a promover con la causa
+corregida.** Instrucción explícita de Luis Devoto, fuera de horario — "un
+solo gran paso, dejando afuera Cobranza y Órdenes de Trabajo".
+
+- **Primer intento** (commits `e0038bc`..`026ff3f`): después del push,
+  Dashboard, Cotizaciones y Reportería dejaron de cargar ("Error interno"
+  / "No se pudo cargar") — afectaba **cualquier** llamada autenticada a
+  la API. Revertido de inmediato (PR #1, commits `b539d96`+merge) para
+  restablecer el servicio.
+- **Causa raíz**: al armar la promoción se excluyó correctamente la
+  columna `users.es_encargado_cobranza` de la migración (es de Cobranza,
+  que sigue sin promover) revisando archivo por archivo los que la
+  mencionaban — pero `backend/middleware/auth.js` no estaba en esa lista
+  de revisión manual (se copió tal cual desde `staging`, se asumió
+  "limpio") y seguía consultando esa columna en **cada** request
+  autenticado (caché de 60s de rol/estado del usuario, auditoría
+  23-09-2026 M-M2). Sin la columna, esa consulta fallaba siempre → toda
+  la API devolvía 500.
+- **Lección**: la clasificación "archivo limpio, se copia tal cual" se
+  basó en si el archivo *tenía cambios* de Cobranza/OT en su diff, no en
+  si *dependía en tiempo de ejecución* de algo que Cobranza/OT agregan en
+  otro archivo (acá, una columna que agrega `db.js`). La prueba previa a
+  promover (`initDb()` contra Postgres real) tampoco lo detectó porque
+  solo validó que la migración corriera sin error — no que cada endpoint
+  autenticado respondiera después. Corregido y confirmado esta vez
+  probando el flujo completo: servidor real + Postgres real + token real
+  contra `/api/negocios`, `/api/cotizaciones`, `/api/reportes/actividad-mes`
+  y `/api/reportes/whatsapp/resumen-mensual`, los cuatro en 200.
+- **Segunda promoción** (commits `e0038bc`, `c1907c0`, `0c65aa5`,
+  `b4b0714` + fix `d472d27`, mismo contenido que el primer intento más el
+  fix de `middleware/auth.js`):
+- **Seguridad** (auditoría 23-09-2026): errores no capturados que
+  tumbaban el servidor, whitelist de tipo de adjunto + descarga forzada
+  a "attachment" (evita XSS por HTML/SVG), rol BI acotado a columnas no
+  sensibles de `users`, huecos de permisos entre vendedores (notas,
+  tareas, leads, negocios), acceso total a la Bandeja restringido por
+  rol, `must_change_password` exigido también en el backend, token de
+  reset de contraseña con hash, inyección HTML en informes/emails desde
+  WhatsApp, inyección de fórmulas en CSV, comparación de API keys en
+  tiempo constante, firma de webhook de WhatsApp con fallo cerrado si
+  falta el secreto, guardia SSRF en descarga de imágenes para PDF. Ver
+  `docs/HT-AP-03-nota-cambio-v1.36.md` (incluye también lo de Cobranza,
+  que **no** se promovió).
+- **WhatsApp — tiempo de respuesta por vendedor**: cada mensaje guarda
+  el timestamp real de Meta (antes solo se aproximaba con el mensaje más
+  reciente de toda la bandeja). Reporte nuevo (tramo cuenta desde el
+  primer mensaje del cliente sin responder, no el último), calculado
+  cada noche a las 23:50 hora Chile más botón "Actualizar" a pedido, sin
+  backfill histórico (solo hacia adelante desde hoy). Pestaña "WhatsApp"
+  nueva en Reportería (resumen mensual, por vendedor, conversaciones
+  abiertas ahora con link directo a la Bandeja en pestaña nueva),
+  expuesto también vía `GET /api/v1/reportes/:tipo` para Cowork.
+- **WhatsApp — plantilla desde la ficha de contacto**: se puede reabrir
+  conversación con la plantilla de seguimiento desde Contactos o la
+  ficha del contacto, sin necesitar un lead o conversación previa.
+- **Sincronización de vendedor**: reasignar el vendedor de un contacto
+  ahora sincroniza también su lead más reciente y sus negocios abiertos
+  (los cerrados, ganados o perdidos, nunca se tocan); y viceversa desde
+  el lead. Corrige el bug reportado del selector "Asignado a" que no
+  funcionaba en conversaciones cerradas. Ver
+  `docs/HT-AP-03-nota-cambio-v1.37.md`.
+
+**Cobranza**: sigue en `staging`, explícitamente excluida de esta
+promoción — módulo con desarrollo pendiente (incluye las correcciones de
+la auditoría 23-09-2026 específicas de Cobranza: conciliación
+transaccional, tope de redondeo).
+
+**Operaciones — "Arranque de Trabajos"**: sigue en `staging`,
+explícitamente excluido de esta promoción. Ver detalle completo de la
+Fase 1 más abajo.
+
+**Pendiente fuera de código para Luis en Railway** (de la auditoría, no
+ligado a la promoción): rotar `BI_READONLY_PASSWORD`.
+
+## Pendientes (histórico, actualizado 16-09-2026)
 
 **Promovido a `main` el 16-09-2026** (instrucción explícita de Luis
 Devoto — ver excepción puntual arriba), commits `ff15bf8`..`b090ddc`:
