@@ -55,7 +55,19 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
-## Pendientes (actualizado 16-09-2026)
+## Pendientes (actualizado 23-09-2026)
+
+**Auditoría de seguridad y corrección — 23-09-2026, en `staging` sin
+promover, commits `e946eb8`..`7de42b0`.** Ver
+`docs/HT-AP-03-nota-cambio-v1.36.md` para el detalle completo. Resumen:
+caída del servidor por errores no capturados, adjuntos HTML ejecutables,
+acceso del rol BI a `users`, huecos de permisos entre vendedores,
+webhook de WhatsApp sin firma cuando falta el secreto, y varias
+correcciones al módulo de Cobranza (conciliación transaccional, tope de
+redondeo). Falta decidir qué cuenta como corrección de error para
+promover a `main`, y quedan dos tareas fuera de código para Luis en
+Railway: rotar `BI_READONLY_PASSWORD` y definir
+`WHATSAPP_REENVIO_ACEPTAR=true` en staging.
 
 **Promovido a `main` el 16-09-2026** (instrucción explícita de Luis
 Devoto — ver excepción puntual arriba), commits `ff15bf8`..`b090ddc`:
