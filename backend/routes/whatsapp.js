@@ -21,25 +21,13 @@ const MIME_A_TIPO = mime => {
 };
 
 router.use(authenticate);
-router.use((req, res, next) => {
-  if (!['administrador', 'jefe_comercial', 'callcenter', 'gerencia', 'vendedor'].includes(req.user.rol)) {
-    return res.status(403).json({ error: 'Sin permiso' });
-  }
-  next();
-});
 
 // Administrador, jefe_comercial, callcenter y gerencia siempre ven todas las
 // conversaciones (no son dueños de leads, necesitan visión completa para
 // triage/supervisión). El toggle bandeja_acceso solo restringe a vendedor:
 // 'todos' = ve todas, 'asignado' = solo las de sus propios leads.
-// Antes esto era "cualquier rol que no sea vendedor" (incluía a técnico e
-// integrador sin querer — ninguno de los dos tiene este módulo en su menú;
-// auditoría 23-09-2026, M-B1). Lista explícita para que agregar un rol
-// nuevo no dé acceso por accidente.
-const ROLES_ACCESO_TOTAL = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
 async function puedeVerTodo(req) {
-  if (ROLES_ACCESO_TOTAL.includes(req.user.rol)) return true;
-  if (req.user.rol !== 'vendedor') return false;
+  if (req.user.rol !== 'vendedor') return true;
   const cfg = await db.get('SELECT bandeja_acceso FROM whatsapp_bot_config WHERE id = 1');
   return cfg?.bandeja_acceso !== 'asignado';
 }
@@ -142,18 +130,7 @@ async function accesoConversacion(req, contactoId) {
   const lead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contactoId]);
   const verTodo = await puedeVerTodo(req);
   if (verTodo) return { permitido: true, lead };
-  if (lead?.vendedor_id === req.user.id) return { permitido: true, lead };
-  // Un contacto que nunca escribió por WhatsApp no tiene lead todavía (el
-  // lead lo crea el bot al recibir el primer mensaje, ver routes/public.js)
-  // — sin este caso, un vendedor no podía mandarle la plantilla de
-  // "retomar conversación" a un contacto propio (dato de contacto obtenido
-  // por correo u otro medio) aunque sea su dueño en contactos.vendedor_id
-  // (23-09-2026, pedido de Luis Devoto).
-  if (!lead) {
-    const contacto = await db.get('SELECT vendedor_id FROM contactos WHERE id = $1', [contactoId]);
-    if (contacto?.vendedor_id === req.user.id) return { permitido: true, lead: null };
-  }
-  return { permitido: false, lead };
+  return { permitido: lead?.vendedor_id === req.user.id, lead };
 }
 
 // GET /api/whatsapp/conversaciones/:contactoId/mensajes
@@ -170,7 +147,7 @@ router.get('/conversaciones/:contactoId/mensajes', async (req, res) => {
        FROM whatsapp_mensajes wm
        LEFT JOIN users u ON u.id = wm.enviado_por_id
        LEFT JOIN whatsapp_mensajes orig ON orig.id = wm.respondido_a_id
-       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC, wm.id ASC`,
+       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC`,
       [req.params.contactoId]
     );
     res.json(hilo);

@@ -1354,15 +1354,6 @@ async function initDb() {
   // mensaje (la última que llegó o se mandó; vacía = sin reacción o quitada).
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_message_id TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS respondido_a_id INTEGER REFERENCES whatsapp_mensajes(id)`);
-  // Hora real del mensaje según Meta (campo "timestamp" del payload del
-  // webhook, epoch en segundos) — created_at es cuándo nuestro servidor
-  // procesó el webhook, que puede quedar unos segundos o minutos detrás si
-  // hubo un reintento o el proceso estaba ocupado. Solo se llena en
-  // mensajes ENTRANTES (los salientes los mandamos nosotros, así que su
-  // created_at ya es la hora real). Base para informes de tiempo de
-  // respuesta confiables (auditoría 23-09-2026, pedido de Luis Devoto
-  // 23-09-2026 — "cada mensaje con horario").
-  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_timestamp TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_emoji TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_por TEXT CHECK (reaccion_por IN ('cliente','negocio'))`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_wa_message_id ON whatsapp_mensajes (wa_message_id)`);
@@ -1730,16 +1721,7 @@ async function initDb() {
         await db.run(`GRANT USAGE ON SCHEMA public TO ${rolBI}`);
         await db.run(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${rolBI}`);
         await db.run(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${rolBI}`);
-        // "users" queda con acceso solo a columnas necesarias para atribuir
-        // reportes (vendedor, rol, etc.). password_hash, reset_token,
-        // reset_token_expires, rut, telefono y graph_token_data quedan afuera
-        // — con acceso de tabla completa, cualquiera con esta clave podía
-        // pedir "olvidé mi contraseña" para una cuenta de administrador, leer
-        // el token por SQL (se guardaba en texto plano) y tomar la cuenta
-        // (auditoría 23-09-2026, M-A4).
-        await db.run(`REVOKE SELECT ON users FROM ${rolBI}`);
-        await db.run(`GRANT SELECT (id, nombre, email, rol, activo, area, es_encargado_postventa, es_encargado_despacho, pipeline_default_id, codigo_softland, recibe_round_robin, created_at) ON users TO ${rolBI}`);
-        console.log(`[DB] Permisos de solo lectura sincronizados para "${rolBI}" (incluye tablas futuras; "users" acotado a columnas no sensibles).`);
+        console.log(`[DB] Permisos de solo lectura sincronizados para "${rolBI}" (incluye tablas futuras).`);
       } catch (err) {
         console.error(`[DB] No se pudo aprovisionar el rol de solo lectura "${rolBI}": ${err.message}`);
       }
@@ -2012,46 +1994,6 @@ async function initDb() {
   // timestamp propio. Nullable: los leads derivados antes de esta columna
   // quedan sin él, no se les puede calcular espera retroactiva.
   await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS derivado_en TIMESTAMP`);
-
-  // Informe de tiempo de respuesta de WhatsApp (23-09-2026, pedido de Luis
-  // Devoto) — una fila por cada tramo YA RESUELTO (el cliente escribió y
-  // alguien de acá respondió), calculada por un job nocturno
-  // (services/tiemposRespuestaWhatsapp.js), no al vuelo en cada consulta.
-  // pendiente_desde es el primer mensaje del cliente en esa racha (si
-  // escribió varias veces seguidas antes de que le respondieran, se cuenta
-  // desde el primero — pedido explícito). Solo se calculan tramos desde que
-  // existe esta funcionalidad (24-09-2026): no hay backfill del historial.
-  // UNIQUE(contacto_id, pendiente_desde) hace que volver a correr el job
-  // (o el botón manual) sobre el mismo tramo no duplique la fila.
-  await db.run(`
-    CREATE TABLE IF NOT EXISTS whatsapp_tiempos_respuesta (
-      id SERIAL PRIMARY KEY,
-      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
-      vendedor_id INTEGER REFERENCES users(id),
-      respondido_por_id INTEGER REFERENCES users(id),
-      pendiente_desde TIMESTAMP NOT NULL,
-      respondido_en TIMESTAMP NOT NULL,
-      minutos_habiles INTEGER NOT NULL,
-      minutos_corridos INTEGER NOT NULL,
-      created_at TIMESTAMP DEFAULT now(),
-      UNIQUE (contacto_id, pendiente_desde)
-    )
-  `);
-  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_tiempos_respuesta_vendedor ON whatsapp_tiempos_respuesta (vendedor_id, pendiente_desde)`);
-  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_tiempos_respuesta_fecha ON whatsapp_tiempos_respuesta (pendiente_desde)`);
-
-  // Registro de ejecuciones del job nocturno de arriba — mismo patrón que
-  // informe_diario_envios/cobranza_documentos_sync_ejecuciones, para
-  // mostrar en Config cuándo corrió por última vez y si falló.
-  await db.run(`
-    CREATE TABLE IF NOT EXISTS whatsapp_tiempos_respuesta_ejecuciones (
-      fecha DATE PRIMARY KEY,
-      ejecutado_en TIMESTAMP DEFAULT now(),
-      ok BOOLEAN NOT NULL,
-      tramos_nuevos INTEGER,
-      error TEXT
-    )
-  `);
 
   console.log('[DB] Base de datos lista.');
 }

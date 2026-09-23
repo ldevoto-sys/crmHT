@@ -5,10 +5,6 @@ const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 
 const PUEDE_ESCRIBIR = ['administrador', 'jefe_comercial', 'callcenter', 'vendedor'];
-// Mismo criterio que negocios.js: un vendedor solo ve las notas de sus
-// propios negocios. Contactos y empresas son una base compartida (no se
-// filtran por dueño en ningún otro lugar del sistema).
-const PUEDE_VER_TODOS_LOS_NEGOCIOS = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
 
 router.use(authenticate);
 
@@ -18,10 +14,6 @@ router.get('/', async (req, res) => {
     const { contacto_id, empresa_id, negocio_id } = req.query;
     if (!contacto_id && !empresa_id && !negocio_id) {
       return res.status(400).json({ error: 'Debes indicar contacto_id, empresa_id o negocio_id' });
-    }
-    if (negocio_id && !PUEDE_VER_TODOS_LOS_NEGOCIOS.includes(req.user.rol)) {
-      const negocio = await db.get('SELECT vendedor_id FROM negocios WHERE id = $1', [negocio_id]);
-      if (!negocio || negocio.vendedor_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
     }
     const clauses = [];
     const params = [];

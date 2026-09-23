@@ -5,8 +5,6 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { toCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { enviarInformeDiario, diaAnterior, fechaChileHoy } = require('../services/informeDiario');
-const { minutosHabilesEntre } = require('../services/horario');
-const { calcularTiemposRespuesta } = require('../services/tiemposRespuestaWhatsapp');
 
 const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor'];
@@ -266,93 +264,12 @@ async function cotizacionesPorDiaDetalle(req) {
   );
 }
 
-// === Tiempo de respuesta de WhatsApp (23-09-2026) — a partir de
-// whatsapp_tiempos_respuesta, que llena el job nocturno de
-// services/tiemposRespuestaWhatsapp.js (no se calcula al vuelo acá). ===
-
-// Resumen por mes: cuántos tramos se cerraron y el tiempo de respuesta
-// (hábil) promedio y mediano de cada uno.
-async function whatsappResumenMensual(req) {
-  const vendedorId = vendedorFiltro(req);
-  return db.all(
-    `SELECT to_char(pendiente_desde, 'YYYY-MM') AS mes,
-            COUNT(*) AS tramos,
-            ROUND(AVG(minutos_habiles)) AS promedio_minutos_habiles,
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY minutos_habiles)) AS mediana_minutos_habiles
-     FROM whatsapp_tiempos_respuesta
-     WHERE ($1::int IS NULL OR vendedor_id = $1)
-     GROUP BY 1 ORDER BY 1`,
-    [vendedorId]
-  );
-}
-
-// Por vendedor, para un mes puntual (mes=YYYY-MM) o todo el histórico
-// disponible si no se indica.
-async function whatsappPorVendedor(req) {
-  const { mes } = req.query;
-  return db.all(
-    `SELECT u.id AS vendedor_id, u.nombre AS vendedor_nombre,
-            COUNT(*) AS tramos,
-            ROUND(AVG(t.minutos_habiles)) AS promedio_minutos_habiles,
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY t.minutos_habiles)) AS mediana_minutos_habiles,
-            MAX(t.minutos_habiles) AS peor_minutos_habiles
-     FROM whatsapp_tiempos_respuesta t
-     LEFT JOIN users u ON u.id = t.vendedor_id
-     WHERE ($1::text IS NULL OR to_char(t.pendiente_desde,'YYYY-MM') = $1)
-     GROUP BY u.id, u.nombre
-     ORDER BY promedio_minutos_habiles DESC NULLS LAST`,
-    [mes || null]
-  );
-}
-
-// Conversaciones abiertas AHORA MISMO (en vivo, no viene de la tabla del job
-// nocturno — todavía no está "resuelta"): mismo criterio de "pendiente_desde"
-// que usan las alertas de respuesta, pero sin acotar a vendedor asignado.
-async function whatsappAbiertasAhora(req) {
-  const vendedorId = vendedorFiltro(req);
-  const filas = await db.all(
-    `SELECT c.id AS contacto_id, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
-            em.razon_social AS empresa_nombre, u.id AS vendedor_id, u.nombre AS vendedor_nombre,
-            pend.pendiente_desde
-     FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
-     JOIN contactos c ON c.id = base.contacto_id
-     LEFT JOIN empresas em ON em.id = c.empresa_id
-     LEFT JOIN whatsapp_conversaciones wc ON wc.contacto_id = c.id
-     LEFT JOIN LATERAL (SELECT * FROM leads WHERE contacto_id = c.id ORDER BY created_at DESC LIMIT 1) l ON true
-     LEFT JOIN users u ON u.id = l.vendedor_id
-     JOIN LATERAL (
-       SELECT MIN(COALESCE(wa_timestamp, created_at)) AS pendiente_desde
-       FROM whatsapp_mensajes
-       WHERE contacto_id = c.id AND direccion = 'entrante'
-         AND COALESCE(wa_timestamp, created_at) > COALESCE(
-               (SELECT MAX(COALESCE(wa_timestamp, created_at)) FROM whatsapp_mensajes WHERE contacto_id = c.id AND direccion = 'saliente'),
-               '-infinity'::timestamp)
-     ) pend ON true
-     WHERE pend.pendiente_desde IS NOT NULL AND NOT COALESCE(wc.cerrada_manual, false)
-       AND ($1::int IS NULL OR l.vendedor_id = $1)
-     ORDER BY pend.pendiente_desde ASC`,
-    [vendedorId]
-  );
-  const ahora = new Date();
-  const resultado = [];
-  for (const f of filas) {
-    resultado.push({
-      ...f,
-      minutos_habiles_transcurridos: await minutosHabilesEntre(new Date(f.pendiente_desde), ahora),
-    });
-  }
-  return resultado;
-}
-
 const REPORTES = {
   embudo: { fn: embudo, headers: ['etapa_nombre', 'cantidad', 'monto_total'] },
   causas: { fn: causasNoCierre, headers: ['causa', 'cantidad', 'monto_total'] },
   tiempos: { fn: tiemposEtapa, headers: ['etapa_nombre', 'dias_promedio', 'tramos'] },
   ranking: { fn: rankingVendedores, headers: ['vendedor_nombre', 'ganados', 'perdidos', 'monto_ganado', 'tasa_cierre_pct'] },
   cotizaciones_dia: { fn: cotizacionesPorDia, headers: ['fecha', 'cantidad', 'monto_total'] },
-  whatsapp_resumen_mensual: { fn: whatsappResumenMensual, headers: ['mes', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles'] },
-  whatsapp_por_vendedor: { fn: whatsappPorVendedor, headers: ['vendedor_nombre', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles', 'peor_minutos_habiles'] },
-  whatsapp_abiertas_ahora: { fn: whatsappAbiertasAhora, headers: ['contacto_nombre', 'empresa_nombre', 'vendedor_nombre', 'pendiente_desde', 'minutos_habiles_transcurridos'] },
 };
 
 router.get('/embudo', async (req, res) => {
@@ -374,30 +291,6 @@ router.get('/ranking-vendedores', async (req, res) => {
 router.get('/actividad-mes', async (req, res) => {
   try { res.json(await actividadMesPorVendedor(req)); }
   catch (err) { console.error('[reportes/actividad-mes]', err); res.status(500).json({ error: 'Error interno' }); }
-});
-router.get('/whatsapp/resumen-mensual', async (req, res) => {
-  try { res.json(await whatsappResumenMensual(req)); }
-  catch (err) { console.error('[reportes/whatsapp/resumen-mensual]', err); res.status(500).json({ error: 'Error interno' }); }
-});
-router.get('/whatsapp/por-vendedor', async (req, res) => {
-  try { res.json(await whatsappPorVendedor(req)); }
-  catch (err) { console.error('[reportes/whatsapp/por-vendedor]', err); res.status(500).json({ error: 'Error interno' }); }
-});
-router.get('/whatsapp/abiertas-ahora', async (req, res) => {
-  try { res.json(await whatsappAbiertasAhora(req)); }
-  catch (err) { console.error('[reportes/whatsapp/abiertas-ahora]', err); res.status(500).json({ error: 'Error interno' }); }
-});
-// POST /api/reportes/whatsapp/actualizar-ahora — botón "Actualizar" del tab
-// WhatsApp: corre el cálculo fuera de la ventana nocturna, mismo patrón que
-// "Probar ahora" en Config → Alertas de respuesta.
-router.post('/whatsapp/actualizar-ahora', authorize('administrador', 'jefe_comercial', 'gerencia'), async (req, res) => {
-  try {
-    const guardados = await calcularTiemposRespuesta();
-    res.json({ message: `${guardados} tramo(s) nuevo(s) calculado(s).`, tramos_nuevos: guardados });
-  } catch (err) {
-    console.error('[reportes/whatsapp/actualizar-ahora]', err);
-    res.status(500).json({ error: 'Error interno' });
-  }
 });
 router.get('/cotizaciones-por-dia', async (req, res) => {
   try { res.json(await cotizacionesPorDia(req)); }

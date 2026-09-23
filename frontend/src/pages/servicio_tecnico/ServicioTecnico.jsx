@@ -46,7 +46,7 @@ export default function ServicioTecnico() {
   useEffect(() => { cargar(); }, []);
   useEffect(() => {
     api.get('/servicio-tecnico/etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
-    api.get('/users/activos').then(r => setTecnicos(r.data)).catch(() => {});
+    api.get('/users').then(r => setTecnicos(r.data.filter(u => u.activo))).catch(() => {});
   }, []);
 
   useEffect(() => {

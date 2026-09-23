@@ -15,10 +15,8 @@ const AREAS = ['meson', 'operaciones', 'vregion', 'otros'];
 // Todos los endpoints requieren autenticación.
 router.use(authenticate);
 
-// GET /api/users — incluye RUT, email y teléfono: antes cualquier usuario
-// autenticado podía leerlo (auditoría 23-09-2026, M-B4). Los selectores que
-// solo necesitan id/nombre usan /activos, sin esta restricción.
-router.get('/', authorize('administrador', 'jefe_comercial'), async (req, res) => {
+// GET /api/users
+router.get('/', async (req, res) => {
   try {
     const users = await db.all(
       `SELECT id, nombre, rut, email, telefono, codigo_softland, area, rol, activo, recibe_round_robin, pipeline_default_id, es_encargado_postventa, es_encargado_despacho, created_at

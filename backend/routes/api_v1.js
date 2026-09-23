@@ -37,21 +37,11 @@ function requireToken(req, res, next) {
   if (!process.env.COWORK_API_KEY) return error(res, 503, 'no_configurado', 'Integración no configurada');
   const auth = req.headers['authorization'] || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  // Comparación de tiempo constante: con !==, cuánto tarda la comparación
-  // varía según cuántos caracteres iniciales coinciden — en teoría permite
-  // reconstruir el token probando byte a byte (auditoría 23-09-2026, M-M9).
-  const esperado = Buffer.from(process.env.COWORK_API_KEY);
-  const recibido = Buffer.from(token || '');
-  const valido = token && recibido.length === esperado.length && crypto.timingSafeEqual(recibido, esperado);
-  if (!valido) return error(res, 401, 'no_autorizado', 'Token inválido o revocado');
+  if (!token || token !== process.env.COWORK_API_KEY) return error(res, 401, 'no_autorizado', 'Token inválido o revocado');
   next();
 }
 
 // --- Límite de tasa: 60 solicitudes/minuto (§5), en memoria del proceso ---
-// Antes se aplicaba después de requireToken: los intentos con token
-// incorrecto no contaban para el límite, así que probar tokens no tenía
-// ningún freno (auditoría 23-09-2026, M-M9). Ahora se cuenta toda solicitud,
-// haya o no pasado la autenticación.
 const ventanaPeticiones = [];
 function rateLimit(req, res, next) {
   const ahora = Date.now();
@@ -61,7 +51,7 @@ function rateLimit(req, res, next) {
   next();
 }
 
-router.use(rateLimit, requireToken);
+router.use(requireToken, rateLimit);
 
 // El actor "Cowork" (seed en db.js) — se usa como autor en auditoría/timeline
 // de todo lo que escribe esta API. Se cachea tras la primera consulta.

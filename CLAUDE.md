@@ -55,53 +55,7 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
-## Pendientes (actualizado 23-09-2026)
-
-**Promovido a `main` el 23-09-2026** (instrucción explícita de Luis
-Devoto, fuera de horario — "un solo gran paso, dejando afuera Cobranza y
-Órdenes de Trabajo"), commits `e0038bc`..`2248447`:
-- **Seguridad** (auditoría 23-09-2026): errores no capturados que
-  tumbaban el servidor, whitelist de tipo de adjunto + descarga forzada
-  a "attachment" (evita XSS por HTML/SVG), rol BI acotado a columnas no
-  sensibles de `users`, huecos de permisos entre vendedores (notas,
-  tareas, leads, negocios), acceso total a la Bandeja restringido por
-  rol, `must_change_password` exigido también en el backend, token de
-  reset de contraseña con hash, inyección HTML en informes/emails desde
-  WhatsApp, inyección de fórmulas en CSV, comparación de API keys en
-  tiempo constante, firma de webhook de WhatsApp con fallo cerrado si
-  falta el secreto, guardia SSRF en descarga de imágenes para PDF. Ver
-  `docs/HT-AP-03-nota-cambio-v1.36.md` (incluye también lo de Cobranza,
-  que **no** se promovió).
-- **WhatsApp — tiempo de respuesta por vendedor**: cada mensaje guarda
-  el timestamp real de Meta (antes solo se aproximaba con el mensaje más
-  reciente de toda la bandeja). Reporte nuevo (tramo cuenta desde el
-  primer mensaje del cliente sin responder, no el último), calculado
-  cada noche a las 23:50 hora Chile más botón "Actualizar" a pedido, sin
-  backfill histórico (solo hacia adelante desde hoy). Pestaña "WhatsApp"
-  nueva en Reportería (resumen mensual, por vendedor, conversaciones
-  abiertas ahora con link directo a la Bandeja en pestaña nueva),
-  expuesto también vía `GET /api/v1/reportes/:tipo` para Cowork.
-- **WhatsApp — plantilla desde la ficha de contacto**: se puede reabrir
-  conversación con la plantilla de seguimiento desde Contactos o la
-  ficha del contacto, sin necesitar un lead o conversación previa.
-- **Sincronización de vendedor**: reasignar el vendedor de un contacto
-  ahora sincroniza también su lead más reciente y sus negocios abiertos
-  (los cerrados, ganados o perdidos, nunca se tocan); y viceversa desde
-  el lead. Corrige el bug reportado del selector "Asignado a" que no
-  funcionaba en conversaciones cerradas. Ver
-  `docs/HT-AP-03-nota-cambio-v1.37.md`.
-
-**Cobranza**: sigue en `staging`, explícitamente excluida de esta
-promoción — módulo con desarrollo pendiente (incluye las correcciones de
-la auditoría 23-09-2026 específicas de Cobranza: conciliación
-transaccional, tope de redondeo).
-
-**Operaciones — "Arranque de Trabajos"**: sigue en `staging`,
-explícitamente excluido de esta promoción. Ver detalle completo de la
-Fase 1 más abajo.
-
-**Pendiente fuera de código para Luis en Railway** (de la auditoría, no
-ligado a la promoción): rotar `BI_READONLY_PASSWORD`.
+## Pendientes (actualizado 16-09-2026)
 
 **Promovido a `main` el 16-09-2026** (instrucción explícita de Luis
 Devoto — ver excepción puntual arriba), commits `ff15bf8`..`b090ddc`:
