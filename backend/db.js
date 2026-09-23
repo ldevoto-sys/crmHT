@@ -2396,6 +2396,46 @@ async function initDb() {
   // quedan sin él, no se les puede calcular espera retroactiva.
   await db.run(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS derivado_en TIMESTAMP`);
 
+  // Informe de tiempo de respuesta de WhatsApp (23-09-2026, pedido de Luis
+  // Devoto) — una fila por cada tramo YA RESUELTO (el cliente escribió y
+  // alguien de acá respondió), calculada por un job nocturno
+  // (services/tiemposRespuestaWhatsapp.js), no al vuelo en cada consulta.
+  // pendiente_desde es el primer mensaje del cliente en esa racha (si
+  // escribió varias veces seguidas antes de que le respondieran, se cuenta
+  // desde el primero — pedido explícito). Solo se calculan tramos desde que
+  // existe esta funcionalidad (24-09-2026): no hay backfill del historial.
+  // UNIQUE(contacto_id, pendiente_desde) hace que volver a correr el job
+  // (o el botón manual) sobre el mismo tramo no duplique la fila.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_tiempos_respuesta (
+      id SERIAL PRIMARY KEY,
+      contacto_id INTEGER NOT NULL REFERENCES contactos(id),
+      vendedor_id INTEGER REFERENCES users(id),
+      respondido_por_id INTEGER REFERENCES users(id),
+      pendiente_desde TIMESTAMP NOT NULL,
+      respondido_en TIMESTAMP NOT NULL,
+      minutos_habiles INTEGER NOT NULL,
+      minutos_corridos INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT now(),
+      UNIQUE (contacto_id, pendiente_desde)
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_tiempos_respuesta_vendedor ON whatsapp_tiempos_respuesta (vendedor_id, pendiente_desde)`);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_tiempos_respuesta_fecha ON whatsapp_tiempos_respuesta (pendiente_desde)`);
+
+  // Registro de ejecuciones del job nocturno de arriba — mismo patrón que
+  // informe_diario_envios/cobranza_documentos_sync_ejecuciones, para
+  // mostrar en Config cuándo corrió por última vez y si falló.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS whatsapp_tiempos_respuesta_ejecuciones (
+      fecha DATE PRIMARY KEY,
+      ejecutado_en TIMESTAMP DEFAULT now(),
+      ok BOOLEAN NOT NULL,
+      tramos_nuevos INTEGER,
+      error TEXT
+    )
+  `);
+
   console.log('[DB] Base de datos lista.');
 }
 

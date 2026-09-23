@@ -17,6 +17,7 @@ const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
 const { purgarInactivosSiCorresponde } = require('./services/privacidad');
 const { enviarEncuestasPendientesSiCorresponde } = require('./services/seguimientoBoton');
 const { revisarAlertasRespuestaSiHay } = require('./services/alertasRespuestaWhatsapp');
+const { calcularTiemposRespuestaSiCorresponde } = require('./services/tiemposRespuestaWhatsapp');
 
 // Red de seguridad: en Express 4 una promesa rechazada sin manejar dentro de
 // un handler async termina el proceso Node completo (corta a todos los
@@ -199,6 +200,12 @@ if (require.main === module) {
       // tabla whatsapp_alertas_respuesta, no en el intervalo del scheduler.
       setInterval(() => {
         revisarAlertasRespuestaSiHay().catch(err => console.error('[alertasRespuestaWhatsapp] Error:', err));
+      }, QUINCE_MIN);
+      // Informe de tiempo de respuesta de WhatsApp: calcula una vez por
+      // noche (~23:50) los tramos "cliente escribió → se le respondió" que
+      // quedaron resueltos, para el reporte (ver services/tiemposRespuestaWhatsapp.js).
+      setInterval(() => {
+        calcularTiemposRespuestaSiCorresponde().catch(err => console.error('[tiemposRespuestaWhatsapp] Error:', err));
       }, QUINCE_MIN);
       // Encuesta de causa de no cierre (bot WhatsApp): se manda 5 segundos
       // después de que el cliente indica que no comprará — no calza con el
