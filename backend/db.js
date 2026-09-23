@@ -1937,7 +1937,7 @@ async function initDb() {
   await db.run(`
     CREATE TABLE IF NOT EXISTS cobranza_config (
       id INTEGER PRIMARY KEY DEFAULT 1,
-      monto_minimo_redondeo NUMERIC(14,2) NOT NULL DEFAULT 500,
+      monto_minimo_redondeo NUMERIC(14,2) NOT NULL DEFAULT 5000,
       monto_minimo_factura NUMERIC(14,2) NOT NULL DEFAULT 0,
       cuenta_clientes TEXT,
       codigo_clientes TEXT,
@@ -1963,6 +1963,11 @@ async function initDb() {
   `);
   const cobranzaCfgExiste = await db.get('SELECT id FROM cobranza_config WHERE id = 1');
   if (!cobranzaCfgExiste) await db.run('INSERT INTO cobranza_config (id) VALUES (1)');
+  // El tope de redondeo nace en 500 desde el CREATE TABLE original; se pide
+  // 5.000 ahora (auditoría 23-09-2026, S-M1) — se corrige una sola vez la
+  // fila existente si todavía tiene el valor viejo por defecto, sin pisar un
+  // valor que alguien ya haya cambiado a mano a otra cosa.
+  await db.run(`UPDATE cobranza_config SET monto_minimo_redondeo = 5000 WHERE id = 1 AND monto_minimo_redondeo = 500`);
 
   // Tabla de ajustes contables (Anticipo/Garantía/Fluctuación/Redondeo/
   // Indemnización) — un tipo fijo por fila, editable desde la config.
@@ -2086,8 +2091,16 @@ async function initDb() {
   // comisión). Ninguno de los dos trae folio de factura ni RUT del cliente:
   // el cruce contra cobranza_documentos es por monto+fecha con margen, igual
   // que las cartolas bancarias normales (ver services/cobranzaTransbank.js).
+  // El CHECK se había quedado con solo 3 tipos ('anticipo','redondeo',
+  // 'comision_transbank') mientras cobranza_config_ajustes (la config real,
+  // editable en Config → Cobranza) y TIPOS_AJUSTE en routes/cobranza.js ya
+  // tenían 5 ('anticipo','garantia','fluctuacion','redondeo',
+  // 'indemnizacion') — conciliar manualmente con "garantía" o "fluctuación"
+  // fallaba en el INSERT después de ya haber creado las aplicaciones a
+  // facturas, dejando el movimiento a medio conciliar (auditoría
+  // 23-09-2026, S-A1). Se une todo lo que de verdad se inserta hoy.
   await db.run(`ALTER TABLE cobranza_ajustes DROP CONSTRAINT IF EXISTS cobranza_ajustes_tipo_check`);
-  await db.run(`ALTER TABLE cobranza_ajustes ADD CONSTRAINT cobranza_ajustes_tipo_check CHECK (tipo IN ('anticipo','redondeo','comision_transbank'))`);
+  await db.run(`ALTER TABLE cobranza_ajustes ADD CONSTRAINT cobranza_ajustes_tipo_check CHECK (tipo IN ('anticipo','garantia','fluctuacion','redondeo','indemnizacion','comision_transbank'))`);
   // Un ajuste "comision_transbank" no tiene empresa ni movimiento asociado
   // (es un costo del canal completo, no de un cliente puntual) — necesita su
   // propia fecha para saber a qué día del Resumen de abonos corresponde.

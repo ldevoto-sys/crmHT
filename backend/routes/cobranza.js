@@ -846,96 +846,161 @@ router.get('/movimientos/:id/conciliaciones', requiereGestionCobranza, async (re
 // ajuste (normalmente "anticipo").
 // body: { aplicaciones: [{ factura_folio, monto_aplicado }], ajuste?: { tipo, monto } }
 router.post('/movimientos/:id/conciliar-manual', requiereGestionCobranza, async (req, res) => {
+  // Todo lo que sigue corre en una sola transacción con el movimiento
+  // bloqueado (FOR UPDATE): antes, cada paso era su propio UPDATE/INSERT
+  // suelto — si el INSERT del ajuste fallaba (ver el CHECK de tipo más
+  // arriba) las aplicaciones a facturas ya habían quedado creadas, y dos
+  // personas conciliando el mismo movimiento a la vez podían duplicar
+  // aplicaciones (auditoría 23-09-2026, S-A1).
+  const client = await db.pool.connect();
   try {
-    const movimiento = await db.get('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1', [req.params.id]);
-    if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    await client.query('BEGIN');
+    const movimiento = (await client.query('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+    if (!movimiento) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Movimiento no encontrado' }); }
     if (!['pendiente', 'preconciliado'].includes(movimiento.estado)) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: `El movimiento ya está ${movimiento.estado} — deshazlo primero si necesitas corregirlo.` });
     }
 
     const aplicaciones = Array.isArray(req.body.aplicaciones) ? req.body.aplicaciones : [];
-    if (aplicaciones.length === 0) return res.status(400).json({ error: 'Debes indicar al menos una factura' });
+    if (aplicaciones.length === 0) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Debes indicar al menos una factura' }); }
     for (const a of aplicaciones) {
       if (!a.factura_folio || !(Number(a.monto_aplicado) > 0)) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Cada aplicación necesita un folio de factura y un monto mayor a cero' });
+      }
+    }
+    const foliosRepetidos = aplicaciones.map(a => a.factura_folio).filter((f, i, arr) => arr.indexOf(f) !== i);
+    if (foliosRepetidos.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `El folio ${foliosRepetidos[0]} está repetido en la lista de aplicaciones` });
+    }
+    // Cada folio debe existir y no se le puede aplicar más de lo que
+    // Softland informó como pendiente (S-M2) — sin esto, una factura podía
+    // quedar con saldo negativo y desaparecer del informe de antigüedad.
+    const folios = aplicaciones.map(a => a.factura_folio);
+    const documentos = (await client.query('SELECT folio, saldo_pendiente FROM cobranza_documentos WHERE folio = ANY($1)', [folios])).rows;
+    const porFolio = Object.fromEntries(documentos.map(d => [d.folio, d]));
+    for (const a of aplicaciones) {
+      const doc = porFolio[a.factura_folio];
+      if (!doc) { await client.query('ROLLBACK'); return res.status(400).json({ error: `La factura ${a.factura_folio} no existe en Cobranza — sincroniza documentos o revisa el folio` }); }
+      if (Number(a.monto_aplicado) - Number(doc.saldo_pendiente) > 0.5) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `El monto aplicado a la factura ${a.factura_folio} ($${Number(a.monto_aplicado).toLocaleString('es-CL')}) supera su saldo pendiente ($${Number(doc.saldo_pendiente).toLocaleString('es-CL')})` });
       }
     }
 
     const sumaAplicado = aplicaciones.reduce((acc, a) => acc + Number(a.monto_aplicado), 0);
     const excedente = Number(movimiento.monto) - sumaAplicado;
     let ajuste = req.body.ajuste || null;
+    if (ajuste && !TIPOS_AJUSTE.includes(ajuste.tipo)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Tipo de ajuste no reconocido: ${ajuste.tipo}` });
+    }
 
     if (Math.abs(excedente) > 0.5) {
       if (excedente < 0) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El monto aplicado a las facturas no puede superar el monto del movimiento' });
       }
       if (!ajuste) {
-        const cfg = await db.get('SELECT monto_minimo_redondeo FROM cobranza_config WHERE id = 1');
+        const cfg = (await client.query('SELECT monto_minimo_redondeo FROM cobranza_config WHERE id = 1')).rows[0];
         const umbral = Number(cfg?.monto_minimo_redondeo || 0);
         if (excedente <= umbral) {
           ajuste = { tipo: 'redondeo', monto: excedente };
         } else {
+          await client.query('ROLLBACK');
           return res.status(400).json({
             error: `Queda un excedente de $${excedente.toLocaleString('es-CL')} sobre el umbral de redondeo ($${umbral.toLocaleString('es-CL')}) — indica explícitamente a qué ajuste corresponde (ej. anticipo).`,
           });
         }
       } else if (Math.abs(Number(ajuste.monto) - excedente) > 0.5) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: 'El monto del ajuste no coincide con el excedente del movimiento' });
+      }
+    } else if (ajuste) {
+      // Sin excedente no corresponde ningún ajuste — antes se insertaba
+      // igual si el body traía uno, sin validar nada (S-M1: el frontend
+      // manda tipo "redondeo" por defecto en cada conciliación).
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No hay excedente en este movimiento — no corresponde registrar un ajuste' });
+    }
+    // El umbral de redondeo también rige cuando el ajuste viene explícito en
+    // el body con tipo "redondeo" (el frontend siempre lo envía así por
+    // defecto) — sin este chequeo, cualquier excedente quedaba como
+    // "redondeo" sin tope (S-M1).
+    if (ajuste?.tipo === 'redondeo') {
+      const cfg = (await client.query('SELECT monto_minimo_redondeo FROM cobranza_config WHERE id = 1')).rows[0];
+      const umbral = Number(cfg?.monto_minimo_redondeo || 0);
+      if (Number(ajuste.monto) > umbral) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `El ajuste de redondeo ($${Number(ajuste.monto).toLocaleString('es-CL')}) supera el umbral configurado ($${umbral.toLocaleString('es-CL')}) — indica un tipo de ajuste distinto (ej. anticipo)` });
       }
     }
 
     // Si el movimiento tenía una sugerencia automática (preconciliado), queda
     // reemplazada por esta resolución manual.
-    await db.run(
+    await client.query(
       `UPDATE cobranza_conciliaciones SET estado = 'rechazada' WHERE movimiento_id = $1 AND estado = 'propuesta'`,
       [movimiento.id]
     );
 
     for (const a of aplicaciones) {
-      await db.run(
+      await client.query(
         `INSERT INTO cobranza_conciliaciones (movimiento_id, factura_folio, monto_aplicado, estado, automatica, resuelto_por_id, resuelto_en)
          VALUES ($1,$2,$3,'aprobada',false,$4,now())`,
         [movimiento.id, a.factura_folio, a.monto_aplicado, req.user.id]
       );
     }
     if (ajuste) {
-      await db.run(
+      await client.query(
         `INSERT INTO cobranza_ajustes (tipo, monto, movimiento_id) VALUES ($1,$2,$3)`,
         [ajuste.tipo, ajuste.monto, movimiento.id]
       );
     }
-    await db.run(`UPDATE cobranza_movimientos_bancarios SET estado = 'conciliado' WHERE id = $1`, [movimiento.id]);
+    await client.query(`UPDATE cobranza_movimientos_bancarios SET estado = 'conciliado' WHERE id = $1`, [movimiento.id]);
+    await client.query('COMMIT');
 
     res.json({ message: 'Movimiento conciliado correctamente.' });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('[cobranza/movimientos/:id/conciliar-manual POST]', err);
     res.status(500).json({ error: 'Error interno al conciliar' });
+  } finally {
+    client.release();
   }
 });
 
 // POST /api/cobranza/movimientos/:id/deshacer — revierte todo lo conciliado
 // para este movimiento (manual o automático) y lo deja pendiente de nuevo.
 router.post('/movimientos/:id/deshacer', requiereGestionCobranza, async (req, res) => {
+  const client = await db.pool.connect();
   try {
-    const movimiento = await db.get('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1', [req.params.id]);
-    if (!movimiento) return res.status(404).json({ error: 'Movimiento no encontrado' });
+    await client.query('BEGIN');
+    const movimiento = (await client.query('SELECT * FROM cobranza_movimientos_bancarios WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+    if (!movimiento) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Movimiento no encontrado' }); }
     if (!['preconciliado', 'conciliado'].includes(movimiento.estado)) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: `El movimiento está ${movimiento.estado} — no hay nada que deshacer.` });
     }
-    await db.run(
+    await client.query(
       `UPDATE cobranza_conciliaciones SET estado = 'rechazada', resuelto_por_id = $2, resuelto_en = now()
        WHERE movimiento_id = $1 AND estado != 'rechazada'`,
       [movimiento.id, req.user.id]
     );
-    await db.run('DELETE FROM cobranza_ajustes WHERE movimiento_id = $1', [movimiento.id]);
-    await db.run(
+    await client.query('DELETE FROM cobranza_ajustes WHERE movimiento_id = $1', [movimiento.id]);
+    await client.query(
       `UPDATE cobranza_movimientos_bancarios SET estado = 'pendiente', validado_transbank_en = NULL WHERE id = $1`,
       [movimiento.id]
     );
+    await client.query('COMMIT');
     res.json({ message: 'Conciliación revertida — el movimiento vuelve a quedar pendiente.' });
   } catch (err) {
+    await client.query('ROLLBACK');
     console.error('[cobranza/movimientos/:id/deshacer POST]', err);
     res.status(500).json({ error: 'Error interno al deshacer' });
+  } finally {
+    client.release();
   }
 });
 
