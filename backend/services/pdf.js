@@ -21,8 +21,26 @@ const fechaCorta = d => new Date(d).toLocaleDateString('es-CL');
 // públicas (esImagenPublica): las de SharePoint no cargarían igual para el
 // cliente, así que ni se intentan. Cualquier falla (timeout, no es imagen,
 // red caída) se ignora y la línea queda sin imagen, sin romper el PDF.
+// Bloquea IPs/hosts que apuntan a la propia infraestructura (loopback, redes
+// privadas, el endpoint de metadata de la nube) — url_imagen/ficha_tecnica_url
+// solo las carga administrador/jefe_comercial, pero igual da un fetch desde
+// el servidor a una URL configurable: sin este chequeo, alguien con esos
+// roles (o una cuenta comprometida) podía usarlo para tantear la red interna
+// de Railway en cada PDF generado (auditoría 23-09-2026, M-B7).
+function apuntaARedInterna(url) {
+  let host;
+  try { host = new URL(url).hostname.toLowerCase(); } catch { return true; }
+  if (host === 'localhost' || host === '169.254.169.254' || host.endsWith('.internal')) return true;
+  const partes = host.split('.').map(Number);
+  if (partes.length === 4 && partes.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
+    const [a, b] = partes;
+    if (a === 127 || a === 10 || a === 169 && b === 254 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a === 0) return true;
+  }
+  return false;
+}
+
 async function descargarImagen(url) {
-  if (!esImagenPublica(url)) return null;
+  if (!esImagenPublica(url) || apuntaARedInterna(url)) return null;
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);

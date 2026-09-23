@@ -20,6 +20,10 @@ const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 5, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo.' },
 });
+// Hash bcrypt fijo (de una contraseña que nadie usa) para comparar contra él
+// cuando el email no existe — ver el comentario en /login más abajo.
+const HASH_FICTICIO = '$2a$10$C6UzMDM.H6dfI/f/IKcEeOoIWMhH.eR5rZ2FvGvEbxlYRHFvMDdEG';
+
 const resetPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, max: 15, standardHeaders: true, legacyHeaders: false,
   message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
@@ -32,10 +36,12 @@ router.post('/login', loginLimiter, async (req, res) => {
     if (!correo || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
 
     const user = await db.get('SELECT * FROM users WHERE email = $1 AND activo = true', [correo]);
-    if (!user) return res.status(401).json({ error: 'Credenciales inválidas' });
-
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
+    // bcrypt.compare solo corría si el email existía — un email real
+    // tardaba más en responder que uno inexistente, delatando si la cuenta
+    // existe (auditoría 23-09-2026, M-B7). Se corre igual contra un hash
+    // fijo cuando no hay usuario, para que el tiempo no varíe.
+    const ok = await bcrypt.compare(password, user ? user.password_hash : HASH_FICTICIO);
+    if (!user || !ok) return res.status(401).json({ error: 'Credenciales inválidas' });
 
     const payload = {
       id: user.id,

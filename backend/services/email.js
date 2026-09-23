@@ -14,6 +14,16 @@ const { reemplazarVariables } = require('../utils/texto');
 
 const money = v => '$' + Number(v || 0).toLocaleString('es-CL', { maximumFractionDigits: 0 });
 
+// Nada en este archivo escapaba HTML: texto que llega de fuera (nombre de
+// perfil de WhatsApp, texto de un mensaje) se interpolaba directo en el
+// correo. Un perfil con `<a href="...">` termina siendo un enlace real
+// dentro de un correo legítimo del CRM (auditoría 23-09-2026, M-M4). Se usa
+// en todo dato que pueda venir de un tercero (contacto, cliente, texto
+// libre); no hace falta en literales fijos del propio código.
+const escaparHtml = v => String(v ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const FROM = process.env.SMTP_FROM || 'HidroTecnica CRM <no-reply@hidrotecnica.cl>';
 const APP_URL = process.env.APP_URL || 'http://localhost:3001';
@@ -119,7 +129,7 @@ function filaInforme(cols, { header = false } = {}) {
   const celdas = cols.map((c, i) => {
     const alinear = i === cols.length - 1 ? 'right' : 'left';
     const numerico = i === cols.length - 1 ? ' font-variant-numeric: tabular-nums;' : '';
-    return `<td align="${alinear}" style="${estiloCelda}${numerico}">${c}</td>`;
+    return `<td align="${alinear}" style="${estiloCelda}${numerico}">${escaparHtml(c)}</td>`;
   }).join('');
   return `<tr style="${fondo} border-bottom:1px solid #e5e7eb;">${celdas}</tr>`;
 }
@@ -421,11 +431,11 @@ module.exports = {
         <p style="color:${colorNivel}; font-weight:bold; font-size:15px;">
           Nivel ${datos.nivel} — ${datos.nivelLabel}: ${tiempo} hábiles ${datos.sinAsignar ? 'esperando en la Cola de asignación' : 'sin respuesta'}.
         </p>
-        <p><strong>${datos.contactoNombre}</strong>${datos.empresaNombre ? ` · ${datos.empresaNombre}` : ''}</p>
+        <p><strong>${escaparHtml(datos.contactoNombre)}</strong>${datos.empresaNombre ? ` · ${escaparHtml(datos.empresaNombre)}` : ''}</p>
         ${datos.sinAsignar
           ? `<p style="color:#555555; font-size:13px;">Categorizó su necesidad por WhatsApp, pero no se pudo asignar automáticamente a ningún vendedor.</p>`
-          : `<p style="color:#555555; font-size:13px;">Vendedor asignado: ${datos.vendedorNombre || '— sin asignar —'}</p>`}
-        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${datos.ultimoMensaje}"</p>` : ''}
+          : `<p style="color:#555555; font-size:13px;">Vendedor asignado: ${escaparHtml(datos.vendedorNombre) || '— sin asignar —'}</p>`}
+        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${escaparHtml(datos.ultimoMensaje)}"</p>` : ''}
         ${datos.sinAsignar
           ? boton(`${APP_URL}/cola`, 'Ver Cola de asignación')
           : boton(`${APP_URL}/bandeja?contacto_id=${datos.contactoId}`, 'Ver conversación')}
@@ -446,8 +456,8 @@ module.exports = {
         <p style="color:#b91c1c; font-weight:bold; font-size:15px;">
           El bot de WhatsApp cerró este contacto: nunca respondió a la categorización, tras agotar los reintentos.
         </p>
-        <p><strong>${datos.contactoNombre}</strong>${datos.empresaNombre ? ` · ${datos.empresaNombre}` : ''}</p>
-        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${datos.ultimoMensaje}"</p>` : ''}
+        <p><strong>${escaparHtml(datos.contactoNombre)}</strong>${datos.empresaNombre ? ` · ${escaparHtml(datos.empresaNombre)}` : ''}</p>
+        ${datos.ultimoMensaje ? `<p style="color:#555555; font-size:13px; font-style:italic;">"${escaparHtml(datos.ultimoMensaje)}"</p>` : ''}
       `)
     );
   },

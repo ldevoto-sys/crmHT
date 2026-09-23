@@ -1,20 +1,32 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { normalizarTelefono } = require('../services/dedup');
 const { sugerirVendedor } = require('../services/asignacion');
 
 // --- Endpoint público servidor-a-servidor (§9.4): API key, sin JWT ---
+// Sin límite de intentos y con !== (tiempo variable según cuánto coincide):
+// probar la clave no tenía freno (auditoría 23-09-2026, M-B7 — mismo criterio
+// que ya se aplicó a la API de Cowork, ver api_v1.js).
+const apiKeyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
+});
 function apiKey(req, res, next) {
-  const key = req.headers['x-api-key'];
   if (!process.env.LEADS_WEB_API_KEY) return res.status(503).json({ error: 'Canal web no configurado' });
-  if (key !== process.env.LEADS_WEB_API_KEY) return res.status(401).json({ error: 'API key inválida' });
+  const key = req.headers['x-api-key'] || '';
+  const esperado = Buffer.from(process.env.LEADS_WEB_API_KEY);
+  const recibido = Buffer.from(key);
+  const valido = recibido.length === esperado.length && crypto.timingSafeEqual(recibido, esperado);
+  if (!valido) return res.status(401).json({ error: 'API key inválida' });
   next();
 }
 
 // POST /api/leads/web  (header X-API-Key)
-router.post('/web', apiKey, async (req, res) => {
+router.post('/web', apiKeyLimiter, apiKey, async (req, res) => {
   try {
     const { nombre, telefono, email, mensaje, producto_id, sku, pagina_origen } = req.body;
     if (!nombre && !telefono && !email) return res.status(400).json({ error: 'Datos insuficientes' });
