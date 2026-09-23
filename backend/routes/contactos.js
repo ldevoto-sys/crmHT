@@ -6,6 +6,7 @@ const { validarRut, validarEmail } = require('../utils/validaciones');
 const { normalizarTelefono, buscarDuplicados, sugerirEmpresaPorEmail } = require('../services/dedup');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
+const { sincronizarLeadYNegocios } = require('../services/sincronizarVendedor');
 const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
 const { toCSV } = require('../utils/csv');
 const { mayusculas } = require('../utils/texto');
@@ -476,6 +477,11 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
     // se ignora lo que haya mandado y se mantiene la asignación existente.
     const nuevoVendedorId = req.user.rol === 'vendedor' ? contacto.vendedor_id : (vendedor_id || null);
     const cambiaAsignacion = nuevoVendedorId && nuevoVendedorId != contacto.vendedor_id;
+    // Distinto de cambiaAsignacion arriba (que solo cuenta cuando se asigna
+    // a alguien, para el timestamp vendedor_asignado_en): esto también
+    // dispara con la desasignación, para que el chat y los negocios
+    // abiertos queden igual de "sin vendedor" que el contacto.
+    const cambioVendedor = nuevoVendedorId != contacto.vendedor_id;
 
     await db.run(
       `UPDATE contactos SET nombre=$1, apellido=$2, email=$3, telefono_e164=$4, empresa_id=$5,
@@ -486,6 +492,10 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
        rut_comprador || null, cargo || null, activo !== undefined ? activo : true,
        revisar_duplicado !== undefined ? revisar_duplicado : false, nuevoVendedorId, id, cambiaAsignacion]
     );
+    // Sincroniza con el chat (el lead más reciente) y los negocios abiertos
+    // del contacto — pedido 23-09-2026, ver services/sincronizarVendedor.js.
+    // Los negocios ganados/perdidos no se tocan (pedido explícito).
+    if (cambioVendedor) await sincronizarLeadYNegocios(id, nuevoVendedorId);
     res.json({ message: 'Contacto actualizado' });
   } catch (err) {
     console.error('[contactos/PUT /:id]', err);
