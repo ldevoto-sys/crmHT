@@ -15,18 +15,6 @@ const { generarMemoriaSiCorresponde } = require('./services/whatsappMemoria');
 const { purgarInactivosSiCorresponde } = require('./services/privacidad');
 const { enviarEncuestasPendientesSiCorresponde } = require('./services/seguimientoBoton');
 const { revisarAlertasRespuestaSiHay } = require('./services/alertasRespuestaWhatsapp');
-const { calcularTiemposRespuestaSiCorresponde } = require('./services/tiemposRespuestaWhatsapp');
-
-// Red de seguridad: en Express 4 una promesa rechazada sin manejar dentro de
-// un handler async termina el proceso Node completo (corta a todos los
-// usuarios conectados). No reemplaza el try/catch de cada ruta — solo evita
-// que un caso no cubierto tumbe el servidor mientras se corrige el origen.
-process.on('unhandledRejection', (reason) => {
-  console.error('[SEGURIDAD] Promesa rechazada sin manejar (revisar el try/catch de la ruta):', reason);
-});
-process.on('uncaughtException', (err) => {
-  console.error('[SEGURIDAD] Excepción no capturada (revisar el try/catch de la ruta):', err);
-});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -84,20 +72,6 @@ app.use('/api/novedades', require('./routes/novedades'));
 app.use('/api/v1', require('./routes/api_v1')); // integración Cowork (HT-DO-XX) — API key propia, sin JWT
 app.use('/api/softland', require('./routes/softland')); // Reportería Comercial + Softland
 app.use('/api/privacidad', require('./routes/privacidad')); // Ley 21.719 — solicitudes de eliminación de datos
-
-// Manejador de errores global: red de seguridad para cualquier ruta que deje
-// pasar un error sin capturarlo (ej. multer fileFilter) o un catch que
-// olvide responder. Sin esto, Express expone el mensaje/stack del error tal
-// cual al cliente (auditoría 23-09-2026, M-B6 y N-4).
-app.use((err, req, res, next) => {
-  if (res.headersSent) return next(err);
-  console.error('[Error no manejado]', req.method, req.originalUrl, err);
-  const esRechazoDeArchivo = err && err.message && /Tipo de archivo no permitido|Solo se aceptan archivos CSV/.test(err.message);
-  if (esRechazoDeArchivo || err.code === 'LIMIT_FILE_SIZE') {
-    return res.status(400).json({ error: err.message });
-  }
-  res.status(500).json({ error: 'Error interno' });
-});
 
 // Servir el frontend compilado si existe (Railway lo construye en el deploy).
 // No dependemos de NODE_ENV para evitar quedar con "Cannot GET /".
@@ -182,12 +156,6 @@ if (require.main === module) {
       // tabla whatsapp_alertas_respuesta, no en el intervalo del scheduler.
       setInterval(() => {
         revisarAlertasRespuestaSiHay().catch(err => console.error('[alertasRespuestaWhatsapp] Error:', err));
-      }, QUINCE_MIN);
-      // Informe de tiempo de respuesta de WhatsApp: calcula una vez por
-      // noche (~23:50) los tramos "cliente escribió → se le respondió" que
-      // quedaron resueltos, para el reporte (ver services/tiemposRespuestaWhatsapp.js).
-      setInterval(() => {
-        calcularTiemposRespuestaSiCorresponde().catch(err => console.error('[tiemposRespuestaWhatsapp] Error:', err));
       }, QUINCE_MIN);
       // Encuesta de causa de no cierre (bot WhatsApp): se manda 5 segundos
       // después de que el cliente indica que no comprará — no calza con el

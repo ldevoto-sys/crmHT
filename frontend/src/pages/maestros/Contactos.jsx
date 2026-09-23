@@ -62,7 +62,6 @@ export default function Contactos() {
   const [sel, setSel] = useState(() => new Set());
   const [bulkEmpresa, setBulkEmpresa] = useState('');
   const [bulkEmpresaNombre, setBulkEmpresaNombre] = useState('');
-  const [enviandoPlantillaId, setEnviandoPlantillaId] = useState(null);
 
   const cargar = async () => {
     const params = {};
@@ -125,23 +124,6 @@ export default function Contactos() {
       a.href = url; a.download = 'contactos.csv'; a.click();
       URL.revokeObjectURL(url);
     } catch { setError('No se pudo exportar el listado.'); }
-  };
-
-  // Plantilla de WhatsApp para iniciar contacto (backend
-  // routes/whatsapp.js#reabrir-plantilla) — sirve para un teléfono que
-  // llegó por correo u otro medio, sin que el cliente le haya escrito antes
-  // al CRM. El botón en sí es la confirmación, mismo criterio que "Reabrir
-  // con plantilla" en la Bandeja.
-  const enviarPlantilla = async c => {
-    setEnviandoPlantillaId(c.id); setError(''); setMsg('');
-    try {
-      await api.post(`/whatsapp/conversaciones/${c.id}/reabrir-plantilla`);
-      setMsg(`Plantilla enviada a ${c.nombre} ${c.apellido || ''}.`);
-    } catch (err) {
-      setError(err.response?.data?.error || 'No se pudo enviar la plantilla.');
-    } finally {
-      setEnviandoPlantillaId(null);
-    }
   };
 
   const submit = async ev => {
@@ -249,14 +231,7 @@ export default function Contactos() {
                 <td className="px-4 py-2 text-gray-600 max-w-[200px] truncate" title={c.email || ''}>{c.email || '—'}</td>
                 <td className="px-4 py-2 text-gray-600 whitespace-nowrap">{c.telefono_e164 || '—'}</td>
                 <td className="px-4 py-2 text-gray-600">{c.vendedor_nombre || '—'}</td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  {c.telefono_e164 && (
-                    <button onClick={() => enviarPlantilla(c)} disabled={enviandoPlantillaId === c.id}
-                      title="Enviar plantilla de WhatsApp aprobada por Meta para iniciar contacto"
-                      className="text-ht-accent hover:underline disabled:opacity-40 mr-3">
-                      {enviandoPlantillaId === c.id ? 'Enviando…' : 'WhatsApp'}
-                    </button>
-                  )}
+                <td className="px-4 py-2 text-right">
                   <button onClick={() => abrirEditar(c)} className="text-ht-accent hover:underline">Editar</button>
                 </td>
               </tr>

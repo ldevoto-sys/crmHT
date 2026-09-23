@@ -6,10 +6,9 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
 const googlemaps = require('../services/googlemaps');
-const { filtroTipoPermitido, headersDescargaSegura } = require('../utils/archivosSeguros');
 
 router.use(authenticate);
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 }, fileFilter: filtroTipoPermitido });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 // "Gestionar" (agregar/editar paradas, marcarlas completadas, subir fotos,
 // ver todos los despachos) es de administrador/jefe comercial, o de
@@ -516,7 +515,7 @@ router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
     if (!puedeGestionar(req.user) && adjunto.creado_por_id !== req.user.id) return res.status(403).json({ error: 'Sin permiso' });
     const archivo = await r2.descargarDespacho(adjunto.archivo_key);
     if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo' });
-    headersDescargaSegura(res, archivo.contentType || adjunto.archivo_mime || 'image/jpeg', adjunto.archivo_nombre);
+    res.setHeader('Content-Type', archivo.contentType || adjunto.archivo_mime || 'image/jpeg');
     res.send(archivo.buffer);
   } catch (err) {
     console.error('[despachos GET /adjuntos/:adjuntoId/archivo]', err);

@@ -23,8 +23,6 @@ export default function DetalleContacto() {
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState(vacioForm);
   const [guardando, setGuardando] = useState(false);
-  const [enviandoPlantilla, setEnviandoPlantilla] = useState(false);
-  const [mensajePlantilla, setMensajePlantilla] = useState(null); // { ok, texto }
 
   const cargar = () => api.get(`/contactos/${id}`).then(r => setC(r.data)).catch(() => setError('No se pudo cargar el contacto.'));
   useEffect(() => { cargar(); }, [id]);
@@ -67,25 +65,6 @@ export default function DetalleContacto() {
     finally { setGuardando(false); }
   };
 
-  // Manda la plantilla aprobada "retomar_conversacion" (backend
-  // routes/whatsapp.js) — sirve para iniciar el contacto por WhatsApp
-  // cuando el teléfono se consiguió por correo u otro medio, sin que el
-  // cliente le haya escrito antes al CRM (así que no hay ventana de 24 h
-  // abierta ni se puede mandar texto libre). No pide confirmación aparte:
-  // mismo criterio que "Reabrir con plantilla" en la Bandeja, donde el
-  // botón en sí ya es la confirmación.
-  const enviarPlantillaRetomar = async () => {
-    setEnviandoPlantilla(true); setMensajePlantilla(null);
-    try {
-      await api.post(`/whatsapp/conversaciones/${id}/reabrir-plantilla`);
-      setMensajePlantilla({ ok: true, texto: 'Plantilla enviada. Ya puedes verla en la Bandeja WhatsApp.' });
-    } catch (err) {
-      setMensajePlantilla({ ok: false, texto: err.response?.data?.error || 'No se pudo enviar la plantilla.' });
-    } finally {
-      setEnviandoPlantilla(false);
-    }
-  };
-
   const crearNegocio = async e => {
     e.preventDefault(); setError('');
     try {
@@ -112,29 +91,12 @@ export default function DetalleContacto() {
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white border border-gray-200 rounded-lg p-5">
-            <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+            <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold text-ht-navy">Datos</h2>
-              <div className="flex items-center gap-3">
-                {!editando && c.telefono_e164 && (
-                  <button onClick={enviarPlantillaRetomar} disabled={enviandoPlantilla}
-                    title="Envía la plantilla de WhatsApp aprobada por Meta para iniciar contacto — sirve cuando el cliente todavía no le ha escrito al CRM"
-                    className="text-sm border border-ht-accent text-ht-navy rounded px-3 py-1 hover:bg-ht-accent/5 disabled:opacity-40">
-                    {enviandoPlantilla ? 'Enviando…' : 'Enviar plantilla WhatsApp'}
-                  </button>
-                )}
-                {!editando && PUEDE_EDITAR_CONTACTO.includes(user?.rol) && (
-                  <button onClick={abrirEditar} className="text-sm text-ht-accent hover:underline">Editar</button>
-                )}
-              </div>
+              {!editando && PUEDE_EDITAR_CONTACTO.includes(user?.rol) && (
+                <button onClick={abrirEditar} className="text-sm text-ht-accent hover:underline">Editar</button>
+              )}
             </div>
-            {mensajePlantilla && (
-              <div className={`mb-3 text-sm ${mensajePlantilla.ok ? 'text-green-700' : 'text-red-600'}`}>
-                {mensajePlantilla.texto}
-                {mensajePlantilla.ok && (
-                  <> <a href={`/bandeja?contacto_id=${id}`} target="_blank" rel="noopener noreferrer" className="text-ht-accent hover:underline">Abrir en Bandeja</a></>
-                )}
-              </div>
-            )}
             {editando ? (
               <form onSubmit={guardarEdicion} className="space-y-3">
                 <div className="grid grid-cols-2 gap-3">

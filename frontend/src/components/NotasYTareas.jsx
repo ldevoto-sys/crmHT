@@ -32,7 +32,7 @@ export default function NotasYTareas({ contactoId, empresaId, negocioId, vendedo
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [contactoId, empresaId, negocioId]);
   useEffect(() => {
     if (PUEDE_ASIGNAR_A_OTROS.includes(user?.rol)) {
-      api.get('/users/activos').then(r => setUsuarios(r.data)).catch(() => {});
+      api.get('/users').then(r => setUsuarios(r.data.filter(u => u.activo))).catch(() => {});
     }
   }, [user]);
 
