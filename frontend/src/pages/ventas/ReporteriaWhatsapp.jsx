@@ -227,7 +227,13 @@ export default function ReporteriaWhatsapp() {
               <tbody>
                 {abiertas.map(c => (
                   <tr key={c.contacto_id} className="border-b border-gray-100 last:border-0">
-                    <td className="py-1.5">{[c.contacto_nombre, c.contacto_apellido].filter(Boolean).join(' ')}{c.empresa_nombre ? <span className="text-gray-400"> · {c.empresa_nombre}</span> : ''}</td>
+                    <td className="py-1.5">
+                      <a href={`/bandeja?contacto_id=${c.contacto_id}`} target="_blank" rel="noopener noreferrer"
+                        className="text-ht-accent hover:underline">
+                        {[c.contacto_nombre, c.contacto_apellido].filter(Boolean).join(' ')}
+                      </a>
+                      {c.empresa_nombre ? <span className="text-gray-400"> · {c.empresa_nombre}</span> : ''}
+                    </td>
                     <td className="py-1.5">{c.vendedor_nombre || <span className="text-amber-600">Sin asignar</span>}</td>
                     <td className="py-1.5 text-gray-500">{fmtFecha(c.pendiente_desde)}</td>
                     <td className="py-1.5 text-right font-medium text-ht-navy">{formatoTiempo(c.minutos_habiles_transcurridos)}</td>
