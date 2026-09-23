@@ -15,7 +15,7 @@ async function datosVigentes(id) {
   const entrada = cacheUsuarios.get(id);
   if (entrada && entrada.expira > Date.now()) return entrada.datos;
   const fila = await db.get(
-    'SELECT rol, activo, must_change_password, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza FROM users WHERE id = $1',
+    'SELECT rol, activo, must_change_password, es_encargado_postventa, es_encargado_despacho FROM users WHERE id = $1',
     [id]
   );
   cacheUsuarios.set(id, { datos: fila || null, expira: Date.now() + CACHE_MS });
@@ -40,7 +40,6 @@ async function authenticate(req, res, next) {
       must_change_password: vigente.must_change_password,
       es_encargado_postventa: vigente.es_encargado_postventa,
       es_encargado_despacho: vigente.es_encargado_despacho,
-      es_encargado_cobranza: vigente.es_encargado_cobranza,
     };
     // Con contraseña por cambiar obligatoriamente, solo se permite esa
     // acción — hasta ahora era solo una redirección del frontend, así que
