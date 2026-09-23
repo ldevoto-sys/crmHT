@@ -3,4 +3,5 @@ node_modules/
 dist/
 backend/uploads/
 *.local
+.claude/settings.local.json
 .DS_Store
