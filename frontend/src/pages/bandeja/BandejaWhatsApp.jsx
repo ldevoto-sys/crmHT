@@ -304,7 +304,10 @@ export default function BandejaWhatsApp() {
   };
 
   const cerrarConversacion = async () => {
-    if (!window.confirm('¿Cerrar esta conversación? Se reabre sola si el cliente vuelve a escribir.')) return;
+    const mensaje = conversacionActual?.abierta
+      ? '¿Cerrar esta conversación? Se reabre sola si el cliente vuelve a escribir.'
+      : '¿Marcar esta conversación como atendida? Ya no aparecerá como pendiente en el reporte de tiempo de respuesta. Se reabre sola si el cliente vuelve a escribir.';
+    if (!window.confirm(mensaje)) return;
     try {
       await api.post(`/whatsapp/conversaciones/${seleccionada}/cerrar`);
       cargarConversaciones();
@@ -431,9 +434,9 @@ export default function BandejaWhatsApp() {
                     className="text-xs text-ht-navy border border-ht-accent rounded px-2 py-1 hover:bg-ht-accent/5">
                     Crear cotización ↗
                   </a>
-                  {conversacionActual?.abierta && !verArchivadas && (
+                  {!verArchivadas && (
                     <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
-                      Cerrar conversación
+                      {conversacionActual?.abierta ? 'Cerrar conversación' : 'Marcar como atendida'}
                     </button>
                   )}
                   {verArchivadas ? (
