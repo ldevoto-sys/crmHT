@@ -384,17 +384,26 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
     if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
+    // El contacto en sí es una base compartida (cualquiera lo ve y edita),
+    // pero sus negocios no: un vendedor solo debería ver el título, monto y
+    // etapa de sus propios negocios, no los de otro vendedor con el mismo
+    // contacto (auditoría 23-09-2026, M-B2). Mismo criterio para el
+    // timeline: se excluyen los eventos de negocios ajenos.
+    const soloPropio = req.user.rol === 'vendedor';
     const negocios = await db.all(
-      `SELECT n.id, n.titulo, n.monto_estimado, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo
+      `SELECT n.id, n.titulo, n.monto_estimado, n.vendedor_id, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo
        FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
-       WHERE n.contacto_id = $1 ORDER BY n.created_at DESC`,
-      [req.params.id]
+       WHERE n.contacto_id = $1 ${soloPropio ? 'AND n.vendedor_id = $2' : ''} ORDER BY n.created_at DESC`,
+      soloPropio ? [req.params.id, req.user.id] : [req.params.id]
     );
+    const negociosAjenosExcluidos = soloPropio
+      ? (await db.all('SELECT id FROM negocios WHERE contacto_id = $1 AND vendedor_id IS DISTINCT FROM $2', [req.params.id, req.user.id])).map(n => n.id)
+      : [];
     const eventos = await db.all(
       `SELECT t.*, u.nombre AS usuario_nombre FROM timeline t
        LEFT JOIN users u ON u.id = t.usuario_id
-       WHERE t.contacto_id = $1 ORDER BY t.created_at DESC LIMIT 200`,
-      [req.params.id]
+       WHERE t.contacto_id = $1 ${negociosAjenosExcluidos.length ? 'AND (t.negocio_id IS NULL OR NOT (t.negocio_id = ANY($2)))' : ''} ORDER BY t.created_at DESC LIMIT 200`,
+      negociosAjenosExcluidos.length ? [req.params.id, negociosAjenosExcluidos] : [req.params.id]
     );
     res.json({ ...contacto, negocios, timeline: eventos });
   } catch (err) {

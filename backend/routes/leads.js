@@ -130,6 +130,14 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
     if (lead.negocio_id) return res.status(409).json({ error: 'El lead ya fue convertido' });
+    // Un vendedor solo puede convertir un lead que ya es suyo o que está sin
+    // asignar (y de paso se queda con él); no el de otro vendedor. /asignar
+    // ya excluye al rol vendedor a propósito (política 07-09-2026) — sin
+    // este chequeo, /convertir era una forma indirecta de saltársela
+    // (auditoría 23-09-2026, M-M3).
+    if (req.user.rol === 'vendedor' && lead.vendedor_id && lead.vendedor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Este lead ya está asignado a otro vendedor' });
+    }
     const vendedorId = lead.vendedor_id || req.user.id;
     const contacto = await db.get('SELECT empresa_id FROM contactos WHERE id = $1', [lead.contacto_id]);
     // Si el lead ya tenía vendedor asignado (pasó por /asignar), el negocio nace
@@ -162,8 +170,11 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
 // POST /api/leads/:id/descartar
 router.post('/:id/descartar', authorize('administrador', 'jefe_comercial', 'callcenter', 'vendedor'), async (req, res) => {
   try {
-    const lead = await db.get('SELECT id FROM leads WHERE id = $1', [req.params.id]);
+    const lead = await db.get('SELECT id, vendedor_id FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
+    if (req.user.rol === 'vendedor' && lead.vendedor_id && lead.vendedor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Este lead está asignado a otro vendedor' });
+    }
     await db.run('UPDATE leads SET estado=\'descartado\' WHERE id=$1', [req.params.id]);
     res.json({ message: 'Lead descartado' });
   } catch (err) {

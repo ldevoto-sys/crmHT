@@ -46,7 +46,7 @@ export default function Postventa() {
   useEffect(() => { cargar(); }, []);
   useEffect(() => {
     api.get('/postventa/etapas').then(r => setEtapas(r.data.filter(e => e.activo))).catch(() => {});
-    if (puedeGestionar) api.get('/users').then(r => setTecnicos(r.data.filter(u => u.activo))).catch(() => {});
+    if (puedeGestionar) api.get('/users/activos').then(r => setTecnicos(r.data)).catch(() => {});
     // eslint-disable-next-line
   }, []);
 

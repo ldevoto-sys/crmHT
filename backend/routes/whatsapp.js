@@ -21,13 +21,25 @@ const MIME_A_TIPO = mime => {
 };
 
 router.use(authenticate);
+router.use((req, res, next) => {
+  if (!['administrador', 'jefe_comercial', 'callcenter', 'gerencia', 'vendedor'].includes(req.user.rol)) {
+    return res.status(403).json({ error: 'Sin permiso' });
+  }
+  next();
+});
 
 // Administrador, jefe_comercial, callcenter y gerencia siempre ven todas las
 // conversaciones (no son dueños de leads, necesitan visión completa para
 // triage/supervisión). El toggle bandeja_acceso solo restringe a vendedor:
 // 'todos' = ve todas, 'asignado' = solo las de sus propios leads.
+// Antes esto era "cualquier rol que no sea vendedor" (incluía a técnico e
+// integrador sin querer — ninguno de los dos tiene este módulo en su menú;
+// auditoría 23-09-2026, M-B1). Lista explícita para que agregar un rol
+// nuevo no dé acceso por accidente.
+const ROLES_ACCESO_TOTAL = ['administrador', 'jefe_comercial', 'callcenter', 'gerencia'];
 async function puedeVerTodo(req) {
-  if (req.user.rol !== 'vendedor') return true;
+  if (ROLES_ACCESO_TOTAL.includes(req.user.rol)) return true;
+  if (req.user.rol !== 'vendedor') return false;
   const cfg = await db.get('SELECT bandeja_acceso FROM whatsapp_bot_config WHERE id = 1');
   return cfg?.bandeja_acceso !== 'asignado';
 }

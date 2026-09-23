@@ -433,6 +433,9 @@ async function cargarNegocioConSecuencia(id) {
 // GET /api/negocios/:id/secuencia — estado actual + pasos + historial
 router.get('/:id/secuencia', async (req, res) => {
   try {
+    const negocio = await db.get('SELECT id, vendedor_id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeVer(negocio, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const ns = await db.get(
       `SELECT ns.*, s.nombre AS secuencia_nombre FROM negocio_secuencias ns
        JOIN secuencias s ON s.id = ns.secuencia_id
@@ -630,6 +633,9 @@ router.post('/:id/seguimiento-manual', async (req, res) => {
 // GET /api/negocios/:id/encuesta — estado de la encuesta post-cierre (si existe)
 router.get('/:id/encuesta', async (req, res) => {
   try {
+    const negocio = await db.get('SELECT id, vendedor_id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeVer(negocio, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const encuesta = await db.get(
       `SELECT en.*, er.puntaje, er.comentario FROM encuestas en
        LEFT JOIN encuesta_respuestas er ON er.encuesta_id = en.id
