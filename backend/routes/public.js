@@ -146,14 +146,23 @@ const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document:
 // lo descarga de Meta (URL temporal, requiere el token) y lo sube a R2 antes
 // de guardar la referencia. Si algo falla en la descarga/subida, igual se
 // registra el mensaje (con su texto/caption) para no perder el hilo.
-async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, cuenta = whatsappCuentas.VENTAS, waMessageId = null, respondidoAId = null }) {
+// Convierte el "timestamp" de Meta (epoch en segundos, viene como string) a
+// Date — null si falta o no es un número válido, para no guardar una fecha
+// basura ante un payload raro.
+function fechaDeTimestampMeta(timestamp) {
+  const seg = Number(timestamp);
+  return Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : null;
+}
+
+async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, cuenta = whatsappCuentas.VENTAS, waMessageId = null, respondidoAId = null, waTimestamp = null }) {
+  const horaMeta = fechaDeTimestampMeta(waTimestamp);
   if (!tipoMedia || !mediaId) {
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, wa_message_id: waMessageId, respondido_a_id: respondidoAId });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta });
     return;
   }
   const descarga = await whatsapp.descargarMedia(mediaId, cuenta);
   if (!descarga) {
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia, wa_message_id: waMessageId, respondido_a_id: respondidoAId });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia, wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta });
     return;
   }
   const ext = (descarga.mimeType || '').split('/')[1]?.split(';')[0] || 'bin';
@@ -162,7 +171,7 @@ async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEn
   await mensajes.registrar({
     contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante,
     tipo: tipoMedia, archivo_key: key, archivo_mime: descarga.mimeType,
-    wa_message_id: waMessageId, respondido_a_id: respondidoAId,
+    wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta,
   });
 }
 
@@ -314,7 +323,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadIdCuenta = r.rows[0].id;
     }
-    await registrarEntrante({ contacto, leadId: leadIdCuenta, tipoMedia, mediaId, textoEntrante, cuenta, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: leadIdCuenta, tipoMedia, mediaId, textoEntrante, cuenta, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     return;
   }
 
@@ -324,7 +333,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   // El bot ya entregó esta conversación a un vendedor: no vuelve a intervenir,
   // solo se registra el mensaje para que se vea en la Bandeja de WhatsApp.
   if (ultimoLead && ultimoLead.bot_estado === 'derivado') {
-    await registrarEntrante({ contacto, leadId: ultimoLead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: ultimoLead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     return;
   }
 
@@ -356,7 +365,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
         );
       }
       await db.run(`INSERT INTO lead_respuestas (lead_id, campo, valor, capturado_por) VALUES ($1,'categoria',$2,'bot')`, [lead.id, elegida.categoria]);
-      await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id, respondido_a_id: respondidoAId });
+      await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id, respondido_a_id: respondidoAId, wa_timestamp: fechaDeTimestampMeta(m.timestamp) });
       if (cfg.activo_confirmacion && cfg.mensaje_confirmacion) {
         await whatsapp.enviar(telefono_e164, cfg.mensaje_confirmacion);
         await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'saliente', texto: cfg.mensaje_confirmacion });
@@ -372,7 +381,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadId = r.rows[0].id;
     }
-    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     // Una sola vez por racha fuera de horario, no en cada mensaje — ver
     // whatsapp_mensajes.js#yaAvisoFueraHorario.
     if (cfg.activo_fuera_horario && !(await mensajes.yaAvisoFueraHorario(contacto.id))) {
@@ -395,7 +404,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
         `INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`,
         [contacto.id]
       );
-      await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+      await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
       return;
     }
     const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
@@ -406,14 +415,14 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       [contacto.id, primerPaso ? new Date(Date.now() + primerPaso.tiempo_espera_horas * 3600000) : null]
     );
     await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
-    await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'saliente', texto: cfg.mensaje_categorizacion });
   } else {
     // Ya hay un lead esperando categoría y el cliente escribió texto libre (o
     // mandó un archivo) en vez de elegir una opción de la lista: se registra
     // el mensaje y se deja la pregunta activa — el recontacto la reintenta
     // más tarde.
-    await registrarEntrante({ contacto, leadId: lead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: lead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
   }
 }
 

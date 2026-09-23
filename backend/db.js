@@ -1354,6 +1354,15 @@ async function initDb() {
   // mensaje (la última que llegó o se mandó; vacía = sin reacción o quitada).
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_message_id TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS respondido_a_id INTEGER REFERENCES whatsapp_mensajes(id)`);
+  // Hora real del mensaje según Meta (campo "timestamp" del payload del
+  // webhook, epoch en segundos) — created_at es cuándo nuestro servidor
+  // procesó el webhook, que puede quedar unos segundos o minutos detrás si
+  // hubo un reintento o el proceso estaba ocupado. Solo se llena en
+  // mensajes ENTRANTES (los salientes los mandamos nosotros, así que su
+  // created_at ya es la hora real). Base para informes de tiempo de
+  // respuesta confiables (auditoría 23-09-2026, pedido de Luis Devoto
+  // 23-09-2026 — "cada mensaje con horario").
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_timestamp TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_emoji TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_por TEXT CHECK (reaccion_por IN ('cliente','negocio'))`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_wa_message_id ON whatsapp_mensajes (wa_message_id)`);
