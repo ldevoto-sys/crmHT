@@ -21,8 +21,12 @@ router.get('/', async (req, res) => {
     const params = [];
     let i = 1;
 
+    // asignado_a_id es un parámetro libre de la URL: sin este chequeo,
+    // cualquiera podía pasar el id de otro usuario y ver sus tareas, aunque
+    // no tuviera permiso para asignar tareas a otros (auditoría 23-09-2026,
+    // M-B2).
     let asignado = asignado_a_id;
-    if (!asignado && !PUEDE_ASIGNAR_A_OTROS.includes(req.user.rol)) asignado = req.user.id;
+    if (!PUEDE_ASIGNAR_A_OTROS.includes(req.user.rol)) asignado = req.user.id;
     if (asignado) { clauses.push(`t.asignado_a_id = $${i++}`); params.push(asignado); }
 
     if (estado) { clauses.push(`t.estado = $${i++}`); params.push(estado); }

@@ -145,6 +145,9 @@ export default function App() {
             <Route path="reportes/softland" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
             } />
+            <Route path="reportes/whatsapp" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="whatsapp" /></ProtectedRoute>
+            } />
 
             {/* Servicio Técnico — abierto a todos los roles existentes, más el rol dedicado "tecnico" */}
             <Route path="servicio-tecnico" element={<ServicioTecnico />} />

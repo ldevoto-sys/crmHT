@@ -11,6 +11,10 @@ api.interceptors.request.use(cfg => {
 api.interceptors.response.use(
   r => r,
   err => {
+    if (err.response?.status === 403 && err.response?.data?.code === 'must_change_password') {
+      if (window.location.pathname !== '/cambiar-password') window.location.href = '/cambiar-password';
+      return Promise.reject(err);
+    }
     if (err.response?.status === 401) {
       // Antes esto redirigía de inmediato y en silencio — si el corte de
       // sesión pillaba a alguien a mitad de una cotización larga, perdía

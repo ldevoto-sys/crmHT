@@ -6,6 +6,7 @@ const { validarRut, validarEmail } = require('../utils/validaciones');
 const { normalizarTelefono, buscarDuplicados, sugerirEmpresaPorEmail } = require('../services/dedup');
 const { uploadCSV } = require('../middleware/upload');
 const { parseCSV } = require('../utils/csv');
+const { sincronizarLeadYNegocios } = require('../services/sincronizarVendedor');
 const { mapearContactos, PLANTILLA_HEADERS } = require('../services/import_contactos');
 const { toCSV } = require('../utils/csv');
 const { mayusculas } = require('../utils/texto');
@@ -384,17 +385,26 @@ router.get('/:id', async (req, res) => {
       [req.params.id]
     );
     if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
+    // El contacto en sí es una base compartida (cualquiera lo ve y edita),
+    // pero sus negocios no: un vendedor solo debería ver el título, monto y
+    // etapa de sus propios negocios, no los de otro vendedor con el mismo
+    // contacto (auditoría 23-09-2026, M-B2). Mismo criterio para el
+    // timeline: se excluyen los eventos de negocios ajenos.
+    const soloPropio = req.user.rol === 'vendedor';
     const negocios = await db.all(
-      `SELECT n.id, n.titulo, n.monto_estimado, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo
+      `SELECT n.id, n.titulo, n.monto_estimado, n.vendedor_id, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo
        FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
-       WHERE n.contacto_id = $1 ORDER BY n.created_at DESC`,
-      [req.params.id]
+       WHERE n.contacto_id = $1 ${soloPropio ? 'AND n.vendedor_id = $2' : ''} ORDER BY n.created_at DESC`,
+      soloPropio ? [req.params.id, req.user.id] : [req.params.id]
     );
+    const negociosAjenosExcluidos = soloPropio
+      ? (await db.all('SELECT id FROM negocios WHERE contacto_id = $1 AND vendedor_id IS DISTINCT FROM $2', [req.params.id, req.user.id])).map(n => n.id)
+      : [];
     const eventos = await db.all(
       `SELECT t.*, u.nombre AS usuario_nombre FROM timeline t
        LEFT JOIN users u ON u.id = t.usuario_id
-       WHERE t.contacto_id = $1 ORDER BY t.created_at DESC LIMIT 200`,
-      [req.params.id]
+       WHERE t.contacto_id = $1 ${negociosAjenosExcluidos.length ? 'AND (t.negocio_id IS NULL OR NOT (t.negocio_id = ANY($2)))' : ''} ORDER BY t.created_at DESC LIMIT 200`,
+      negociosAjenosExcluidos.length ? [req.params.id, negociosAjenosExcluidos] : [req.params.id]
     );
     res.json({ ...contacto, negocios, timeline: eventos });
   } catch (err) {
@@ -467,6 +477,11 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
     // se ignora lo que haya mandado y se mantiene la asignación existente.
     const nuevoVendedorId = req.user.rol === 'vendedor' ? contacto.vendedor_id : (vendedor_id || null);
     const cambiaAsignacion = nuevoVendedorId && nuevoVendedorId != contacto.vendedor_id;
+    // Distinto de cambiaAsignacion arriba (que solo cuenta cuando se asigna
+    // a alguien, para el timestamp vendedor_asignado_en): esto también
+    // dispara con la desasignación, para que el chat y los negocios
+    // abiertos queden igual de "sin vendedor" que el contacto.
+    const cambioVendedor = nuevoVendedorId != contacto.vendedor_id;
 
     await db.run(
       `UPDATE contactos SET nombre=$1, apellido=$2, email=$3, telefono_e164=$4, empresa_id=$5,
@@ -477,6 +492,10 @@ router.put('/:id', authorize(...PUEDE_EDITAR), async (req, res) => {
        rut_comprador || null, cargo || null, activo !== undefined ? activo : true,
        revisar_duplicado !== undefined ? revisar_duplicado : false, nuevoVendedorId, id, cambiaAsignacion]
     );
+    // Sincroniza con el chat (el lead más reciente) y los negocios abiertos
+    // del contacto — pedido 23-09-2026, ver services/sincronizarVendedor.js.
+    // Los negocios ganados/perdidos no se tocan (pedido explícito).
+    if (cambioVendedor) await sincronizarLeadYNegocios(id, nuevoVendedorId);
     res.json({ message: 'Contacto actualizado' });
   } catch (err) {
     console.error('[contactos/PUT /:id]', err);
