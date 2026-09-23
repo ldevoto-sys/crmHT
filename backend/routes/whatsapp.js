@@ -142,7 +142,18 @@ async function accesoConversacion(req, contactoId) {
   const lead = await db.get('SELECT * FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [contactoId]);
   const verTodo = await puedeVerTodo(req);
   if (verTodo) return { permitido: true, lead };
-  return { permitido: lead?.vendedor_id === req.user.id, lead };
+  if (lead?.vendedor_id === req.user.id) return { permitido: true, lead };
+  // Un contacto que nunca escribió por WhatsApp no tiene lead todavía (el
+  // lead lo crea el bot al recibir el primer mensaje, ver routes/public.js)
+  // — sin este caso, un vendedor no podía mandarle la plantilla de
+  // "retomar conversación" a un contacto propio (dato de contacto obtenido
+  // por correo u otro medio) aunque sea su dueño en contactos.vendedor_id
+  // (23-09-2026, pedido de Luis Devoto).
+  if (!lead) {
+    const contacto = await db.get('SELECT vendedor_id FROM contactos WHERE id = $1', [contactoId]);
+    if (contacto?.vendedor_id === req.user.id) return { permitido: true, lead: null };
+  }
+  return { permitido: false, lead };
 }
 
 // GET /api/whatsapp/conversaciones/:contactoId/mensajes
