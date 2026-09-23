@@ -146,14 +146,23 @@ const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document:
 // lo descarga de Meta (URL temporal, requiere el token) y lo sube a R2 antes
 // de guardar la referencia. Si algo falla en la descarga/subida, igual se
 // registra el mensaje (con su texto/caption) para no perder el hilo.
-async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, cuenta = whatsappCuentas.VENTAS, waMessageId = null, respondidoAId = null }) {
+// Convierte el "timestamp" de Meta (epoch en segundos, viene como string) a
+// Date — null si falta o no es un número válido, para no guardar una fecha
+// basura ante un payload raro.
+function fechaDeTimestampMeta(timestamp) {
+  const seg = Number(timestamp);
+  return Number.isFinite(seg) && seg > 0 ? new Date(seg * 1000) : null;
+}
+
+async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, cuenta = whatsappCuentas.VENTAS, waMessageId = null, respondidoAId = null, waTimestamp = null }) {
+  const horaMeta = fechaDeTimestampMeta(waTimestamp);
   if (!tipoMedia || !mediaId) {
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, wa_message_id: waMessageId, respondido_a_id: respondidoAId });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta });
     return;
   }
   const descarga = await whatsapp.descargarMedia(mediaId, cuenta);
   if (!descarga) {
-    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia, wa_message_id: waMessageId, respondido_a_id: respondidoAId });
+    await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante, tipo: tipoMedia, wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta });
     return;
   }
   const ext = (descarga.mimeType || '').split('/')[1]?.split(';')[0] || 'bin';
@@ -162,7 +171,7 @@ async function registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEn
   await mensajes.registrar({
     contacto_id: contacto.id, lead_id: leadId, direccion: 'entrante', texto: textoEntrante,
     tipo: tipoMedia, archivo_key: key, archivo_mime: descarga.mimeType,
-    wa_message_id: waMessageId, respondido_a_id: respondidoAId,
+    wa_message_id: waMessageId, respondido_a_id: respondidoAId, wa_timestamp: horaMeta,
   });
 }
 
@@ -178,7 +187,15 @@ router.get('/whatsapp/webhook', (req, res) => {
 });
 
 function firmaValida(req) {
-  if (!process.env.WHATSAPP_APP_SECRET) return true; // sin secreto configurado: no se valida (solo mientras se prueba)
+  if (!process.env.WHATSAPP_APP_SECRET) {
+    // Antes esto aceptaba cualquier POST sin validar ("solo mientras se
+    // prueba") — si la variable llegara a faltar en algún entorno, cualquiera
+    // podía inyectar mensajes falsos al webhook público (auditoría
+    // 23-09-2026, M-M8). Falla cerrado y avisa fuerte en el log en vez de
+    // aceptar en silencio.
+    console.error('[SEGURIDAD] WHATSAPP_APP_SECRET no está definida: se rechaza todo el webhook de WhatsApp hasta configurarla.');
+    return false;
+  }
   const firma = req.headers['x-hub-signature-256'];
   if (!firma || !req.rawBody) return false;
   const esperado = 'sha256=' + crypto.createHmac('sha256', process.env.WHATSAPP_APP_SECRET).update(req.rawBody).digest('hex');
@@ -191,7 +208,16 @@ function firmaValida(req) {
 // — se valida con un secreto propio, compartido entre los dos entornos por
 // fuera de Meta. Sin WHATSAPP_REENVIO_SECRETO configurado, esto nunca es
 // válido y el webhook sigue exigiendo la firma de Meta como siempre.
+//
+// WHATSAPP_REENVIO_ACEPTAR distingue quién puede RECIBIR un reenvío de
+// quién solo lo ENVÍA: antes, cualquier entorno con el mismo
+// WHATSAPP_REENVIO_SECRETO (hoy es el mismo valor en staging y producción)
+// podía mandarle este header a producción y saltarse la firma de Meta —
+// quien tuviera las variables de staging podía inyectar mensajes en
+// producción (auditoría 23-09-2026, M-M8). Con esta variable, solo el
+// entorno que de verdad recibe reenvíos (staging) la tiene en true.
 function reenvioValido(req) {
+  if (process.env.WHATSAPP_REENVIO_ACEPTAR !== 'true') return false;
   const secreto = process.env.WHATSAPP_REENVIO_SECRETO;
   const recibido = req.headers['x-reenvio-secreto'];
   if (!secreto || !recibido) return false;
@@ -205,6 +231,15 @@ function reenvioValido(req) {
 async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil = null) {
   const telefono_e164 = normalizarTelefono('+' + m.from);
   if (!telefono_e164) return;
+
+  // Meta puede reentregar la misma notificación (reintento propio, o un
+  // payload ya firmado que alguien reenvía) — sin esto, se duplicaba el
+  // mensaje y todo lo que dispara (respuesta del bot, asignación de
+  // vendedor) cada vez que llegaba de nuevo (auditoría 23-09-2026, M-B5).
+  if (m.id) {
+    const yaExiste = await db.get('SELECT id FROM whatsapp_mensajes WHERE wa_message_id = $1', [m.id]);
+    if (yaExiste) return;
+  }
 
   let contacto = await db.get('SELECT * FROM contactos WHERE telefono_e164 = $1', [telefono_e164]);
   if (!contacto) {
@@ -288,7 +323,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadIdCuenta = r.rows[0].id;
     }
-    await registrarEntrante({ contacto, leadId: leadIdCuenta, tipoMedia, mediaId, textoEntrante, cuenta, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: leadIdCuenta, tipoMedia, mediaId, textoEntrante, cuenta, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     return;
   }
 
@@ -298,7 +333,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   // El bot ya entregó esta conversación a un vendedor: no vuelve a intervenir,
   // solo se registra el mensaje para que se vea en la Bandeja de WhatsApp.
   if (ultimoLead && ultimoLead.bot_estado === 'derivado') {
-    await registrarEntrante({ contacto, leadId: ultimoLead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: ultimoLead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     return;
   }
 
@@ -330,7 +365,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
         );
       }
       await db.run(`INSERT INTO lead_respuestas (lead_id, campo, valor, capturado_por) VALUES ($1,'categoria',$2,'bot')`, [lead.id, elegida.categoria]);
-      await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id, respondido_a_id: respondidoAId });
+      await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id, respondido_a_id: respondidoAId, wa_timestamp: fechaDeTimestampMeta(m.timestamp) });
       if (cfg.activo_confirmacion && cfg.mensaje_confirmacion) {
         await whatsapp.enviar(telefono_e164, cfg.mensaje_confirmacion);
         await mensajes.registrar({ contacto_id: contacto.id, lead_id: lead.id, direccion: 'saliente', texto: cfg.mensaje_confirmacion });
@@ -346,7 +381,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadId = r.rows[0].id;
     }
-    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     // Una sola vez por racha fuera de horario, no en cada mensaje — ver
     // whatsapp_mensajes.js#yaAvisoFueraHorario.
     if (cfg.activo_fuera_horario && !(await mensajes.yaAvisoFueraHorario(contacto.id))) {
@@ -369,7 +404,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
         `INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`,
         [contacto.id]
       );
-      await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+      await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
       return;
     }
     const pasos = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
@@ -380,14 +415,14 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
       [contacto.id, primerPaso ? new Date(Date.now() + primerPaso.tiempo_espera_horas * 3600000) : null]
     );
     await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
-    await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: r.rows[0].id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
     await mensajes.registrar({ contacto_id: contacto.id, lead_id: r.rows[0].id, direccion: 'saliente', texto: cfg.mensaje_categorizacion });
   } else {
     // Ya hay un lead esperando categoría y el cliente escribió texto libre (o
     // mandó un archivo) en vez de elegir una opción de la lista: se registra
     // el mensaje y se deja la pregunta activa — el recontacto la reintenta
     // más tarde.
-    await registrarEntrante({ contacto, leadId: lead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId });
+    await registrarEntrante({ contacto, leadId: lead.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
   }
 }
 
@@ -417,16 +452,28 @@ router.post('/whatsapp/webhook', async (req, res) => {
   res.sendStatus(200); // Meta espera 200 de inmediato; se procesa después.
   try {
     if (!reenvioValido(req) && !firmaValida(req)) { console.error('[whatsapp/webhook] Firma inválida'); return; }
-    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-    const urlReenvio = whatsappCuentas.urlReenvioSiCorresponde(value?.metadata?.phone_number_id);
+    // El reenvío manda el request tal cual (mismo cuerpo crudo, ver
+    // reenviarWebhook) — si algún cambio del lote pide reenvío, se reenvía
+    // el payload completo una sola vez y no se procesa nada acá.
+    const primerPhoneId = req.body?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+    const urlReenvio = whatsappCuentas.urlReenvioSiCorresponde(primerPhoneId);
     if (urlReenvio) { await reenviarWebhook(req, urlReenvio); return; }
-    const cuenta = whatsappCuentas.resolverPorPhoneNumberId(value?.metadata?.phone_number_id);
-    // Meta manda el nombre de perfil de WhatsApp del remitente junto con los
-    // mensajes (value.contacts), no dentro de cada mensaje — se toma una
-    // sola vez acá y se usa para todos los mensajes de esta notificación.
-    const nombrePerfil = value?.contacts?.[0]?.profile?.name?.trim() || null;
-    const mensajes = value?.messages || [];
-    for (const m of mensajes) await procesarMensaje(m, cuenta, nombrePerfil);
+    // Un lote de Meta puede traer más de una entrada/cambio (ej. varios
+    // mensajes que llegaron casi juntos) — antes solo se leía
+    // entry[0].changes[0], así que cualquier evento adicional del mismo
+    // lote se perdía en silencio (auditoría 23-09-2026, M-B5).
+    for (const entry of req.body?.entry || []) {
+      for (const change of entry?.changes || []) {
+        const value = change?.value;
+        const cuenta = whatsappCuentas.resolverPorPhoneNumberId(value?.metadata?.phone_number_id);
+        // Meta manda el nombre de perfil de WhatsApp del remitente junto con
+        // los mensajes (value.contacts), no dentro de cada mensaje — se toma
+        // una sola vez acá y se usa para todos los mensajes de este cambio.
+        const nombrePerfil = value?.contacts?.[0]?.profile?.name?.trim() || null;
+        const mensajes = value?.messages || [];
+        for (const m of mensajes) await procesarMensaje(m, cuenta, nombrePerfil);
+      }
+    }
   } catch (err) {
     console.error('[whatsapp/webhook] Error procesando mensaje:', err);
   }

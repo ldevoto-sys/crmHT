@@ -178,7 +178,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
 
     // Etapa inicial: primera abierta por orden, dentro de ese mismo pipeline.
     const etapaInicial = await db.get(
-      `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true AND pipeline_id = $1 ORDER BY orden LIMIT 1`,
+      `SELECT id, nombre, probabilidad_cierre FROM pipeline_etapas WHERE tipo = 'abierta' AND activo = true AND pipeline_id = $1 ORDER BY orden LIMIT 1`,
       [pipelineId]
     );
     const emp = empresa_id || contacto.empresa_id || null;
@@ -269,7 +269,6 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   if (etapa.tipo === 'perdida' && !causa_no_cierre_id && !permitirPerdidaSinCausa) {
     const e = new Error('La causa de no cierre es obligatoria al marcar perdido'); e.status = 400; throw e;
   }
-
   const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
   await db.run(
     `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
@@ -278,7 +277,8 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
     [etapa.id, etapa.probabilidad_cierre,
      etapa.tipo === 'perdida' ? causa_no_cierre_id : null,
      etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
-     cierra ? new Date().toISOString() : null, negocioId]
+     cierra ? new Date().toISOString() : null,
+     negocioId]
   );
   if (etapa.id !== negocio.etapa_id) {
     await db.run(
@@ -400,6 +400,9 @@ async function cargarNegocioConSecuencia(id) {
 // GET /api/negocios/:id/secuencia — estado actual + pasos + historial
 router.get('/:id/secuencia', async (req, res) => {
   try {
+    const negocio = await db.get('SELECT id, vendedor_id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeVer(negocio, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const ns = await db.get(
       `SELECT ns.*, s.nombre AS secuencia_nombre FROM negocio_secuencias ns
        JOIN secuencias s ON s.id = ns.secuencia_id
@@ -597,6 +600,9 @@ router.post('/:id/seguimiento-manual', async (req, res) => {
 // GET /api/negocios/:id/encuesta — estado de la encuesta post-cierre (si existe)
 router.get('/:id/encuesta', async (req, res) => {
   try {
+    const negocio = await db.get('SELECT id, vendedor_id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!negocio) return res.status(404).json({ error: 'Negocio no encontrado' });
+    if (!puedeVer(negocio, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const encuesta = await db.get(
       `SELECT en.*, er.puntaje, er.comentario FROM encuestas en
        LEFT JOIN encuesta_respuestas er ON er.encuesta_id = en.id
@@ -641,8 +647,12 @@ async function resolverPipelineOperaciones(client) {
   if (!etapas.rows.length) return { error: 'El pipeline "Operaciones" no tiene etapas activas configuradas.' };
 
   const porNombre = new Map(etapas.rows.map(e => [e.nombre.toLowerCase(), e]));
-  const porDefecto = etapas.rows.find(e => e.tipo === 'ganada');
-  if (!porDefecto) return { error: 'El pipeline "Operaciones" no tiene una etapa de tipo "ganada" configurada (se usa por defecto cuando la fila no indica estado).' };
+  // Fix (bug pre-existente): esto buscaba tipo==='ganada', contradiciendo el
+  // comentario de arriba y el de resolverEtapaFila() — una fila sin "estado"
+  // caía directo en "Ganado" en vez de "Aceptado". Corregido para matchear
+  // por nombre, igual que el resto del importador.
+  const porDefecto = porNombre.get('aceptado');
+  if (!porDefecto) return { error: 'El pipeline "Operaciones" no tiene una etapa "Aceptado" configurada (se usa por defecto cuando la fila no indica estado).' };
 
   return { pipelineId, porNombre, porDefecto };
 }

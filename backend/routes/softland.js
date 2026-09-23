@@ -351,7 +351,11 @@ router.get('/documentos/:tipo/exportar', authorize('administrador', 'jefe_comerc
     const { where, params } = await filtroDocumentos(cfg, req.query);
     const rows = await db.all(`SELECT * FROM ${cfg.tabla} ${where} ORDER BY fecha DESC LIMIT 20000`, params);
     const encabezados = ['fecha', cfg.numero, 'vencod', 'nombre_vendedor', 'cod_cliente', 'nombre_cliente', ...(cfg.numero === 'nv_numero' ? ['num_oc'] : []), 'monto'];
-    const csvEscape = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csvEscape = v => {
+      let s = String(v ?? '');
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // evita inyección de fórmulas al abrir en Excel (M-M5)
+      return `"${s.replace(/"/g, '""')}"`;
+    };
     const lineas = [encabezados.join(';')];
     for (const r of rows) {
       lineas.push(encabezados.map(c => csvEscape(c === 'fecha' ? new Date(r.fecha).toLocaleDateString('es-CL') : r[c])).join(';'));

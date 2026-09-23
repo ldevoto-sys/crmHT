@@ -9,8 +9,9 @@ const r2 = require('../services/r2');
 const { enviarPostventaVencidosSiHay, enviarAvisoCasoNuevo } = require('../services/postventaVencidos');
 const { generarInformePostventaPDFBuffer, generarCotizacionPDFBuffer } = require('../services/pdf');
 const { fetchCompleta: fetchCotizacionCompleta } = require('../services/cotizacion_data');
+const { filtroTipoPermitido, headersDescargaSegura } = require('../utils/archivosSeguros');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 }, fileFilter: filtroTipoPermitido });
 
 router.use(authenticate);
 
@@ -381,8 +382,7 @@ router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
     if (!puedeAccederCaso({ creado_por_id: adjunto.creado_por_id }, req.user)) return res.status(403).json({ error: 'Sin permiso' });
     const archivo = await r2.descargarDespacho(adjunto.archivo_key);
     if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo' });
-    res.setHeader('Content-Type', archivo.contentType || adjunto.archivo_mime || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${adjunto.archivo_nombre || 'adjunto'}"`);
+    headersDescargaSegura(res, archivo.contentType || adjunto.archivo_mime, adjunto.archivo_nombre);
     res.send(archivo.buffer);
   } catch (err) {
     console.error('[postventa GET /adjuntos/:adjuntoId/archivo]', err);

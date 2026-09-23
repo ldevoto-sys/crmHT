@@ -51,8 +51,22 @@ function ordenAleatorioConOtroAlFinal(causas) {
 async function manejarRespuesta(m, { contacto, textoEntrante }) {
   const waMessageId = m.context?.id;
   if (!waMessageId) return false;
-  const correlacion = await db.get('SELECT * FROM whatsapp_correlacion WHERE wa_message_id = $1', [waMessageId]);
+  const correlacion = await db.get(
+    `SELECT wc.*, n.contacto_id FROM whatsapp_correlacion wc
+     JOIN negocios n ON n.id = wc.negocio_id
+     WHERE wc.wa_message_id = $1`,
+    [waMessageId]
+  );
   if (!correlacion) return false;
+  // El contacto que responde debe ser el dueño del negocio al que se le
+  // mandó ese mensaje — sin este chequeo, un payload de webhook falsificado
+  // con cualquier wa_message_id ajeno podía mover el negocio de otro
+  // contacto a "perdida" (auditoría 23-09-2026, M-M8; ver también la firma
+  // del webhook en routes/public.js).
+  if (correlacion.contacto_id !== contacto.id) {
+    console.error('[seguimientoBoton] wa_message_id', waMessageId, 'no corresponde al contacto', contacto.id, '(es del negocio de', correlacion.contacto_id, ') — se ignora');
+    return false;
+  }
 
   // Se registra ACÁ, antes de reaccionar (mover etapa, mandar la encuesta o
   // el agradecimiento) — si se registrara después de mandar una respuesta

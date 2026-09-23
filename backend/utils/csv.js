@@ -54,7 +54,13 @@ function parseCSV(texto) {
 // Serializa filas a CSV (separador coma, comillas cuando el valor las necesita).
 function toCSV(headers, rows) {
   const escapar = v => {
-    const s = v === null || v === undefined ? '' : String(v);
+    let s = v === null || v === undefined ? '' : String(v);
+    // Una celda que Excel/Sheets interpreta como fórmula (empieza con =, +,
+    // -, @, tab o retorno de carro) se evalúa al abrir el archivo. Con datos
+    // que pueden venir de un tercero (ej. nombre de perfil de WhatsApp) es
+    // inyección de fórmulas: se antepone un apóstrofo para que quede como
+    // texto literal (auditoría 23-09-2026, M-M5).
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const lineas = [headers.map(escapar).join(',')];
