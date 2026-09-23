@@ -6,12 +6,12 @@ const { db } = require('../db');
 async function registrar({
   contacto_id, lead_id = null, direccion, texto, enviado_por_id = null,
   tipo = 'texto', archivo_key = null, archivo_nombre = null, archivo_mime = null,
-  wa_message_id = null, respondido_a_id = null,
+  wa_message_id = null, respondido_a_id = null, wa_timestamp = null,
 }) {
   const r = await db.run(
-    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-    [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id]
+    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+    [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp]
   );
   // Un mensaje nuevo del cliente reabre y desarchiva la conversación, aunque
   // se hubiera cerrado o archivado a mano antes.
