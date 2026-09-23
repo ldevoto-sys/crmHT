@@ -99,10 +99,16 @@ router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
 
     if (user) {
       const token = crypto.randomBytes(32).toString('hex');
+      // Se guarda el hash, no el token — igual que password_hash. Si alguien
+      // solo con permiso de lectura (ej. el rol de BI) llega a leer esta
+      // columna, no puede usarla para tomar la cuenta (auditoría 23-09-2026,
+      // M-A4). El correo sí lleva el token real: es lo único que se necesita
+      // para comparar.
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       const expires = new Date(Date.now() + 3600000).toISOString(); // 1 hora
       await db.run(
         'UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3',
-        [token, expires, user.id]
+        [tokenHash, expires, user.id]
       );
       await email.resetPassword(user, token);
     }
@@ -122,9 +128,10 @@ router.post('/reset-password/:token', resetPasswordLimiter, async (req, res) => 
     const { newPassword } = req.body;
     if (!newPassword) return res.status(400).json({ error: 'Contraseña requerida' });
 
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const user = await db.get(
       'SELECT * FROM users WHERE reset_token = $1 AND reset_token_expires > now()',
-      [token]
+      [tokenHash]
     );
     if (!user) return res.status(400).json({ error: 'Token inválido o expirado' });
 

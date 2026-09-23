@@ -667,23 +667,29 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
 
 // PUT /api/cotizaciones/:id — edita una cotización en estado 'borrador' (incl. luego de "nueva versión")
 router.put('/:id', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
-  const { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
-  const titulo = mayusculas(req.body.titulo);
-  if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
-  if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
-  if (iva_pct < 0 || iva_pct > 100) return res.status(400).json({ error: 'IVA inválido' });
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Cotización no encontrada' });
+  try {
+    var { items, descuento_pct = 0, iva_pct = 19, validez_dias = 15, condiciones, forma_pago_id } = req.body;
+    var titulo = mayusculas(req.body.titulo);
+    if (!itemsValidos(items)) return res.status(400).json({ error: 'Debe incluir al menos un ítem válido' });
+    if (descuento_pct < 0 || descuento_pct > 100) return res.status(400).json({ error: 'Descuento inválido' });
+    if (iva_pct < 0 || iva_pct > 100) return res.status(400).json({ error: 'IVA inválido' });
 
-  const negocio = await negocioDe(req.params.id);
-  if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
-  if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+    var negocio = await negocioDe(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Cotización no encontrada' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-  const cot = await db.get('SELECT estado, origen, moneda FROM cotizaciones WHERE id = $1', [req.params.id]);
-  if (cot.estado !== 'borrador') return res.status(409).json({ error: 'Solo se puede editar una cotización en borrador' });
+    var cot = await db.get('SELECT estado, origen, moneda FROM cotizaciones WHERE id = $1', [req.params.id]);
+    if (cot.estado !== 'borrador') return res.status(409).json({ error: 'Solo se puede editar una cotización en borrador' });
 
-  const campos = validarCamposOperaciones(req.body, cot.origen, cot.moneda);
-  if (campos.error) return res.status(400).json({ error: campos.error });
-  if (campos.moneda === 'UF' && !itemsSinCatalogo(items)) {
-    return res.status(400).json({ error: 'Una cotización en UF no admite ítems del catálogo de productos (solo tiene precios en CLP); usa descripción libre.' });
+    var campos = validarCamposOperaciones(req.body, cot.origen, cot.moneda);
+    if (campos.error) return res.status(400).json({ error: campos.error });
+    if (campos.moneda === 'UF' && !itemsSinCatalogo(items)) {
+      return res.status(400).json({ error: 'Una cotización en UF no admite ítems del catálogo de productos (solo tiene precios en CLP); usa descripción libre.' });
+    }
+  } catch (err) {
+    console.error('[cotizaciones/PUT /:id] Error antes de calcular', err);
+    return res.status(500).json({ error: 'Error interno' });
   }
 
   let calc;

@@ -1721,7 +1721,16 @@ async function initDb() {
         await db.run(`GRANT USAGE ON SCHEMA public TO ${rolBI}`);
         await db.run(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${rolBI}`);
         await db.run(`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO ${rolBI}`);
-        console.log(`[DB] Permisos de solo lectura sincronizados para "${rolBI}" (incluye tablas futuras).`);
+        // "users" queda con acceso solo a columnas necesarias para atribuir
+        // reportes (vendedor, rol, etc.). password_hash, reset_token,
+        // reset_token_expires, rut, telefono y graph_token_data quedan afuera
+        // — con acceso de tabla completa, cualquiera con esta clave podía
+        // pedir "olvidé mi contraseña" para una cuenta de administrador, leer
+        // el token por SQL (se guardaba en texto plano) y tomar la cuenta
+        // (auditoría 23-09-2026, M-A4).
+        await db.run(`REVOKE SELECT ON users FROM ${rolBI}`);
+        await db.run(`GRANT SELECT (id, nombre, email, rol, activo, area, es_encargado_postventa, es_encargado_despacho, es_encargado_cobranza, pipeline_default_id, codigo_softland, recibe_round_robin, created_at) ON users TO ${rolBI}`);
+        console.log(`[DB] Permisos de solo lectura sincronizados para "${rolBI}" (incluye tablas futuras; "users" acotado a columnas no sensibles).`);
       } catch (err) {
         console.error(`[DB] No se pudo aprovisionar el rol de solo lectura "${rolBI}": ${err.message}`);
       }

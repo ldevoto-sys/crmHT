@@ -61,12 +61,19 @@ router.get('/negocio/:negocioId', async (req, res) => {
 // PUT /api/ordenes-trabajo/:id/items — reemplaza la lista completa de
 // materiales/herramientas, igual patrón que PUT /cotizaciones/:id.
 router.put('/:id/items', async (req, res) => {
-  const { items, observaciones } = req.body;
-  if (!itemsValidos(items)) return res.status(400).json({ error: 'Ítems inválidos: cada línea necesita tipo, cantidad > 0 y producto o descripción' });
+  if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
+  let items, observaciones, negocio;
+  try {
+    ({ items, observaciones } = req.body);
+    if (!itemsValidos(items)) return res.status(400).json({ error: 'Ítems inválidos: cada línea necesita tipo, cantidad > 0 y producto o descripción' });
 
-  const negocio = await negocioDeOT(req.params.id);
-  if (!negocio) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
-  if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+    negocio = await negocioDeOT(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+  } catch (err) {
+    console.error('[ordenes_trabajo/PUT /:id/items] Error antes de guardar', err);
+    return res.status(500).json({ error: 'Error interno' });
+  }
 
   const client = await db.pool.connect();
   try {
