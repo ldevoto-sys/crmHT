@@ -5,8 +5,9 @@ const crypto = require('crypto');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
+const { filtroTipoPermitido, headersDescargaSegura } = require('../utils/archivosSeguros');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 }, fileFilter: filtroTipoPermitido });
 
 router.use(authenticate);
 
@@ -291,8 +292,7 @@ router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
     if (!adjunto) return res.status(404).json({ error: 'Adjunto no encontrado' });
     const archivo = await r2.descargarDespacho(adjunto.archivo_key);
     if (!archivo) return res.status(502).json({ error: 'No se pudo obtener el archivo' });
-    res.setHeader('Content-Type', archivo.contentType || adjunto.archivo_mime || 'application/octet-stream');
-    res.setHeader('Content-Disposition', `inline; filename="${adjunto.archivo_nombre || 'adjunto'}"`);
+    headersDescargaSegura(res, archivo.contentType || adjunto.archivo_mime, adjunto.archivo_nombre);
     res.send(archivo.buffer);
   } catch (err) {
     console.error('[servicio-tecnico GET /adjuntos/:adjuntoId/archivo]', err);
