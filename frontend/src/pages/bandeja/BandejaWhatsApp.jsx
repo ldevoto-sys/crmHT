@@ -73,11 +73,17 @@ export default function BandejaWhatsApp() {
     catch { /* el badge del menú lateral usa el mismo endpoint; si falla acá, se ignora */ }
   };
 
-  const asignarLead = async (leadId, vendedorId) => {
-    if (!leadId || !vendedorId) return;
+  // Por contacto, no por lead: una conversación cerrada (o convertida en
+  // negocio) puede no tener un lead a mano para apuntarle, o el que hay no
+  // es el que corresponde reasignar — el backend resuelve el lead correcto
+  // (o crea uno si hace falta) y sincroniza contacto + negocios abiertos
+  // (23-09-2026, reporte de Luis Devoto: "en conversaciones cerradas no
+  // podemos asignar").
+  const asignarLead = async (contactoId, vendedorId) => {
+    if (!contactoId || !vendedorId) return;
     setError('');
     try {
-      await api.post(`/leads/${leadId}/asignar`, { vendedor_id: Number(vendedorId) });
+      await api.post(`/leads/asignar-por-contacto/${contactoId}`, { vendedor_id: Number(vendedorId) });
       cargarConversaciones();
     } catch (err) { setError(err.response?.data?.error || 'No se pudo asignar la conversación.'); }
   };
@@ -404,7 +410,7 @@ export default function BandejaWhatsApp() {
                       <span className="text-gray-400">Asignado a:</span>
                       {ROLES_REASIGNAN_A_CUALQUIERA.includes(user?.rol) ? (
                         <select value={conversacionActual?.vendedor_id || ''}
-                          onChange={e => e.target.value && asignarLead(conversacionActual?.lead_id, e.target.value)}
+                          onChange={e => e.target.value && asignarLead(conversacionActual?.contacto_id, e.target.value)}
                           className="border border-gray-300 rounded px-1 py-0.5 text-xs">
                           <option value="">Sin asignar</option>
                           {usuariosFiltro.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}

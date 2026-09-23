@@ -1,9 +1,25 @@
 // Motor de asignación (HT-AP-03 §7.1). Evalúa en orden y se detiene en la
-// primera regla que aplique: 1) vendedor de cuenta, 2) regla por categoría,
-// 3) round-robin entre vendedores activos con recibe_round_robin.
+// primera regla que aplique: 0) vendedor propio del contacto, 1) vendedor
+// de cuenta (empresa), 2) regla por categoría, 3) round-robin entre
+// vendedores activos con recibe_round_robin.
 const { db } = require('../db');
 
 async function sugerirVendedor({ contacto_id = null, categoria = null } = {}) {
+  // 0. El contacto mismo ya tiene un vendedor asignado (ficha de contacto o
+  // sincronizado desde un chat anterior, ver services/sincronizarVendedor.js)
+  // — antes solo se miraba el vendedor de la empresa (regla 1), así que un
+  // contacto con vendedor propio pero sin empresa (o con una sin vendedor
+  // de cuenta) nunca lo usaba al escribir de nuevo por WhatsApp (23-09-2026,
+  // pedido de Luis Devoto).
+  if (contacto_id) {
+    const propio = await db.get(
+      `SELECT c.vendedor_id FROM contactos c WHERE c.id = $1 AND c.vendedor_id IS NOT NULL`, [contacto_id]);
+    if (propio && propio.vendedor_id) {
+      const ok = await db.get('SELECT id FROM users WHERE id=$1 AND activo=true', [propio.vendedor_id]);
+      if (ok) return { vendedor_id: propio.vendedor_id, modo: 'vendedor_del_contacto' };
+    }
+  }
+
   // 1. Vendedor de cuenta (empresa del contacto).
   if (contacto_id) {
     const row = await db.get(

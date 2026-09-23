@@ -1,20 +1,33 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { normalizarTelefono } = require('../services/dedup');
 const { sugerirVendedor } = require('../services/asignacion');
+const { sincronizarNegociosAbiertos, sincronizarLeadYNegocios } = require('../services/sincronizarVendedor');
 
 // --- Endpoint público servidor-a-servidor (§9.4): API key, sin JWT ---
+// Sin límite de intentos y con !== (tiempo variable según cuánto coincide):
+// probar la clave no tenía freno (auditoría 23-09-2026, M-B7 — mismo criterio
+// que ya se aplicó a la API de Cowork, ver api_v1.js).
+const apiKeyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+  message: { error: 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.' },
+});
 function apiKey(req, res, next) {
-  const key = req.headers['x-api-key'];
   if (!process.env.LEADS_WEB_API_KEY) return res.status(503).json({ error: 'Canal web no configurado' });
-  if (key !== process.env.LEADS_WEB_API_KEY) return res.status(401).json({ error: 'API key inválida' });
+  const key = req.headers['x-api-key'] || '';
+  const esperado = Buffer.from(process.env.LEADS_WEB_API_KEY);
+  const recibido = Buffer.from(key);
+  const valido = recibido.length === esperado.length && crypto.timingSafeEqual(recibido, esperado);
+  if (!valido) return res.status(401).json({ error: 'API key inválida' });
   next();
 }
 
 // POST /api/leads/web  (header X-API-Key)
-router.post('/web', apiKey, async (req, res) => {
+router.post('/web', apiKeyLimiter, apiKey, async (req, res) => {
   try {
     const { nombre, telefono, email, mensaje, producto_id, sku, pagina_origen } = req.body;
     if (!nombre && !telefono && !email) return res.status(400).json({ error: 'Datos insuficientes' });
@@ -113,13 +126,55 @@ router.post('/:id/asignar', authorize('administrador', 'jefe_comercial', 'callce
     // nuevo sin dueño para el mismo contacto — la Bandeja muestra siempre el
     // lead más reciente, así que ese lead huérfano tapa a este ya asignado
     // (causa raíz de "el chat se desasigna solo", corregido 07-09-2026).
+    // estado: antes se forzaba a 'asignado' siempre, incluso si el lead ya
+    // estaba 'convertido' (con un negocio detrás) o 'descartado' — asignar
+    // desde una conversación cerrada-pero-convertida lo hacía retroceder de
+    // estado sin que se reflejara en ningún otro lado, así que parecía que
+    // "no pasaba nada" (auditoría 23-09-2026, reporte de Luis Devoto).
     await db.run(
-      `UPDATE leads SET vendedor_id=$1, estado='asignado', asignacion_modo=$2, bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$3`,
+      `UPDATE leads SET vendedor_id=$1,
+              estado = CASE WHEN estado IN ('convertido','descartado') THEN estado ELSE 'asignado' END,
+              asignacion_modo=$2, bot_estado='derivado', bot_proxima_accion=NULL WHERE id=$3`,
       [vendedor_id, modo, req.params.id]
     );
+    // Sincroniza con el contacto (lo que ve la ficha) y sus negocios
+    // abiertos (pedido 23-09-2026) — ver services/sincronizarVendedor.js.
+    await db.run(
+      `UPDATE contactos SET vendedor_id = $1, vendedor_asignado_en = now() WHERE id = $2 AND vendedor_id IS DISTINCT FROM $1`,
+      [vendedor_id, lead.contacto_id]
+    );
+    await sincronizarNegociosAbiertos(lead.contacto_id, vendedor_id);
     res.json({ message: 'Lead asignado', modo });
   } catch (err) {
     console.error('[leads/asignar]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/leads/asignar-por-contacto/:contactoId {vendedor_id} — igual que
+// /:id/asignar, pero para cuando no hay ningún lead todavía (una
+// conversación cerrada de un contacto que nunca tuvo bot detrás, o un
+// contacto que nunca escribió por WhatsApp — mismo caso que "Enviar
+// plantilla WhatsApp"). Crea el lead si hace falta, en vez de fallar en
+// silencio por no tener a qué id de lead apuntar (23-09-2026, reporte de
+// Luis Devoto: "en conversaciones cerradas no podemos asignar").
+router.post('/asignar-por-contacto/:contactoId', authorize('administrador', 'jefe_comercial', 'callcenter', 'gerencia'), async (req, res) => {
+  try {
+    const { vendedor_id } = req.body;
+    if (!vendedor_id) return res.status(400).json({ error: 'vendedor_id requerido' });
+    const contacto = await db.get('SELECT id FROM contactos WHERE id = $1', [req.params.contactoId]);
+    if (!contacto) return res.status(404).json({ error: 'Contacto no encontrado' });
+    const v = await db.get(`SELECT id FROM users WHERE id=$1 AND activo=true`, [vendedor_id]);
+    if (!v) return res.status(400).json({ error: 'Usuario inválido' });
+
+    await db.run(
+      `UPDATE contactos SET vendedor_id = $1, vendedor_asignado_en = now() WHERE id = $2 AND vendedor_id IS DISTINCT FROM $1`,
+      [vendedor_id, req.params.contactoId]
+    );
+    await sincronizarLeadYNegocios(req.params.contactoId, Number(vendedor_id));
+    res.json({ message: 'Vendedor asignado' });
+  } catch (err) {
+    console.error('[leads/asignar-por-contacto]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -130,6 +185,14 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
     const lead = await db.get('SELECT * FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
     if (lead.negocio_id) return res.status(409).json({ error: 'El lead ya fue convertido' });
+    // Un vendedor solo puede convertir un lead que ya es suyo o que está sin
+    // asignar (y de paso se queda con él); no el de otro vendedor. /asignar
+    // ya excluye al rol vendedor a propósito (política 07-09-2026) — sin
+    // este chequeo, /convertir era una forma indirecta de saltársela
+    // (auditoría 23-09-2026, M-M3).
+    if (req.user.rol === 'vendedor' && lead.vendedor_id && lead.vendedor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Este lead ya está asignado a otro vendedor' });
+    }
     const vendedorId = lead.vendedor_id || req.user.id;
     const contacto = await db.get('SELECT empresa_id FROM contactos WHERE id = $1', [lead.contacto_id]);
     // Si el lead ya tenía vendedor asignado (pasó por /asignar), el negocio nace
@@ -162,8 +225,11 @@ router.post('/:id/convertir', authorize('administrador', 'jefe_comercial', 'vend
 // POST /api/leads/:id/descartar
 router.post('/:id/descartar', authorize('administrador', 'jefe_comercial', 'callcenter', 'vendedor'), async (req, res) => {
   try {
-    const lead = await db.get('SELECT id FROM leads WHERE id = $1', [req.params.id]);
+    const lead = await db.get('SELECT id, vendedor_id FROM leads WHERE id = $1', [req.params.id]);
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado' });
+    if (req.user.rol === 'vendedor' && lead.vendedor_id && lead.vendedor_id !== req.user.id) {
+      return res.status(403).json({ error: 'Este lead está asignado a otro vendedor' });
+    }
     await db.run('UPDATE leads SET estado=\'descartado\' WHERE id=$1', [req.params.id]);
     res.json({ message: 'Lead descartado' });
   } catch (err) {
