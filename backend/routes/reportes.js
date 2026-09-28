@@ -9,7 +9,7 @@ const { minutosHabilesEntre } = require('../services/horario');
 const { calcularTiemposRespuesta } = require('../services/tiemposRespuestaWhatsapp');
 
 const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'gerencia'];
-const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor'];
+const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor', 'callcenter'];
 // Exportación granular (Excel) — a diferencia de los reportes agregados de
 // arriba, expone cada ítem cotizado en crudo. Se acota a gerencia/
 // administrador: es detalle comercial fila por fila, no un resumen.
