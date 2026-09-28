@@ -5,6 +5,15 @@ import { formatFechaHora } from '../utils/fecha';
 
 const fecha = formatFechaHora;
 const PUEDE_ASIGNAR_A_OTROS = ['administrador', 'jefe_comercial'];
+const PUEDE_GESTIONAR_CUALQUIERA = ['administrador', 'jefe_comercial'];
+
+// input type="datetime-local" necesita "YYYY-MM-DDTHH:mm" en hora local del navegador.
+function toDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 // Notas y tareas de un contacto, empresa o negocio (uno de los tres ids).
 // Se usa en las fichas de detalle (HT-AP-03 Etapa 3A).
@@ -16,6 +25,8 @@ export default function NotasYTareas({ contactoId, empresaId, negocioId, vendedo
   const [nuevaTarea, setNuevaTarea] = useState({ titulo: '', fecha_vencimiento: '', asignado_a_id: '' });
   const [usuarios, setUsuarios] = useState([]);
   const [error, setError] = useState('');
+  const [editId, setEditId] = useState(null);
+  const [editForm, setEditForm] = useState({ titulo: '', fecha_vencimiento: '' });
 
   const params = { contacto_id: contactoId, empresa_id: empresaId, negocio_id: negocioId };
 
@@ -63,6 +74,29 @@ export default function NotasYTareas({ contactoId, empresaId, negocioId, vendedo
     catch (err) { setError(err.response?.data?.error || 'No se pudo actualizar la tarea.'); }
   };
 
+  // Mismo criterio que puedeGestionar() en backend/routes/tareas.js.
+  const puedeEditar = t => PUEDE_GESTIONAR_CUALQUIERA.includes(user?.rol) || t.asignado_a_id === user?.id;
+
+  const iniciarEdicion = t => {
+    setError('');
+    setEditId(t.id);
+    setEditForm({ titulo: t.titulo, fecha_vencimiento: toDatetimeLocal(t.fecha_vencimiento) });
+  };
+
+  const cancelarEdicion = () => setEditId(null);
+
+  const guardarEdicion = async id => {
+    if (!editForm.titulo.trim()) return;
+    try {
+      await api.put(`/tareas/${id}`, {
+        titulo: editForm.titulo,
+        fecha_vencimiento: editForm.fecha_vencimiento || null,
+      });
+      setEditId(null);
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo editar la tarea.'); }
+  };
+
   return (
     <div className="space-y-6">
       {error && <div className="text-sm text-red-600">{error}</div>}
@@ -86,17 +120,38 @@ export default function NotasYTareas({ contactoId, empresaId, negocioId, vendedo
         </form>
         {tareas.length === 0 ? <p className="text-sm text-gray-400">Sin tareas.</p> : (
           <ul className="space-y-2">
-            {tareas.map(t => (
-              <li key={t.id} className={`flex items-center justify-between text-sm border-t border-gray-100 pt-2 ${t.estado !== 'pendiente' ? 'opacity-50' : ''}`}>
-                <div>
-                  <span className={t.estado === 'cumplida' ? 'line-through text-gray-500' : 'text-ht-navy'}>{t.titulo}</span>
-                  <span className="ml-2 text-xs text-gray-400">
-                    {t.asignado_nombre}{t.fecha_vencimiento ? ` · vence ${fecha(t.fecha_vencimiento)}` : ''}
-                  </span>
-                </div>
-                {t.estado === 'pendiente' && <button onClick={() => cumplirTarea(t.id)} className="text-ht-accent hover:underline text-xs">Marcar cumplida</button>}
-              </li>
-            ))}
+            {tareas.map(t => {
+              const enEdicion = editId === t.id;
+              if (enEdicion) {
+                return (
+                  <li key={t.id} className="flex flex-wrap items-center gap-2 text-sm border-t border-gray-100 pt-2">
+                    <input value={editForm.titulo} onChange={e => setEditForm({ ...editForm, titulo: e.target.value })}
+                      className="flex-1 min-w-[160px] border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                    <input type="datetime-local" value={editForm.fecha_vencimiento}
+                      onChange={e => setEditForm({ ...editForm, fecha_vencimiento: e.target.value })}
+                      className="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+                    <button onClick={() => guardarEdicion(t.id)} className="text-ht-accent hover:underline text-xs">Guardar</button>
+                    <button onClick={cancelarEdicion} className="text-gray-500 hover:underline text-xs">Cancelar</button>
+                  </li>
+                );
+              }
+              return (
+                <li key={t.id} className={`flex items-center justify-between text-sm border-t border-gray-100 pt-2 ${t.estado !== 'pendiente' ? 'opacity-50' : ''}`}>
+                  <div>
+                    <span className={t.estado === 'cumplida' ? 'line-through text-gray-500' : 'text-ht-navy'}>{t.titulo}</span>
+                    <span className="ml-2 text-xs text-gray-400">
+                      {t.asignado_nombre}{t.fecha_vencimiento ? ` · vence ${fecha(t.fecha_vencimiento)}` : ''}
+                    </span>
+                  </div>
+                  {t.estado === 'pendiente' && (
+                    <span className="whitespace-nowrap">
+                      {puedeEditar(t) && <button onClick={() => iniciarEdicion(t)} className="text-ht-accent hover:underline text-xs mr-3">Editar</button>}
+                      <button onClick={() => cumplirTarea(t.id)} className="text-ht-accent hover:underline text-xs">Marcar cumplida</button>
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

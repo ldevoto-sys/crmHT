@@ -147,13 +147,13 @@ export default function App() {
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><MisTareas /></ProtectedRoute>
             } />
             <Route path="reportes" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
             } />
             <Route path="reportes/softland" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
             } />
             <Route path="reportes/whatsapp" element={
-              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia']}><ReportesHub vistaInicial="whatsapp" /></ProtectedRoute>
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="whatsapp" /></ProtectedRoute>
             } />
 
             {/* Servicio Técnico — abierto a todos los roles existentes, más el rol dedicado "tecnico" */}

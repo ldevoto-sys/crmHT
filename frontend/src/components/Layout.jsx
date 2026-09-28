@@ -82,6 +82,7 @@ const menuByRole = {
     { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Empresas', to: '/empresas' },
     { label: 'Contactos', to: '/contactos' },
+    { label: 'Reportes', to: '/reportes' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
   gerencia: [
