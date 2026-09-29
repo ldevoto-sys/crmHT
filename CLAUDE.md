@@ -1,6 +1,37 @@
 # CRM Comercial HidroTecnica (HT-AP-03) — instrucciones del proyecto
 
-## Despliegue a producción (vigente desde 07-08-2026)
+## Despliegue a producción (vigente desde 29-09-2026)
+
+Instrucción explícita de Luis Devoto — reemplaza las dos reglas de abajo
+("Despliegue a producción" del 07-08-2026 y "Modo actual: todo se acumula
+en staging" del 10-08-2026), que entre las dos generaban confusión sobre
+cuándo hacía falta pedir confirmación y de qué tipo:
+
+- **Se promueve a `main` (producción) solo con el OK de Luis Devoto.** No
+  hace falta que el cambio sea la corrección de un error — puede ser
+  cualquier cambio, mejora o feature nueva incluida. No preguntar si es
+  "error o mejora": eso ya no decide nada.
+- **Si el push ocurre en horario laboral** (lunes a viernes, 9:00 a 17:30
+  hrs, hora de Chile), se pide una confirmación adicional a Luis Devoto
+  antes de promover — puntual para ese push, no basta con el OK general.
+- **Nunca se promueve a producción sin autorización de Luis Devoto, ni
+  siquiera si es un error crítico** — no hay bypass automático por "no
+  puede esperar"; si es urgente, se le avisa y se le pide el OK igual,
+  no se promueve antes de tenerlo.
+
+`staging` sigue sin esta restricción — se puede promover ahí en cualquier
+momento, para pruebas o para acumular cambios, sin pedir autorización.
+
+Las reglas de abajo (horario del 07-08-2026 y "solo por error" del
+10-08-2026) quedan sin efecto, reemplazadas por esta; se conservan tal
+cual para registro histórico.
+
+## Histórico — reglas de despliegue anteriores (07-08-2026 a 29-09-2026)
+
+Reemplazadas por la regla de arriba (29-09-2026). Se conserva el texto
+original sin modificar, para trazabilidad.
+
+### Despliegue a producción (vigente desde 07-08-2026 hasta 29-09-2026)
 
 Promover cambios a `main` (producción) **solo fuera del horario de trabajo
 de la empresa**, salvo que se trate de un **error crítico** que no pueda
@@ -33,7 +64,7 @@ ventana fuera de horario. Confirmado explícitamente por Luis Devoto
 Ver `docs/HT-AP-03-nota-cambio-v1.24.md` y
 `docs/HT-AP-03-documento-consolidado.md` (§17) para el registro completo.
 
-## Modo actual: todo se acumula en staging (vigente desde 10-08-2026)
+### Modo actual: todo se acumula en staging (vigente desde 10-08-2026 hasta 29-09-2026)
 
 Instrucción explícita de Luis Devoto, más restrictiva que la regla de
 horario de arriba: **por ahora, solo se promueve a `main` si hay un error**
