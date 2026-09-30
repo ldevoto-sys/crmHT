@@ -63,6 +63,10 @@ function rateLimit(req, res, next) {
 
 router.use(rateLimit, requireToken);
 
+// Listados de solo lectura para análisis (cotizaciones, mensajes de WhatsApp,
+// Softland, seguimientos). Van después de la autenticación a propósito.
+router.use(require('./api_v1_lectura'));
+
 // El actor "Cowork" (seed en db.js) — se usa como autor en auditoría/timeline
 // de todo lo que escribe esta API. Se cachea tras la primera consulta.
 let coworkUserId = null;
@@ -151,9 +155,11 @@ router.post('/clientes', async (req, res) => {
 async function negocioConEtapa(id) {
   return db.get(
     `SELECT n.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, e.razon_social AS cliente_razon_social, e.rut AS cliente_rut,
-            u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland
+            u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland,
+            ca.nombre AS causa_no_cierre_nombre
      FROM negocios n LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id LEFT JOIN empresas e ON e.id = n.empresa_id
      LEFT JOIN users u ON u.id = n.vendedor_id
+     LEFT JOIN causas_no_cierre ca ON ca.id = n.causa_no_cierre_id
      WHERE n.id = $1`, [id]
   );
 }
@@ -173,10 +179,20 @@ function negocioOut(n) {
     // Código de vendedor en Softland (VenCod), cargado a mano en Usuarios —
     // null si ese vendedor todavía no lo tiene cargado.
     vendedor_codigo_softland: n.vendedor_codigo_softland || null,
+    // Campos para análisis (30-09-2026). monto_estimado es NETO (sin IVA, ver
+    // nota de cambio v1.26) y puede ser null si el negocio no tiene monto cargado.
+    // causa_no_cierre / detalle solo se llenan en negocios perdidos.
+    contacto_id: n.contacto_id ? String(n.contacto_id) : null,
+    pipeline_id: n.pipeline_id || null,
+    monto_estimado: n.monto_estimado === null || n.monto_estimado === undefined ? null : Number(n.monto_estimado),
+    fecha_cierre: n.fecha_cierre || null,
+    ultima_actividad: n.ultima_actividad || null,
+    causa_no_cierre: n.causa_no_cierre_nombre || null,
+    causa_no_cierre_detalle: n.causa_no_cierre_detalle || null,
   };
 }
 
-// GET /api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=
+// GET /api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=&offset=
 // Listado con filtros — sin esto Cowork no puede pedir "todos los negocios de
 // hoy", solo consultar uno por uno si ya conoce el id (bloqueaba automatizar
 // su informe diario, reportado 19-08-2026). Reutiliza el mismo armado de
@@ -188,7 +204,12 @@ router.get('/negocios', async (req, res) => {
     if (estado && !['abierta', 'ganada', 'perdida'].includes(estado)) {
       return error(res, 400, 'estado_invalido', 'estado debe ser abierta, ganada o perdida');
     }
-    const limit = Math.min(Number(req.query.limit) || 100, 200);
+    // Tope subido de 200 a 500 y paginación por offset (30-09-2026) — para
+    // recorrer todo el historial desde ago-2026 en tandas. El orden incluye el id
+    // como desempate: sin él, filas con el mismo created_at podían repetirse o
+    // saltarse entre páginas.
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const clauses = []; const params = []; let i = 1;
     if (desde) { clauses.push(`n.created_at::date >= $${i++}`); params.push(desde); }
     if (hasta) { clauses.push(`n.created_at::date <= $${i++}`); params.push(hasta); }
@@ -196,15 +217,17 @@ router.get('/negocios', async (req, res) => {
     if (vendedor_id) { clauses.push(`n.vendedor_id = $${i++}`); params.push(vendedor_id); }
     if (cliente_id) { clauses.push(`n.empresa_id = $${i++}`); params.push(cliente_id); }
     if (origen) { clauses.push(`n.origen = $${i++}`); params.push(origen); }
-    params.push(limit);
+    params.push(limit, offset);
     const negocios = await db.all(
       `SELECT n.*, pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo,
-              u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland
+              u.nombre AS vendedor_nombre, u.codigo_softland AS vendedor_codigo_softland,
+              ca.nombre AS causa_no_cierre_nombre
        FROM negocios n
        LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
        LEFT JOIN users u ON u.id = n.vendedor_id
+       LEFT JOIN causas_no_cierre ca ON ca.id = n.causa_no_cierre_id
        ${clauses.length ? 'WHERE ' + clauses.join(' AND ') : ''}
-       ORDER BY n.created_at DESC LIMIT $${i}`,
+       ORDER BY n.created_at DESC, n.id DESC LIMIT $${i} OFFSET $${i + 1}`,
       params
     );
     res.json(negocios.map(negocioOut));
@@ -451,11 +474,15 @@ router.get('/whatsapp/conversaciones/:contactoId/mensajes', async (req, res) => 
     const contacto = await db.get('SELECT id FROM contactos WHERE id = $1', [req.params.contactoId]);
     if (!contacto) return error(res, 404, 'no_encontrado', 'Contacto no encontrado');
     const hilo = await db.all(
+      // lead_id / negocio_id (30-09-2026): liga mensaje → lead → negocio. Quedan
+      // null si el mensaje no tiene lead asociado.
       `SELECT wm.id, wm.direccion, wm.texto, wm.created_at, wm.tipo, wm.archivo_nombre, wm.archivo_mime,
-              (wm.archivo_key IS NOT NULL) AS tiene_archivo, u.nombre AS enviado_por_nombre
+              (wm.archivo_key IS NOT NULL) AS tiene_archivo, u.nombre AS enviado_por_nombre,
+              wm.lead_id, l.negocio_id
        FROM whatsapp_mensajes wm
        LEFT JOIN users u ON u.id = wm.enviado_por_id
-       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC`,
+       LEFT JOIN leads l ON l.id = wm.lead_id
+       WHERE wm.contacto_id = $1 ORDER BY wm.created_at ASC, wm.id ASC`,
       [req.params.contactoId]
     );
     res.json(hilo);
