@@ -169,6 +169,18 @@ router.get('/', async (req, res) => {
     const extra = [];
     let i = params.length + 1;
     if (req.query.estado) { extra.push(`d.estado = $${i++}`); params.push(req.query.estado); }
+    // Vista "activos": paradas de hoy (cualquier estado) + atrasados sin
+    // completar. Los programados a futuro no aparecen hasta su día. "Hoy" se
+    // calcula en hora de Chile, no en la del servidor (UTC).
+    // Vista "historial": solo completados y cancelados.
+    const HOY_CL = `(NOW() AT TIME ZONE 'America/Santiago')::date`;
+    if (req.query.vista === 'activos') {
+      extra.push(`(EXISTS (SELECT 1 FROM despacho_puntos dp WHERE dp.despacho_id = d.id AND dp.fecha = ${HOY_CL})
+        OR (d.estado IN ('programado', 'en_ruta')
+            AND EXISTS (SELECT 1 FROM despacho_puntos dp WHERE dp.despacho_id = d.id AND dp.fecha < ${HOY_CL})))`);
+    } else if (req.query.vista === 'historial') {
+      extra.push(`d.estado IN ('completado', 'cancelado')`);
+    }
     let joinFecha = '';
     if (req.query.desde || req.query.hasta) {
       const condFecha = [];
