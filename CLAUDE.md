@@ -86,7 +86,83 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
-## Pendientes (actualizado 23-09-2026)
+## Pendientes (actualizado 30-09-2026)
+
+**Promoción a `main` del 30-09-2026 (≈17:45 hora de Chile, fuera de
+horario).** Instrucción explícita de Luis Devoto: lo hecho en la sesión de
+análisis de oportunidades más los cambios de Despacho del día. **Cobranza y
+Operaciones ("Arranque de Trabajos") siguen en `staging`, excluidos.**
+Commits en `main`: `c9e59d2` y `64da76c` (Despacho), `82a10d5` (API v1 de
+lectura, nota de cambio v1.38). No toca `db.js`: sin migración de schema.
+
+- **Despacho**: vista por defecto con las paradas de hoy más los atrasados
+  sin completar ("hoy" en hora de Chile) y orden por columna; agrupar por
+  dirección (misma parada y fecha) con interruptor.
+- **API v1, endpoints de solo lectura para análisis** (ver
+  `docs/HT-AP-03-nota-cambio-v1.38.md`): `GET /cotizaciones`,
+  `/whatsapp/mensajes` (por rango de fechas), `/softland/{cotizaciones,
+  notas-venta,facturas}` y `/seguimientos`; `/negocios` suma `offset`, tope
+  500, monto neto y causa de pérdida; el hilo de WhatsApp suma `lead_id` y
+  `negocio_id` por mensaje. Decisión de Luis: se excluyen solo los
+  contactos anonimizados; las conversaciones archivadas se incluyen.
+- **Cómo se probó** (lección del 23-09): servidor real + Postgres con el
+  schema de `main`, endpoints autenticados, Despacho en sus tres vistas con
+  token de usuario real y el frontend compilando. Tras el push se verificó
+  producción con el conector (los campos nuevos ya aparecen).
+
+**Conector MCP** (repo `ldevoto-sys/crm-mcp-hidrotecnica`; Railway, proyecto
+CRM-MCP). Dos ambientes, ambos con despliegue automático al hacer push:
+Production (servicio `adequate-grace`) y Staging (`crm-mcp-hidrotecnica`).
+Hasta el 30-09 desplegaban desde `claude/branch-update-tetvwa`, la única
+rama con las herramientas de WhatsApp (`main` del repo tiene 7 herramientas,
+no 10). Desde el 30-09 Production despliega desde
+`claude/fervent-carson-dgwu65` (commit `1e38354`, confirmado en Railway) y
+Staging quedó apuntando a esa rama. Son 14 herramientas: las 10 de consulta
+con `readOnlyHint` y las 4 que escriben sin marca, a propósito (no se debe
+aflojar su aprobación). Verificado por Luis en producción con datos reales:
+3 de las 4 herramientas nuevas; `crm_softland_documentos` devolvió 0 filas
+para agosto-septiembre, lo esperado (las cotizaciones de Softland llegan
+hasta jul-2026), pero aún no se probó con un rango que tenga datos.
+
+**Pendientes**
+- **MCP**: fusionar la rama a `main` del repo y apuntar ambos ambientes a
+  `main`. Hoy despliegan desde una rama con nombre provisional, y cada push
+  a esa rama redespliega el ambiente.
+- **Verificar**: Softland con un rango que tenga datos (cotizaciones de
+  julio; notas de venta y facturas de agosto-septiembre), y desde qué fecha
+  hay datos en cotizaciones, mensajes y seguimientos (usar `limit=1` y leer
+  `total`, sin leer datos de clientes).
+- **Mensajes de WhatsApp**: la primera página de agosto-septiembre partía el
+  31-08 y no aparecían los ids 1 a 7. Causa sin determinar; hay una
+  consulta de diagnóstico preparada (solo lectura), aún no ejecutada.
+- **Softland**: la historia anterior a 2023-01-01 no está replicada. Falta
+  decidir si hace falta.
+- **Fase 2, sin iniciar**: causa de pérdida "Otro" con comentario
+  obligatorio, análisis de las pérdidas sin respuesta, y un endpoint para
+  enviar informes por correo (destinatarios solo `@hidrotecnica.cl`, tope de
+  envíos y registro de cada envío). Sin ese endpoint el agente no puede
+  entregar informes periódicos por sí solo. Los informes periódicos mismos
+  están por definir.
+- **Decisión pendiente**: `GET /api/v1/whatsapp/conversaciones/:id/mensajes`
+  sigue devolviendo el hilo de un contacto anonimizado si se conoce su id
+  (la anonimización no toca los mensajes: alcance acotado validado con
+  Gerencia, ver `services/privacidad.js`). El listado masivo nuevo sí los
+  excluye.
+- **Dato técnico**: `initDb()` pasa a mayúsculas los nombres de contactos en
+  cada arranque, así que un contacto anonimizado queda como `(ELIMINADO)`,
+  no `(Eliminado)`. Cualquier filtro debe comparar sin distinguir
+  mayúsculas.
+- **Seguridad**: rotar `BI_READONLY_PASSWORD` y la clave del rol
+  `reportes_solo_lectura` (esta última quedó escrita en una conversación con
+  Claude el 30-09). La API key de Cowork sigue siendo una sola para lectura
+  y escritura.
+- **Costos**: el ambiente Staging del MCP tiene un servicio Postgres con
+  volumen que el código del conector no usa. Por revisar.
+
+**Cobranza** y **Operaciones — "Arranque de Trabajos"**: siguen en
+`staging`, excluidos de esta promoción, como en las anteriores.
+
+## Pendientes (histórico, actualizado 23-09-2026)
 
 **Promoción a `main` del 23-09-2026 — primer intento falló, producción
 quedó caída ~15 minutos, revertida y vuelta a promover con la causa
