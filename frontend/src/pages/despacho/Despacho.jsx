@@ -7,7 +7,27 @@ import { useAuth } from '../../contexts/AuthContext';
 // convierte DATE a un objeto Date, serializado como ISO completo) — hay que
 // recortar antes de parsear, mismo caso que en Postventa.
 const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
-const hoyISO = () => new Date().toISOString().slice(0, 10);
+// Fecha local (no UTC): con toISOString() pasadas las ~20:00 en Chile daba el día siguiente.
+const hoyISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const VISTAS = [
+  { value: 'activos', label: 'Activos (hoy y atrasados)' },
+  { value: 'todos', label: 'Todos' },
+  { value: 'historial', label: 'Historial (completados/cancelados)' },
+];
+
+// Valor por el que se ordena cada columna de la tabla.
+const ORDEN_CAMPOS = {
+  titulo: d => (d.titulo || '').toLowerCase(),
+  fecha: d => d.primera_fecha ? d.primera_fecha.slice(0, 10) : '',
+  paradas: d => d.puntos.length,
+  origen: d => (d.negocio_titulo ? `negocio: ${d.negocio_titulo}` : d.caso_postventa_titulo ? `postventa: ${d.caso_postventa_titulo}` : 'interno').toLowerCase(),
+  estado: d => d.estado,
+  creado_por: d => (d.creado_por_nombre || '').toLowerCase(),
+};
 
 // Link a Google Maps: sin API key, es un link común a maps.google.com. En el
 // celular, si el usuario tiene la app instalada, el navegador la abre solo.
@@ -78,24 +98,48 @@ export default function Despacho() {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
+  const [vista, setVista] = useState('activos');
+  const [orden, setOrden] = useState({ campo: 'fecha', dir: 'asc' });
   const [lugares, setLugares] = useState([]);
   useEffect(() => { api.get('/despachos/lugares-frecuentes').then(r => setLugares(r.data)).catch(() => {}); }, []);
 
   const cargar = async () => {
     try {
       const params = {};
+      if (vista !== 'todos') params.vista = vista;
       if (filtroEstado) params.estado = filtroEstado;
       if (desde) params.desde = desde;
       if (hasta) params.hasta = hasta;
       setDespachos((await api.get('/despachos', { params })).data);
     } catch { setError('No se pudieron cargar los despachos.'); }
   };
-  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [filtroEstado, desde, hasta]);
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, [vista, filtroEstado, desde, hasta]);
 
   useEffect(() => {
     if (searchParams.get('negocio_id') || searchParams.get('caso_postventa_id')) setShowNuevo(true);
     // eslint-disable-next-line
   }, []);
+
+  // Elegir una fecha o un estado a mano pasa a "Todos", para que el filtro
+  // se aplique sin la restricción de la vista por defecto.
+  const cambiarFiltro = setter => e => { setter(e.target.value); if (vista === 'activos') setVista('todos'); };
+
+  const ordenar = campo => setOrden(o => o.campo === campo ? { campo, dir: o.dir === 'asc' ? 'desc' : 'asc' } : { campo, dir: 'asc' });
+  const despachosOrdenados = [...despachos].sort((a, b) => {
+    const va = ORDEN_CAMPOS[orden.campo](a), vb = ORDEN_CAMPOS[orden.campo](b);
+    // sin fecha siempre al final, en cualquier dirección
+    if (orden.campo === 'fecha' && (!va || !vb)) return !va && !vb ? 0 : !va ? 1 : -1;
+    const c = va < vb ? -1 : va > vb ? 1 : 0;
+    return orden.dir === 'asc' ? c : -c;
+  });
+  const Th = ({ campo, children }) => (
+    <th className="text-left px-4 py-2 font-medium select-none" aria-sort={orden.campo === campo ? (orden.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => ordenar(campo)} className="inline-flex items-center gap-1 font-medium hover:text-ht-navy">
+        {children}
+        <span className={orden.campo === campo ? 'text-ht-navy' : 'text-gray-300'}>{orden.campo === campo ? (orden.dir === 'asc' ? '▲' : '▼') : '↕'}</span>
+      </button>
+    </th>
+  );
 
   const abrirDetalle = async d => {
     try { setDetalle((await api.get(`/despachos/${d.id}`)).data); }
@@ -107,12 +151,16 @@ export default function Despacho() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-ht-navy">Despacho</h1>
         <div className="flex flex-wrap items-center gap-2">
-          <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+          <select value={vista} onChange={e => setVista(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            {VISTAS.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+          </select>
+          <input type="date" value={desde} onChange={cambiarFiltro(setDesde)}
             className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
           <span className="text-xs text-gray-400">a</span>
-          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+          <input type="date" value={hasta} onChange={cambiarFiltro(setHasta)}
             className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
-          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
+          <select value={filtroEstado} onChange={cambiarFiltro(setFiltroEstado)}
             className="border border-gray-300 rounded px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
             <option value="">Todos los estados</option>
             {ESTADOS.map(e => <option key={e} value={e} className="capitalize">{e.replace('_', ' ')}</option>)}
@@ -135,16 +183,16 @@ export default function Despacho() {
           <table className="w-full min-w-max text-sm">
             <thead className="bg-slate-50 text-gray-600">
               <tr>
-                <th className="text-left px-4 py-2 font-medium">Título</th>
-                <th className="text-left px-4 py-2 font-medium">Fecha</th>
-                <th className="text-left px-4 py-2 font-medium">Paradas</th>
-                <th className="text-left px-4 py-2 font-medium">Origen</th>
-                <th className="text-left px-4 py-2 font-medium">Estado</th>
-                <th className="text-left px-4 py-2 font-medium">Creado por</th>
+                <Th campo="titulo">Título</Th>
+                <Th campo="fecha">Fecha</Th>
+                <Th campo="paradas">Paradas</Th>
+                <Th campo="origen">Origen</Th>
+                <Th campo="estado">Estado</Th>
+                <Th campo="creado_por">Creado por</Th>
               </tr>
             </thead>
             <tbody>
-              {despachos.map(d => (
+              {despachosOrdenados.map(d => (
                 <tr key={d.id} onClick={() => abrirDetalle(d)} className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer">
                   <td className="px-4 py-2 text-ht-navy font-medium">
                     {d.titulo}
@@ -183,7 +231,7 @@ export default function Despacho() {
                 </tr>
               ))}
               {despachos.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin despachos.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-gray-400">Sin despachos en esta vista.</td></tr>
               )}
             </tbody>
           </table>
@@ -191,7 +239,7 @@ export default function Despacho() {
 
         {/* Móvil: mismos datos, en tarjetas apiladas (sin scroll lateral). */}
         <div className="md:hidden divide-y divide-gray-100">
-          {despachos.map(d => (
+          {despachosOrdenados.map(d => (
             <div key={d.id} onClick={() => abrirDetalle(d)} className="p-3 hover:bg-gray-50 cursor-pointer">
               <div className="flex items-start justify-between gap-2">
                 <div className="text-ht-navy font-medium text-sm">{d.titulo}</div>
@@ -217,7 +265,7 @@ export default function Despacho() {
               </div>
             </div>
           ))}
-          {despachos.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">Sin despachos.</div>}
+          {despachos.length === 0 && <div className="p-6 text-center text-gray-400 text-sm">Sin despachos en esta vista.</div>}
         </div>
       </div>
 
