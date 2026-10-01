@@ -7,6 +7,8 @@ const { toCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { enviarInformeDiario, diaAnterior, fechaChileHoy } = require('../services/informeDiario');
 const { minutosHabilesEntre } = require('../services/horario');
 const { calcularTiemposRespuesta } = require('../services/tiemposRespuestaWhatsapp');
+const reportesOT = require('../services/reportesOT');
+const { etapasFlujoFaltantes } = require('../services/ot');
 
 const PUEDE_VER_TODOS = ['administrador', 'jefe_comercial', 'gerencia'];
 const PUEDE_VER = ['administrador', 'jefe_comercial', 'gerencia', 'vendedor', 'callcenter'];
@@ -344,6 +346,11 @@ async function whatsappAbiertasAhora(req) {
   return resultado;
 }
 
+// Pestaña "OT's" (v1.40): las definiciones están en services/reportesOT.js.
+// Filtros: desde, hasta (fechas), tecnico_id, tipo_trabajo, cliente_id,
+// vendedor_id (solo roles que ven todo).
+const ots = fn => req => fn(req.query, vendedorFiltro(req));
+
 const REPORTES = {
   embudo: { fn: embudo, headers: ['etapa_nombre', 'cantidad', 'monto_total'] },
   causas: { fn: causasNoCierre, headers: ['causa', 'cantidad', 'monto_total'] },
@@ -353,6 +360,12 @@ const REPORTES = {
   whatsapp_resumen_mensual: { fn: whatsappResumenMensual, headers: ['mes', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles'] },
   whatsapp_por_vendedor: { fn: whatsappPorVendedor, headers: ['vendedor_nombre', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles', 'peor_minutos_habiles'] },
   whatsapp_abiertas_ahora: { fn: whatsappAbiertasAhora, headers: ['contacto_nombre', 'empresa_nombre', 'vendedor_nombre', 'pendiente_desde', 'minutos_habiles_transcurridos'] },
+  ots_kpis: { fn: ots(reportesOT.otsKpis), headers: ['programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas', 'pendientes_cantidad', 'pendientes_valor', 'horas_hombre_pendientes', 'sin_cotizacion_cantidad'] },
+  ots_resumen_mensual: { fn: ots(reportesOT.otsResumenMensual), headers: ['mes', 'programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas'] },
+  ots_por_tipo: { fn: ots(reportesOT.otsPorTipo), headers: ['tipo_trabajo', 'programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas'] },
+  ots_por_tecnico: { fn: ots(reportesOT.otsPorTecnico), headers: ['tecnico_nombre', 'programadas_cantidad', 'ejecutadas_cantidad', 'horas_ejecutadas', 'ejecutadas_valor_prorrateado', 'pendientes_cantidad', 'horas_pendientes'] },
+  ots_pendientes: { fn: ots(reportesOT.otsPendientes), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'tecnicos', 'horas_programadas', 'horas_hombre', 'valor', 'programada_el', 'dias_en_programado'] },
+  ots_detalle: { fn: ots(reportesOT.otsDetalle), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'etapa_actual', 'tecnicos', 'horas_programadas', 'horas_hombre', 'programada_el', 'fecha_ejecucion', 'valor', 'origen_valor', 'id_fracttal'] },
 };
 
 router.get('/embudo', async (req, res) => {
@@ -398,6 +411,18 @@ router.post('/whatsapp/actualizar-ahora', authorize('administrador', 'jefe_comer
     console.error('[reportes/whatsapp/actualizar-ahora]', err);
     res.status(500).json({ error: 'Error interno' });
   }
+});
+for (const [ruta, tipo] of [['kpis', 'ots_kpis'], ['mensual', 'ots_resumen_mensual'], ['por-tipo', 'ots_por_tipo'],
+  ['por-tecnico', 'ots_por_tecnico'], ['pendientes', 'ots_pendientes'], ['detalle', 'ots_detalle']]) {
+  router.get(`/ots/${ruta}`, async (req, res) => {
+    try { res.json(await REPORTES[tipo].fn(req)); }
+    catch (err) { console.error(`[reportes/ots/${ruta}]`, err); res.status(500).json({ error: 'Error interno' }); }
+  });
+}
+// Etapas del flujo OT que faltan en el pipeline Operaciones (aviso en la pestaña).
+router.get('/ots/alertas-config', async (req, res) => {
+  try { res.json(await etapasFlujoFaltantes()); }
+  catch (err) { console.error('[reportes/ots/alertas-config]', err); res.status(500).json({ error: 'Error interno' }); }
 });
 router.get('/cotizaciones-por-dia', async (req, res) => {
   try { res.json(await cotizacionesPorDia(req)); }

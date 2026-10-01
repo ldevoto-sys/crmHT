@@ -4,6 +4,7 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const { revisarAlertasRespuestaSiHay } = require('../services/alertasRespuestaWhatsapp');
 const { enviarAlertaTeams } = require('../services/teams');
+const ot = require('../services/ot');
 
 router.use(authenticate);
 
@@ -134,8 +135,9 @@ router.get('/pipeline-etapas', async (req, res) => {
     const params = pipeline_id ? [pipeline_id] : [1];
     const etapas = await db.all(
       `SELECT pe.id, pe.nombre, pe.orden, pe.probabilidad_cierre, pe.tipo, pe.activo, pe.pipeline_id,
-              pe.secuencia_id, s.nombre AS secuencia_nombre
+              pe.secuencia_id, s.nombre AS secuencia_nombre, pl.nombre AS pipeline_nombre
        FROM pipeline_etapas pe LEFT JOIN secuencias s ON s.id = pe.secuencia_id
+       LEFT JOIN pipelines pl ON pl.id = pe.pipeline_id
        WHERE pe.pipeline_id = $1 ORDER BY pe.orden`,
       params
     );
@@ -144,6 +146,26 @@ router.get('/pipeline-etapas', async (req, res) => {
     console.error('[config/pipeline-etapas GET]', err);
     res.status(500).json({ error: 'Error interno' });
   }
+});
+
+// Etapas del flujo de Órdenes de Trabajo (Aceptado / Programado / Ejecutado,
+// pipeline "Operaciones"): el código las reconoce por nombre, así que
+// renombrarlas, desactivarlas o eliminarlas desactiva sus reglas. Se exige
+// confirmación explícita (confirmar_flujo_ot) antes de hacerlo.
+async function afectaFlujoOT(etapa, { nuevoNombre, nuevoActivo, eliminar }) {
+  if (!ot.ETAPAS_FLUJO_OT.includes(ot.claveEtapa(etapa.nombre))) return false;
+  if (!(await ot.esPipelineOperaciones(etapa.pipeline_id))) return false;
+  const renombra = nuevoNombre !== undefined && ot.claveEtapa(nuevoNombre) !== ot.claveEtapa(etapa.nombre);
+  const desactiva = nuevoActivo === false && etapa.activo;
+  return !!(renombra || desactiva || eliminar);
+}
+const AVISO_FLUJO_OT = etapa =>
+  `La etapa "${etapa.nombre}" del pipeline Operaciones es parte del flujo de Órdenes de Trabajo: el sistema la reconoce por su nombre. Si la renombras, desactivas o eliminas, dejan de aplicarse sus reglas (tipo de trabajo, horas y técnicos, fecha de ejecución) y los reportes de OT's.`;
+
+// GET /api/config/flujo-ot — etapas del flujo OT que faltan en Operaciones
+router.get('/flujo-ot', async (req, res) => {
+  try { res.json(await ot.etapasFlujoFaltantes()); }
+  catch (err) { console.error('[config/flujo-ot GET]', err); res.status(500).json({ error: 'Error interno' }); }
 });
 
 // POST /api/config/pipeline-etapas {pipeline_id} (admin) — nueva etapa intermedia (abierta)
@@ -175,7 +197,10 @@ router.put('/pipeline-etapas/:id', authorize('administrador', 'jefe_comercial'),
   try {
     const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id=$1', [req.params.id]);
     if (!etapa) return res.status(404).json({ error: 'Etapa no encontrada' });
-    const { nombre, probabilidad_cierre, orden, activo, secuencia_id } = req.body;
+    const { nombre, probabilidad_cierre, orden, activo, secuencia_id, confirmar_flujo_ot } = req.body;
+    if (!confirmar_flujo_ot && await afectaFlujoOT(etapa, { nuevoNombre: nombre, nuevoActivo: activo })) {
+      return res.status(409).json({ error: AVISO_FLUJO_OT(etapa), requiere_confirmacion: true });
+    }
     const prob = probabilidad_cierre !== undefined ? Number(probabilidad_cierre) : etapa.probabilidad_cierre;
     if (prob < 0 || prob > 100) return res.status(400).json({ error: 'La probabilidad debe estar entre 0 y 100' });
     // Las terminales no se pueden desactivar (romperían el cierre).
@@ -208,6 +233,9 @@ router.delete('/pipeline-etapas/:id', authorize('administrador', 'jefe_comercial
     const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id=$1', [req.params.id]);
     if (!etapa) return res.status(404).json({ error: 'Etapa no encontrada' });
     if (etapa.tipo !== 'abierta') return res.status(400).json({ error: 'Las etapas Ganado y Perdido no se pueden eliminar' });
+    if (req.query.confirmar_flujo_ot !== 'true' && await afectaFlujoOT(etapa, { eliminar: true })) {
+      return res.status(409).json({ error: AVISO_FLUJO_OT(etapa), requiere_confirmacion: true });
+    }
     const enUso = await db.get('SELECT id FROM negocios WHERE etapa_id=$1 LIMIT 1', [req.params.id]);
     if (enUso) return res.status(409).json({ error: 'Hay negocios en esta etapa. Muévelos antes de eliminarla (o desactívala).' });
     await db.run('DELETE FROM pipeline_etapas WHERE id=$1', [req.params.id]);

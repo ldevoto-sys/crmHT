@@ -6,7 +6,9 @@ const router = express.Router();
 const { db } = require('../db');
 const { authenticate } = require('../middleware/auth');
 const { generarOTPDF } = require('../services/pdf');
-const { cargarOTCompleta } = require('../services/ot');
+const otSvc = require('../services/ot');
+const { cargarOTCompleta } = otSvc;
+const timeline = require('../services/timeline');
 
 router.use(authenticate);
 
@@ -49,11 +51,65 @@ router.get('/negocio/:negocioId', async (req, res) => {
     const completa = await cargarOTCompleta('o.negocio_id', req.params.negocioId);
     if (!completa) return res.status(404).json({ error: 'Este negocio todavía no tiene Orden de Trabajo (se genera al entrar a "Aceptado")' });
     res.json({
-      ...completa.ot, numero: `OT-${completa.ot.negocio_id}`, items: completa.items,
+      ...completa.ot, numero: `OT-${completa.ot.negocio_id}`, items: completa.items, tecnicos: completa.tecnicos,
       puede_editar: puedeEditar(negocio, req.user),
     });
   } catch (err) {
     console.error('[ordenes_trabajo/GET /negocio/:negocioId]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// PUT /api/ordenes-trabajo/:id/programacion — horas programadas, técnicos,
+// fecha de ejecución e ID de Fracttal. Es la edición posterior a la entrada
+// a "Programado"/"Ejecutado" (ahí se piden por el Pipeline). Solo se tocan
+// las claves que vienen en el body. Si el negocio está hoy en Programado o
+// Ejecutado, no se puede dejar la OT sin lo que esa etapa exige.
+router.put('/:id/programacion', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
+  try {
+    const negocio = await negocioDeOT(req.params.id);
+    if (!negocio) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
+    if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
+
+    const { horas_programadas, tecnico_ids, fecha_ejecucion, id_fracttal } = req.body;
+    const normalizados = otSvc.normalizarDatosProgramacion({ horas_programadas, tecnico_ids, fecha_ejecucion, id_fracttal });
+    if (normalizados.tecnico_ids) await otSvc.validarTecnicos(normalizados.tecnico_ids);
+
+    const actual = await db.get('SELECT * FROM ordenes_trabajo WHERE id = $1', [req.params.id]);
+    const etapa = await db.get('SELECT nombre FROM pipeline_etapas WHERE id = $1', [negocio.etapa_id]);
+    if (actual.exige_programacion && etapa && otSvc.requiereDatosOT(etapa.nombre)) {
+      const tecnicoIdsAntes = await otSvc.tecnicoIdsDe(actual.id);
+      const faltan = otSvc.faltantesParaEtapa(etapa.nombre, {
+        horas: normalizados.horas_programadas !== undefined ? normalizados.horas_programadas : actual.horas_programadas,
+        tecnicoIds: normalizados.tecnico_ids ?? tecnicoIdsAntes,
+        fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : actual.fecha_ejecucion,
+      });
+      if (faltan.length) return res.status(400).json({ error: `La OT está en "${etapa.nombre}": no puede quedar sin ${faltan.join(', ')}` });
+    }
+
+    const tecnicosAntes = normalizados.tecnico_ids ? await db.all(
+      `SELECT u.nombre FROM ot_tecnicos t JOIN users u ON u.id = t.user_id WHERE t.ot_id = $1 ORDER BY u.nombre`, [actual.id]) : null;
+
+    await otSvc.guardarProgramacion(actual.id, normalizados);
+
+    if (normalizados.tecnico_ids) {
+      const despues = normalizados.tecnico_ids.length
+        ? (await db.all('SELECT nombre FROM users WHERE id = ANY($1) ORDER BY nombre', [normalizados.tecnico_ids])).map(u => u.nombre)
+        : [];
+      const antes = tecnicosAntes.map(u => u.nombre);
+      if (antes.join('|') !== despues.join('|')) {
+        await timeline.registrar({
+          contacto_id: negocio.contacto_id, empresa_id: negocio.empresa_id, negocio_id: negocio.id, tipo: 'nota',
+          descripcion: `OT-${negocio.id}: técnicos ${antes.length ? antes.join(', ') : '—'} → ${despues.length ? despues.join(', ') : '—'}`,
+          usuario_id: req.user.id,
+        });
+      }
+    }
+    res.json({ message: 'Programación de la OT actualizada' });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('[ordenes_trabajo/PUT /:id/programacion]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -120,6 +176,7 @@ router.get('/:id/pdf', async (req, res) => {
     await generarOTPDF({
       ot: completa.ot,
       items: completa.items,
+      tecnicos: completa.tecnicos,
       cliente: {
         contacto_nombre: completa.ot.contacto_nombre, contacto_apellido: completa.ot.contacto_apellido,
         contacto_email: completa.ot.contacto_email, empresa_nombre: completa.ot.empresa_nombre,

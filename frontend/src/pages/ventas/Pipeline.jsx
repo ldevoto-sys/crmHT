@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { slaEstado, ESTILO_SLA } from '../../utils/sla';
+import ModalProgramacionOT, { pideDatosOT } from '../../components/ModalProgramacionOT';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
 const TIPOS_TRABAJO = [
@@ -50,6 +51,7 @@ export default function Pipeline() {
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
   const [modalAceptado, setModalAceptado] = useState(null); // {negocio, etapa}
   const [tipoTrabajoSel, setTipoTrabajoSel] = useState('');
+  const [modalProgramacion, setModalProgramacion] = useState(null); // {negocio, etapa} — Programado/Ejecutado de Operaciones
   const [showNuevo, setShowNuevo] = useState(false);
 
   const cargar = async () => {
@@ -115,6 +117,9 @@ export default function Pipeline() {
     if (etapa.nombre.toLowerCase() === 'aceptado' && !negocio.tipo_trabajo) {
       setModalAceptado({ negocio, etapa }); setTipoTrabajoSel(''); return;
     }
+    // Programación de OT (v1.40): Programado exige horas y técnicos;
+    // Ejecutado, además, fecha de ejecución.
+    if (pideDatosOT(etapa)) { setModalProgramacion({ negocio, etapa }); return; }
     mover(negocio, etapa);
   };
 
@@ -137,6 +142,16 @@ export default function Pipeline() {
     if (!causaSel) return;
     await mover(modalPerdido.negocio, modalPerdido.etapa, { causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle });
     setModalPerdido(null);
+  };
+
+  // Devuelve el mensaje de error del backend (el modal lo muestra y sigue
+  // abierto) o null si se movió.
+  const confirmarProgramacion = async extra => {
+    try {
+      await api.put(`/negocios/${modalProgramacion.negocio.id}/etapa`, { etapa_id: modalProgramacion.etapa.id, ...extra });
+      setModalProgramacion(null); cargar();
+      return null;
+    } catch (err) { return err.response?.data?.error || 'No se pudo cambiar la etapa.'; }
   };
 
   const confirmarAceptado = async () => {
@@ -360,6 +375,11 @@ export default function Pipeline() {
             <button onClick={() => setModalAceptado(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
           </div>
         </Modal>
+      )}
+
+      {modalProgramacion && (
+        <ModalProgramacionOT negocio={modalProgramacion.negocio} etapa={modalProgramacion.etapa}
+          onConfirmar={confirmarProgramacion} onCancelar={() => setModalProgramacion(null)} />
       )}
 
       {showNuevo && <NuevoNegocio onClose={() => setShowNuevo(false)} onCreado={() => { setShowNuevo(false); cargar(); }} />}

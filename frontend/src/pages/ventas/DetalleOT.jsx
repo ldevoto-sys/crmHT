@@ -68,6 +68,13 @@ export default function DetalleOT() {
   const [observaciones, setObservaciones] = useState('');
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [guardando, setGuardando] = useState(false);
+  // Programación y ejecución (v1.40)
+  const [tecnicosDisponibles, setTecnicosDisponibles] = useState([]);
+  const [horas, setHoras] = useState('');
+  const [tecnicoIds, setTecnicoIds] = useState([]);
+  const [fechaEjecucion, setFechaEjecucion] = useState('');
+  const [idFracttal, setIdFracttal] = useState('');
+  const [guardandoProg, setGuardandoProg] = useState(false);
 
   const cargar = async () => {
     try {
@@ -79,9 +86,33 @@ export default function DetalleOT() {
         codigo: it.codigo || '', sku: it.sku || '',
       })));
       setObservaciones(data.observaciones || '');
+      setHoras(data.horas_programadas ? String(Number(data.horas_programadas)) : '');
+      setTecnicoIds((data.tecnicos || []).map(t => t.id));
+      setFechaEjecucion(data.fecha_ejecucion || '');
+      setIdFracttal(data.id_fracttal || '');
     } catch (err) { setError(err.response?.data?.error || 'No se pudo cargar la Orden de Trabajo.'); }
   };
   useEffect(() => { cargar(); }, [negocioId]); // eslint-disable-line
+  useEffect(() => { api.get('/users/tecnicos').then(r => setTecnicosDisponibles(r.data)).catch(() => {}); }, []);
+
+  // Los técnicos asignados que ya no están activos con perfil técnico se
+  // muestran igual (para poder quitarlos).
+  const opcionesTecnicos = [
+    ...tecnicosDisponibles,
+    ...(ot?.tecnicos || []).filter(t => !tecnicosDisponibles.some(d => d.id === t.id)),
+  ];
+  const alternarTecnico = id => setTecnicoIds(ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]));
+  const guardarProgramacion = async () => {
+    setError(''); setMsg(''); setGuardandoProg(true);
+    try {
+      await api.put(`/ordenes-trabajo/${ot.id}/programacion`, {
+        horas_programadas: horas === '' ? null : Number(horas), tecnico_ids: tecnicoIds,
+        fecha_ejecucion: fechaEjecucion || null, id_fracttal: idFracttal,
+      });
+      setMsg('Programación guardada.'); cargar();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la programación.'); }
+    finally { setGuardandoProg(false); }
+  };
 
   const setItem = (i, campo, val) => setItems(items.map((it, idx) => idx === i ? { ...it, [campo]: val } : it));
   const elegirProducto = (i, p) => setItems(items.map((it, idx) => idx === i ? { ...it, producto_id: p.id, descripcion: p.nombre, sku: p.sku || '', codigo: '' } : it));
@@ -148,6 +179,51 @@ export default function DetalleOT() {
           <div><dt className="text-xs text-gray-500">Cliente</dt><dd className="text-ht-navy">{ot.empresa_nombre || `${ot.contacto_nombre} ${ot.contacto_apellido || ''}`.trim()}</dd></div>
           <div><dt className="text-xs text-gray-500">Ítems prellenados desde</dt><dd className="text-ht-navy">{ORIGEN_ITEMS_LABEL[ot.origen_items] || ot.origen_items}</dd></div>
         </dl>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
+        <h2 className="font-semibold text-ht-navy mb-1">Programación y ejecución</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Se piden al pasar el negocio a "Programado" (horas y técnicos) y a "Ejecutado" (fecha de ejecución); los técnicos se pueden cambiar después.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Horas de trabajo programadas (por técnico)</label>
+            <input type="number" min="0" step="0.5" disabled={!ot.puede_editar} value={horas} onChange={e => setHoras(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+            {tecnicoIds.length > 1 && Number(horas) > 0 && (
+              <p className="text-xs text-gray-500 mt-1">{tecnicoIds.length} técnicos × {horas} h = {tecnicoIds.length * Number(horas)} horas-hombre.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Fecha de ejecución</label>
+            <input type="date" disabled={!ot.puede_editar} value={fechaEjecucion} onChange={e => setFechaEjecucion(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Técnicos que ejecutan la tarea</label>
+            <div className="border border-gray-300 rounded max-h-40 overflow-y-auto divide-y divide-gray-100">
+              {opcionesTecnicos.length === 0 && <p className="px-3 py-2 text-gray-400">No hay usuarios con perfil técnico.</p>}
+              {opcionesTecnicos.map(t => (
+                <label key={t.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-slate-50">
+                  <input type="checkbox" disabled={!ot.puede_editar} checked={tecnicoIds.includes(t.id)} onChange={() => alternarTecnico(t.id)} />
+                  {t.nombre}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">ID Fracttal (opcional)</label>
+            <input disabled={!ot.puede_editar} maxLength={100} value={idFracttal} onChange={e => setIdFracttal(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+          </div>
+        </div>
+        {ot.puede_editar && (
+          <button onClick={guardarProgramacion} disabled={guardandoProg}
+            className="mt-4 bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+            {guardandoProg ? 'Guardando…' : 'Guardar programación'}
+          </button>
+        )}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">

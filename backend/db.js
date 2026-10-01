@@ -2223,6 +2223,32 @@ async function initDb() {
   // carga a mano. Se ignora si el ítem sí tiene producto_id.
   await db.run(`ALTER TABLE ot_items ADD COLUMN IF NOT EXISTS codigo TEXT`);
 
+  // Programación y ejecución de la OT (v1.40, 01-10-2026). Horas de trabajo
+  // programadas (por técnico: si 3 técnicos hacen una OT de 6 horas son 18
+  // horas-hombre), fecha de ejecución e ID de Fracttal (opcional). Los
+  // técnicos van en ot_tecnicos (pueden ser varios por OT).
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS horas_programadas NUMERIC(6,2)`);
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS fecha_ejecucion DATE`);
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS id_fracttal TEXT`);
+  // exige_programacion: las reglas de entrada a "Programado"/"Ejecutado"
+  // solo rigen para OT nuevas (decisión de Luis Devoto, 01-10-2026). Las OT
+  // que ya existían al desplegar esto se marcan en false una sola vez.
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS exige_programacion BOOLEAN NOT NULL DEFAULT true`);
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS ot_tecnicos (
+      ot_id INTEGER NOT NULL REFERENCES ordenes_trabajo(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      PRIMARY KEY (ot_id, user_id)
+    )
+  `);
+  await db.run(`CREATE INDEX IF NOT EXISTS idx_ot_tecnicos_user ON ot_tecnicos (user_id)`);
+  const otProgramacionAplicada = await db.get(`SELECT 1 FROM migraciones_aplicadas WHERE nombre = 'ot_programacion_v1.40'`);
+  if (!otProgramacionAplicada) {
+    const r = await db.run(`UPDATE ordenes_trabajo SET exige_programacion = false`);
+    await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('ot_programacion_v1.40')`);
+    console.log(`[DB] OT existentes exentas de las reglas de programación (${r.rowCount}).`);
+  }
+
   // Configurador de materiales/herramientas estándar — solo para los tipos
   // de trabajo que se repiten siempre igual (mantenimiento preventivo,
   // lavado de estanque). Se define una vez en Config → Plantillas OT y se

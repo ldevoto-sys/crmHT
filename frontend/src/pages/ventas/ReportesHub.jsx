@@ -2,6 +2,7 @@ import { useState } from 'react';
 import Reportes from './Reportes';
 import ReporteriaSoftland from './ReporteriaSoftland';
 import ReporteriaWhatsapp from './ReporteriaWhatsapp';
+import ReporteriaOTs from './ReporteriaOTs';
 
 // Antes había dos ítems de navegación separados ("Reportes" y "Reportería
 // Softland") — se unifican acá en una sola sección con un selector arriba,
@@ -9,6 +10,7 @@ import ReporteriaWhatsapp from './ReporteriaWhatsapp';
 // v1.31). /reportes/softland se mantiene como enlace directo a la vista
 // Comercial (Softland) para no romper marcadores/enlaces ya guardados.
 // WhatsApp se agrega el 23-09-2026 (pedido de Luis Devoto), mismo criterio.
+// OT's se agrega el 01-10-2026 (pedido de Luis Devoto), mismo criterio.
 export default function ReportesHub({ vistaInicial = 'softland' }) {
   const [vista, setVista] = useState(vistaInicial);
 
@@ -27,8 +29,12 @@ export default function ReportesHub({ vistaInicial = 'softland' }) {
           className={`text-sm font-medium px-4 py-2 border-l border-gray-300 ${vista === 'whatsapp' ? 'bg-ht-accent text-white' : 'bg-white text-gray-600'}`}>
           WhatsApp
         </button>
+        <button onClick={() => setVista('ots')}
+          className={`text-sm font-medium px-4 py-2 border-l border-gray-300 ${vista === 'ots' ? 'bg-ht-accent text-white' : 'bg-white text-gray-600'}`}>
+          OT's
+        </button>
       </div>
-      {vista === 'pipeline' ? <Reportes /> : vista === 'whatsapp' ? <ReporteriaWhatsapp /> : <ReporteriaSoftland />}
+      {vista === 'pipeline' ? <Reportes /> : vista === 'whatsapp' ? <ReporteriaWhatsapp /> : vista === 'ots' ? <ReporteriaOTs /> : <ReporteriaSoftland />}
     </div>
   );
 }

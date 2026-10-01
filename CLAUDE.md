@@ -86,6 +86,17 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
+## Pendientes (actualizado 01-10-2026)
+
+**Operaciones — OT: programación, ejecución y pestaña "OT's" en Reportes
+(v1.40, solo en `staging`).** Pedido de Luis Devoto. La OT suma horas
+programadas (por técnico), técnicos (rol `tecnico`), fecha de ejecución e ID
+Fracttal; las reglas de entrada a Programado y Ejecutado aplican solo a OT
+nuevas, el importador de oportunidades las respeta y Config → Pipeline alerta
+si cambian los nombres de las etapas del flujo. Ver
+`docs/HT-AP-03-nota-cambio-v1.40.md`. Sigue sin promover a `main`, igual que el
+resto de "Arranque de Trabajos" (necesita el OK de Luis Devoto).
+
 ## Pendientes (actualizado 30-09-2026)
 
 **Promoción a `main` del 30-09-2026 (≈17:45 hora de Chile, fuera de

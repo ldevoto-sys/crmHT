@@ -4,6 +4,7 @@ import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import NotasYTareas from '../../components/NotasYTareas';
 import SeguimientoNegocio from '../../components/SeguimientoNegocio';
+import ModalProgramacionOT, { pideDatosOT } from '../../components/ModalProgramacionOT';
 import { formatFechaHora } from '../../utils/fecha';
 import { slaEstado, ESTILO_SLA } from '../../utils/sla';
 
@@ -37,6 +38,7 @@ export default function DetalleNegocio() {
   const [modalPerdido, setModalPerdido] = useState(null); // etapa perdida
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
   const [modalAceptado, setModalAceptado] = useState(null); // etapa "Aceptado" sin tipo_trabajo
+  const [modalProgramacion, setModalProgramacion] = useState(null); // etapa Programado/Ejecutado de Operaciones (v1.40)
   const [tipoTrabajoSel, setTipoTrabajoSel] = useState('');
 
   const [cots, setCots] = useState([]);
@@ -262,6 +264,7 @@ export default function DetalleNegocio() {
                     onClick={() => {
                       if (e.tipo === 'perdida') { setModalPerdido(e); setCausaSel(''); setDetalle(''); return; }
                       if (e.nombre.toLowerCase() === 'aceptado' && !n.tipo_trabajo) { setModalAceptado(e); setTipoTrabajoSel(''); return; }
+                      if (pideDatosOT(e)) { setModalProgramacion(e); return; }
                       cambiarEtapa(e);
                     }}
                     className={`text-sm px-3 py-2 rounded border text-left flex justify-between ${e.id === n.etapa_id ? 'bg-ht-accent text-ht-navy border-ht-accent' : 'border-gray-300 text-gray-700 hover:bg-slate-50'}`}>
@@ -322,6 +325,14 @@ export default function DetalleNegocio() {
           </div>
         </div>
       </div>
+
+      {modalProgramacion && (
+        <ModalProgramacionOT negocio={n} etapa={modalProgramacion} onCancelar={() => setModalProgramacion(null)}
+          onConfirmar={async extra => {
+            try { await api.put(`/negocios/${id}/etapa`, { etapa_id: modalProgramacion.id, ...extra }); setModalProgramacion(null); cargar(); return null; }
+            catch (err) { return err.response?.data?.error || 'No se pudo cambiar la etapa.'; }
+          }} />
+      )}
 
       {modalAceptado && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={() => setModalAceptado(null)}>

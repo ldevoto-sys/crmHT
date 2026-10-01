@@ -90,7 +90,7 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
 // lo consume directo como middleware de Express).
 async function cargarOTCompleta(where, param) {
   const ot = await db.get(
-    `SELECT o.*, n.titulo AS negocio_titulo, n.tipo_trabajo, n.vendedor_id,
+    `SELECT o.*, o.fecha_ejecucion::text AS fecha_ejecucion, n.titulo AS negocio_titulo, n.tipo_trabajo, n.vendedor_id,
             ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.email AS contacto_email, ct.telefono_e164 AS contacto_telefono,
             e.razon_social AS empresa_nombre, e.rut AS empresa_rut, e.direccion AS empresa_direccion, e.comuna AS empresa_comuna
      FROM ordenes_trabajo o
@@ -106,7 +106,161 @@ async function cargarOTCompleta(where, param) {
      WHERE oi.ot_id = $1 ORDER BY oi.id`,
     [ot.id]
   );
-  return { ot, items };
+  const tecnicos = await db.all(
+    `SELECT u.id, u.nombre FROM ot_tecnicos t JOIN users u ON u.id = t.user_id WHERE t.ot_id = $1 ORDER BY u.nombre`,
+    [ot.id]
+  );
+  return { ot, items, tecnicos };
 }
 
-module.exports = { crearOTSiNoExiste, cargarOTCompleta };
+// === Programación y ejecución (v1.40, 01-10-2026) ===
+// Reglas por etapa del pipeline "Operaciones" (se identifican por nombre,
+// igual que "Aceptado"; Config → Pipeline avisa si alguna deja de existir):
+// - "Programado": horas de trabajo programadas (> 0) y al menos un técnico.
+// - "Ejecutado": lo anterior más la fecha de ejecución.
+// Solo rigen para OT nuevas (ordenes_trabajo.exige_programacion). Los datos
+// pueden venir en la misma petición que mueve la etapa o ya estar guardados
+// en la OT. Los técnicos se pueden editar después (PUT /ordenes-trabajo/:id/programacion).
+const ETAPAS_OT = ['programado', 'ejecutado'];
+const ETAPAS_FLUJO_OT = ['aceptado', ...ETAPAS_OT];
+const claveEtapa = nombre => (nombre || '').trim().toLowerCase();
+const requiereDatosOT = nombreEtapa => ETAPAS_OT.includes(claveEtapa(nombreEtapa));
+
+function errorValidacion(mensaje) {
+  const e = new Error(mensaje); e.status = 400; return e;
+}
+
+async function esPipelineOperaciones(pipelineId, client = db) {
+  const p = await fila(client, `SELECT 1 AS ok FROM pipelines WHERE id = $1 AND nombre = 'Operaciones'`, [pipelineId]);
+  return !!p;
+}
+
+// Valida y normaliza solo las claves que vienen definidas en `datos`
+// (undefined = no tocar). Devuelve { datos } o lanza error 400.
+function normalizarDatosProgramacion(datos = {}) {
+  const out = {};
+  if (datos.horas_programadas !== undefined) {
+    if (datos.horas_programadas === null || datos.horas_programadas === '') out.horas_programadas = null;
+    else {
+      const h = Number(datos.horas_programadas);
+      if (!Number.isFinite(h) || h <= 0 || h > 9999) throw errorValidacion('Las horas de trabajo programadas deben ser un número mayor a 0');
+      out.horas_programadas = Math.round(h * 100) / 100;
+    }
+  }
+  if (datos.fecha_ejecucion !== undefined) {
+    if (datos.fecha_ejecucion === null || datos.fecha_ejecucion === '') out.fecha_ejecucion = null;
+    else {
+      const f = String(datos.fecha_ejecucion).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || Number.isNaN(Date.parse(f))) throw errorValidacion('La fecha de ejecución no es válida (AAAA-MM-DD)');
+      out.fecha_ejecucion = f;
+    }
+  }
+  if (datos.id_fracttal !== undefined) {
+    const v = datos.id_fracttal === null ? '' : String(datos.id_fracttal).trim();
+    if (v.length > 100) throw errorValidacion('El ID de Fracttal es demasiado largo');
+    out.id_fracttal = v || null;
+  }
+  if (datos.tecnico_ids !== undefined) {
+    if (!Array.isArray(datos.tecnico_ids)) throw errorValidacion('Los técnicos deben enviarse como lista');
+    const ids = datos.tecnico_ids.map(Number);
+    if (ids.some(n => !Number.isInteger(n) || n <= 0)) throw errorValidacion('Técnico inválido');
+    out.tecnico_ids = [...new Set(ids)];
+  }
+  return out;
+}
+
+// Todos los ids deben ser usuarios activos con rol técnico.
+async function validarTecnicos(ids, client = db) {
+  if (!ids.length) return;
+  const ok = await filas(client, `SELECT id FROM users WHERE id = ANY($1) AND activo = true AND rol = 'tecnico'`, [ids]);
+  if (ok.length !== ids.length) throw errorValidacion('Solo se pueden asignar usuarios activos con perfil de técnico');
+}
+
+// Mensajes de lo que falta para estar en la etapa `nombreEtapa`, dado el
+// estado resultante (datos nuevos encima de lo ya guardado). Vacío = cumple.
+function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion }) {
+  const clave = claveEtapa(nombreEtapa);
+  const faltan = [];
+  if (clave === 'programado' || clave === 'ejecutado') {
+    if (!(Number(horas) > 0)) faltan.push('horas de trabajo programadas');
+    if (!tecnicoIds.length) faltan.push('al menos un técnico');
+  }
+  if (clave === 'ejecutado' && !fechaEjecucion) faltan.push('fecha de ejecución');
+  return faltan;
+}
+
+async function tecnicoIdsDe(otId, client = db) {
+  return (await filas(client, 'SELECT user_id FROM ot_tecnicos WHERE ot_id = $1', [otId])).map(r => r.user_id);
+}
+
+// Se llama ANTES de mover el negocio a `etapa`. Si la etapa pide datos de
+// OT, valida que estén (en `datos` o ya guardados) y devuelve lo que hay que
+// persistir después con aplicarEntradaAEtapa(); si no aplica, devuelve null.
+async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo }, client = db) {
+  if (!requiereDatosOT(etapa.nombre)) return null;
+  if (!(await esPipelineOperaciones(etapa.pipeline_id, client))) return null;
+
+  const normalizados = normalizarDatosProgramacion(datos);
+  if (normalizados.tecnico_ids) await validarTecnicos(normalizados.tecnico_ids, client);
+
+  const existente = await fila(client, 'SELECT * FROM ordenes_trabajo WHERE negocio_id = $1', [negocio.id]);
+  if (!existente) {
+    // Negocio que llega a Programado/Ejecutado sin haber pasado por
+    // "Aceptado": la OT se crea acá, así que hace falta el tipo de trabajo.
+    if (!tipoTrabajo) throw errorValidacion(`El tipo de trabajo es obligatorio para pasar a "${etapa.nombre}"`);
+  }
+  const exige = existente ? existente.exige_programacion : true;
+  if (exige) {
+    const tecnicoIds = normalizados.tecnico_ids ?? (existente ? await tecnicoIdsDe(existente.id, client) : []);
+    const faltan = faltantesParaEtapa(etapa.nombre, {
+      horas: normalizados.horas_programadas !== undefined ? normalizados.horas_programadas : existente?.horas_programadas,
+      tecnicoIds,
+      fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : existente?.fecha_ejecucion,
+    });
+    if (faltan.length) throw errorValidacion(`Para pasar a "${etapa.nombre}" falta: ${faltan.join(', ')}`);
+  }
+  return { normalizados, tipoTrabajo };
+}
+
+// Persiste en la OT lo validado por validarEntradaAEtapa() (creándola si no
+// existía). `client` puede ser db o una transacción pg.
+async function aplicarEntradaAEtapa(negocioId, pre, client = db, usuarioId = null) {
+  if (!pre) return;
+  const otId = await crearOTSiNoExiste({ id: negocioId, tipo_trabajo: pre.tipoTrabajo }, client, usuarioId);
+  await guardarProgramacion(otId, pre.normalizados, client);
+}
+
+async function guardarProgramacion(otId, normalizados, client = db) {
+  const sets = []; const params = [];
+  for (const campo of ['horas_programadas', 'fecha_ejecucion', 'id_fracttal']) {
+    if (normalizados[campo] !== undefined) { params.push(normalizados[campo]); sets.push(`${campo} = $${params.length}`); }
+  }
+  if (sets.length) {
+    params.push(otId);
+    await ejecutar(client, `UPDATE ordenes_trabajo SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+  }
+  if (normalizados.tecnico_ids) {
+    await ejecutar(client, 'DELETE FROM ot_tecnicos WHERE ot_id = $1', [otId]);
+    for (const uid of normalizados.tecnico_ids) {
+      await ejecutar(client, 'INSERT INTO ot_tecnicos (ot_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING', [otId, uid]);
+    }
+  }
+}
+
+// Alertas de configuración: etapas del flujo OT que no existen (o están
+// inactivas) en el pipeline "Operaciones" — sin ellas, las reglas de arriba
+// no se aplican. Usado por Config → Pipeline y por la pestaña OT's de Reportes.
+async function etapasFlujoFaltantes(client = db) {
+  const p = await fila(client, `SELECT id FROM pipelines WHERE nombre = 'Operaciones' AND activo = true LIMIT 1`, []);
+  if (!p) return { pipeline_encontrado: false, faltantes: ETAPAS_FLUJO_OT };
+  const etapas = await filas(client, 'SELECT nombre FROM pipeline_etapas WHERE pipeline_id = $1 AND activo = true', [p.id]);
+  const presentes = new Set(etapas.map(e => claveEtapa(e.nombre)));
+  return { pipeline_encontrado: true, faltantes: ETAPAS_FLUJO_OT.filter(n => !presentes.has(n)) };
+}
+
+module.exports = {
+  crearOTSiNoExiste, cargarOTCompleta,
+  ETAPAS_OT, ETAPAS_FLUJO_OT, claveEtapa, requiereDatosOT,
+  normalizarDatosProgramacion, validarTecnicos, faltantesParaEtapa, tecnicoIdsDe,
+  validarEntradaAEtapa, aplicarEntradaAEtapa, guardarProgramacion, etapasFlujoFaltantes, esPipelineOperaciones,
+};

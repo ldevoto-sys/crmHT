@@ -458,6 +458,7 @@ router.get('/:id/informe-pdf', async (req, res) => {
         buffers.push(await generarOTPDFBuffer({
           ot: otCompleta.ot,
           items: otCompleta.items,
+          tecnicos: otCompleta.tecnicos,
           cliente: {
             contacto_nombre: otCompleta.ot.contacto_nombre, contacto_apellido: otCompleta.ot.contacto_apellido,
             contacto_email: otCompleta.ot.contacto_email, empresa_nombre: otCompleta.ot.empresa_nombre,

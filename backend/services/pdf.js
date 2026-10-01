@@ -254,7 +254,7 @@ const TIPO_TRABAJO_LABEL = {
 // precios" (ver services/ot.js) — la tabla de ítems omite las columnas de
 // precio/total si ningún ítem tiene precio_unitario cargado.
 async function generarOTPDF(data, stream) {
-  const { ot, items, cliente, emisor = {} } = data;
+  const { ot, items, cliente, emisor = {}, tecnicos = [] } = data;
   const doc = new PDFDocument({ size: 'A4', margin: 0 });
   doc.pipe(stream);
   const M = 40;
@@ -301,11 +301,16 @@ async function generarOTPDF(data, stream) {
     ['Tipo de trabajo', TIPO_TRABAJO_LABEL[ot.tipo_trabajo] || ot.tipo_trabajo || '—'],
     ['Fecha', fechaCorta(ot.created_at)],
   ];
+  // Programación (v1.40): solo se listan los datos que la OT ya tiene.
+  if (ot.horas_programadas !== null && ot.horas_programadas !== undefined) info.push(['Horas programadas', `${Number(ot.horas_programadas)} h`]);
+  if (tecnicos.length) info.push([tecnicos.length > 1 ? 'Técnicos' : 'Técnico', tecnicos.map(t => t.nombre).join(', ')]);
+  if (ot.fecha_ejecucion) info.push(['Fecha de ejecución', String(ot.fecha_ejecucion).slice(0, 10).split('-').reverse().join('-')]);
+  if (ot.id_fracttal) info.push(['ID Fracttal', ot.id_fracttal]);
   let yi = y + 16;
   info.forEach(([k, v]) => {
     doc.font('Helvetica').fontSize(9).fillColor(GRAY).text(k, 320, yi, { width: 100 });
     doc.font('Helvetica-Bold').fillColor(NAVY).text(v || '—', 420, yi, { width: 135 });
-    yi += 14;
+    yi += Math.max(14, doc.heightOfString(v || '—', { width: 135 }) + 4);
   });
 
   y = Math.max(yc, yi) + 16;
