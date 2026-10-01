@@ -1,5 +1,9 @@
 # HT-AP-03 — Nota de cambio v1.40 (01/10/2026)
 
+> **Estado: en producción desde el 01-10-2026** (`main`: `ee000f3`, más el fix
+> `60cd435`). Se promovió **solo Operaciones**; Cobranza sigue en `staging`.
+> Ver "Despliegue a producción" al final de esta nota.
+
 ## Operaciones: programación y ejecución de la OT, y pestaña "OT's" en Reportes
 
 Pedido de Luis Devoto (01-10-2026). **Solo en `staging`**: va junto con el resto
@@ -163,3 +167,42 @@ permisos (otro vendedor 403, rol técnico sin acceso a reportes), importador
 confirmaciones de Config → Pipeline, los 6 reportes con valor de cotización y de
 monto, filtros, CSV y PDF. El frontend compila y la pestaña, la ficha de la OT y
 el cuadro de programación se revisaron en un navegador real.
+
+### Despliegue a producción (01-10-2026)
+
+- **Autorización:** Luis Devoto, explícita, en horario laboral ("es horario de
+  trabajo, pero doy ok para pasar a production"), con la instrucción de pasar
+  **solo lo de Operaciones** y dejar Cobranza en `staging`.
+- **Cómo se armó:** `staging` no se podía fusionar (mezcla Cobranza y
+  Operaciones, y arrastra 390 commits que en buena parte ya estaban en `main`
+  con otro SHA). Se creó una rama desde `main` y, comparando contenido archivo
+  por archivo: los archivos solo de OT se tomaron completos de `staging`; en los
+  compartidos (`db.js`, `users.js`, `server.js`, `App.jsx`) se aplicaron solo los
+  bloques sin Cobranza; en `Layout.jsx` se agregaron a mano dos líneas; no se
+  promovieron `middleware/auth.js`, `routes/auth.js`, `services/email.js` ni
+  `Usuarios.jsx` (solo tenían cambios de Cobranza).
+- **Pruebas previas:** base creada con el schema de `main` y encima el código a
+  promover; unos 40 endpoints autenticados (admin, vendedor, técnico, gerencia)
+  sin ningún 500; negocios ya existentes en Aceptado/Programado sin OT; búsqueda
+  de referencias a objetos de Cobranza (ninguna); frontend revisado en navegador.
+- **Incidente — primer despliegue fallido (`ee000f3`):** Railway no pudo
+  construir ("cannot replace to directory .../backend/node_modules with file").
+  Causa: el commit incluyó por error dos **enlaces simbólicos**
+  (`backend/node_modules`, `frontend/node_modules`) creados solo para probar en
+  una carpeta temporal; `.gitignore` tiene `node_modules/` (carpetas) y no ignora
+  enlaces. Producción **no se cayó**: Railway mantiene el despliegue anterior
+  cuando un build falla. Corregido con `60cd435`, que borra solo esos dos
+  archivos; antes de subirlo se reprodujo el build desde un clon limpio
+  (mismo comando de `railway.json`) y se probó el arranque y `/api/health`.
+  Luis confirmó que el despliegue quedó correcto.
+- **Lecciones:** (1) antes de cada push a `main`, revisar la lista de archivos
+  del commit (`git diff --stat origin/main HEAD`) y comprobar que no haya
+  enlaces simbólicos (`git ls-files -s | grep ^120000`); (2) no usar
+  `git add -A` en carpetas de prueba con enlaces; (3) un build fallido no
+  tumba producción, pero una verificación contra la API puede estar leyendo la
+  versión **anterior**: la confirmación del despliegue es el estado "Success" de
+  Railway, no una consulta al conector.
+- **Al desplegar:** los negocios que ya estaban en Programado (31) y Ejecutado
+  (24) no tienen OT; al moverlos, el sistema pide tipo de trabajo y los datos de
+  la etapa. Las OT que existan al migrar quedan exentas de las reglas nuevas.
+  Se necesitan usuarios con rol `tecnico` para asignar técnicos.

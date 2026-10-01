@@ -88,6 +88,13 @@ real del módulo **Cobranza** (§19, en construcción en `staging`). Este
 documento es el que debe subirse a SharePoint reemplazando la versión
 anterior del documento base.
 
+**Actualización v1.40 (01-10-2026):** Operaciones pasó a producción completa
+(Arranque de Trabajos + programación y ejecución de la Orden de Trabajo, botón
+"Ver OT" en el Pipeline, pestaña "OT's" en Reportes y las OT del técnico en
+Tareas — §1, §3, §9, §13) y se documentó el procedimiento de promoción parcial
+con el incidente del primer despliegue (§17). Cobranza (§19) sigue en
+`staging`.
+
 ---
 
 ## 1. Alcance y roles
@@ -111,6 +118,15 @@ rol explícita). Los cinco roles preexistentes, en cambio, **suman** Servicio
 Técnico a lo que ya veían — no se les quita nada. Pensado para personal de
 terreno que solo necesita gestionar casos técnicos, sin acceso al resto del
 CRM comercial.
+
+**Rol `tecnico` — actualización v1.40 (01-10-2026):** además de Servicio
+Técnico, el técnico ve **Mis Tareas** y es su pantalla de inicio: ahí ve, en
+solo lectura, las Órdenes de Trabajo donde está asignado (programadas y el
+histórico de ejecutadas, con selector por mes/año). Puede abrir la ficha y el
+PDF de sus OT, siempre **sin precios** ni valor de venta; las OT donde no está
+asignado dan 403. Administrador, jefe comercial y gerencia ven la misma sección
+con las OT de **todos** los técnicos (o de uno puntual). No ve negocios,
+contactos ni empresas.
 
 **Atribuciones adicionales (v1.13-v1.14, +v1.35):** además del rol, un
 usuario puede tener marcados uno o más de `es_encargado_postventa`,
@@ -372,6 +388,26 @@ reemplaza la herramienta HTML independiente que existía antes):
     código → Tab (autocompleta la descripción si el código calza con un
     SKU). Fix del desplegable de búsqueda de producto, que se cortaba
     dentro de la tabla de ítems con scroll horizontal.
+- **Programación y ejecución de la OT (v1.40, en producción desde el
+  01-10-2026):** al pasar un negocio del pipeline Operaciones a **"Programado"**
+  se exigen **fecha programada para ejecutar**, **horas de trabajo
+  programadas** (por técnico) y **al menos un técnico** (usuarios activos con
+  rol `tecnico`, editables después); al pasar a **"Ejecutado"**, además la
+  **fecha de ejecución** (la real) y las **horas ejecutadas** (por técnico, en
+  blanco por defecto, no se prellenan). **ID Fracttal** es opcional. Las
+  horas-hombre son horas × cantidad de técnicos (3 técnicos × 6 h = 18). Las
+  reglas rigen en todas las vías que mueven la etapa: Pipeline, ficha del
+  negocio, secuencias automáticas, sugerencias de facturación y los dos
+  importadores CSV (el de actualización masiva no puede saltarse la regla y
+  rechaza la fila si a la OT le faltan datos). Solo aplican a OT nuevas
+  (`ordenes_trabajo.exige_programacion`; las que existían al migrar quedan
+  exentas). Un negocio que llega a Programado/Ejecutado sin OT exige también el
+  tipo de trabajo. El Pipeline muestra el botón **"Ver OT"** en las tarjetas con
+  OT, y el cuadro de "Programado"/"Ejecutado" pide los datos al mover. El
+  código reconoce las etapas **Aceptado, Programado y Ejecutado** del pipeline
+  "Operaciones" por su nombre: Config → Pipeline avisa si alguna falta o está
+  inactiva y pide confirmación antes de renombrarla, desactivarla o eliminarla.
+  Detalle: `docs/HT-AP-03-nota-cambio-v1.40.md`.
 - **Fecha de compromiso (v1.22):** campo opcional `negocios.fecha_compromiso`
   (ej. fecha de entrega pactada con el cliente) — distinto de "fecha
   estimada de cierre" (forecast de venta). Se edita en la ficha del negocio
@@ -945,6 +981,23 @@ pendientes pero no para facturas) para que el cruce deje de depender de
 elegir entre varios candidatos idénticos. Ver detalle completo en la nota
 de cambio v1.33.
 
+- **Pestaña "OT's" en Reportes (v1.40):** junto a Comercial, Pipeline y
+  WhatsApp. Filtros por fechas, técnico, tipo de trabajo y vendedor. Tarjetas
+  (ejecutadas, programadas, pendientes hoy con las atrasadas, cumplimiento de
+  la fecha programada), OT por mes en cantidad y en valor, tabla por técnico y
+  por tipo de trabajo (con brecha promedio y % a tiempo), pendientes de
+  ejecución, detalle OT por OT y exportación CSV. Definiciones: **valor de
+  venta** = neto de la cotización más reciente del negocio (o `monto_estimado`
+  si no tiene cotización); **ejecutada** = tiene fecha de ejecución;
+  **programada** = tiene fecha programada; **brecha** = fecha de ejecución −
+  fecha programada (positiva = tarde; "a tiempo" = 0 o menos); **horas-hombre**
+  de las ejecutadas = horas ejecutadas × técnicos (las OT anteriores que no las
+  tienen se estiman con las programadas y el detalle lo marca); por técnico,
+  cada uno suma las horas completas de la OT y el valor de venta se reparte en
+  partes iguales. Disponible también para Cowork como reportes `ots_kpis`,
+  `ots_resumen_mensual`, `ots_por_tipo`, `ots_por_tecnico`, `ots_pendientes` y
+  `ots_detalle` (§18).
+
 ## 10. Encuesta post-cierre
 
 - Al mover un negocio a etapa "ganada" se crea automáticamente una encuesta
@@ -1151,6 +1204,11 @@ solo en acentos puntuales, celeste como color de interacción principal.
   usado si no hay producto asociado, `descripcion`, `cantidad` — sin
   precio), `ot_plantilla_items` (plantilla configurable por tipo de
   trabajo, misma estructura que `ot_items`).
+- **Programación y ejecución de la OT (v1.40, ver §3):** `ordenes_trabajo`
+  suma `horas_programadas`, `horas_ejecutadas`, `fecha_programada`,
+  `fecha_ejecucion`, `id_fracttal` y `exige_programacion` (false para las OT
+  anteriores a la migración `ot_programacion_v1.40`); tabla `ot_tecnicos`
+  (`ot_id`, `user_id`) con los técnicos de cada OT.
 - **Formas de pago (v1.22, ver §4):** tabla `formas_pago` (`nombre`,
   `incluir_datos_bancarios`, `activo`); `cotizaciones.forma_pago_id` (FK).
 - **Cotizaciones:** `iva_pct`; tabla `config_empresa` (emisor/banco);
@@ -1415,6 +1473,11 @@ Sin prioridad asignada (no comerciales / no bloquean nada):
 
 ## 17. Proceso de despliegue a producción
 
+> **Actualización 01-10-2026:** la regla vigente desde el **29-09-2026** (OK de
+> Luis Devoto para cada promoción; confirmación adicional si cae en horario
+> laboral) y el procedimiento de promoción parcial están al final de esta
+> sección. Lo que sigue es el historial de las reglas anteriores.
+
 **Regla vigente desde el 07-08-2026:** los cambios se promueven a `main`
 (producción) **solo fuera del horario de trabajo de la empresa**, salvo
 que se trate de un **error crítico** que no pueda esperar. `staging` no
@@ -1453,6 +1516,43 @@ preservando el historial de cada uno). La regla del 10-08 sigue vigente
 para promociones futuras — esta fue una excepción puntual, no un cambio de
 la regla.
 
+### Promoción parcial del 01-10-2026 (Operaciones, sin Cobranza)
+
+La regla del 07-08 y su "modo restrictivo" del 10-08 quedaron reemplazadas el
+**29-09-2026**: se promueve a `main` **solo con el OK de Luis Devoto** (no hace
+falta que sea un error); si el push cae en horario laboral (lunes a viernes,
+9:00 a 17:30 hora de Chile) se pide una confirmación adicional puntual; nunca
+sin autorización, ni siquiera por un error crítico. `staging` sigue libre.
+
+El 01-10-2026 Luis autorizó, en horario laboral y de forma explícita, pasar a
+producción **solo Operaciones** (Arranque de Trabajos y v1.40), dejando Cobranza
+en `staging`. Como `staging` mezcla ambos módulos, no se fusionó la rama: se
+armó una rama desde `main` comparando contenido archivo por archivo (archivos
+solo de OT completos; en los compartidos, solo los bloques sin Cobranza).
+Procedimiento a repetir cuando se promueva Cobranza:
+
+1. Listar `git diff --name-only origin/main origin/staging` y clasificar cada
+   archivo (OT, Cobranza o mezclado) buscando referencias a Cobranza **también
+   en tiempo de ejecución** (ej. columnas que consulta `middleware/auth.js`),
+   no solo en el diff.
+2. Probar con una base creada con el schema de `main` y encima el código a
+   promover: recorrer los endpoints autenticados con varios roles, sin 500.
+3. Revisar el commit antes del push: `git diff --stat origin/main HEAD` y
+   `git ls-files -s | grep ^120000` (no debe haber enlaces simbólicos).
+4. Reproducir el build de Railway desde un **clon limpio** (comando de
+   `railway.json`) y arrancar el servidor con `/api/health`.
+5. Tras el push, confirmar el estado **Success** del despliegue en Railway.
+
+**Incidente:** el primer despliegue (`ee000f3`) falló en Railway porque el commit
+llevaba por error dos enlaces simbólicos `node_modules` (creados solo para probar
+en una carpeta temporal; `.gitignore` ignora la carpeta `node_modules/`, no los
+enlaces). Producción no se cayó —Railway conserva el despliegue anterior cuando
+un build falla—, pero una consulta de verificación a la API leía la versión
+vieja y se informó como "estable" antes de tiempo. Corregido con `60cd435`
+(borra solo esos dos archivos). Primera promoción parcial: 23-09-2026 (falló
+por `middleware/auth.js`, ver `CLAUDE.md`); esta fue la segunda, y la
+verificación correcta es el estado del despliegue en Railway.
+
 ## 18. API de integración externa — Cowork (v1.28)
 
 Primera versión (v1.0) de la API REST que el agente Cowork (operado por
@@ -1472,7 +1572,7 @@ SharePoint, ver §16 punto 9).
 | POST | `/api/v1/negocios` | Crear negocio, idempotente por `referencia_externa` |
 | GET | `/api/v1/negocios/{id}` | Detalle: etapa, historial de etapas, cotizaciones |
 | POST | `/api/v1/negocios/{id}/cotizaciones` | Registrar cotización (numeración real del CRM, avanza etapa a "Cotizado") |
-| GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros |
+| GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros; desde v1.40 también `ots_kpis`, `ots_resumen_mensual`, `ots_por_tipo`, `ots_por_tecnico`, `ots_pendientes` y `ots_detalle` (pestaña OT's, §9) |
 | GET | `/api/v1/whatsapp/conversaciones?abierta=true\|false` | Lista conversaciones de la Bandeja (v1.35, todas, sin distinción de vendedor) |
 | GET | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` | Hilo completo de mensajes, orden ascendente (v1.35) |
 | POST | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` `{texto}` | Envío real vía Meta (v1.35) — respeta la ventana de 24h de Meta (`409` si está cerrada); a diferencia de un vendedor logueado, no antepone firma con nombre de persona |
@@ -1513,8 +1613,9 @@ verificación extremo a extremo contra Postgres real.
 
 ## 19. Cobranza (v1.35 — en construcción, solo en `staging`)
 
-Módulo nuevo, nunca antes documentado en este consolidado — sigue
-`staging` sin promover a `main` (la regla vigente, §17, no permite
+Módulo nuevo, nunca antes documentado en este consolidado — sigue en
+`staging`, **excluido de la promoción del 01-10-2026** (instrucción de Luis
+Devoto; para promoverlo, repetir el procedimiento por archivo de §17), sin promover a `main` (la regla vigente, §17, no permite
 promover mejoras/funcionalidad nueva). Más avanzado de lo que sugería el
 seguimiento informal en `CLAUDE.md`: 3 de 4 fases de la especificación
 (`HT-DO-XX`) están construidas.

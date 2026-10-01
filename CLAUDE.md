@@ -88,15 +88,64 @@ avise lo contrario otra vez.
 
 ## Pendientes (actualizado 01-10-2026)
 
-**Operaciones — OT: programación, ejecución y pestaña "OT's" en Reportes
-(v1.40, solo en `staging`).** Pedido de Luis Devoto. La OT suma fecha
-programada, horas programadas (por técnico), técnicos (rol `tecnico`), fecha de
-ejecución real y horas ejecutadas (la brecha entre fechas y entre horas se ve en el
-reporte) e ID Fracttal; las reglas de entrada a Programado y Ejecutado aplican solo a OT
-nuevas, el importador de oportunidades las respeta y Config → Pipeline alerta
-si cambian los nombres de las etapas del flujo. Ver
-`docs/HT-AP-03-nota-cambio-v1.40.md`. El Pipeline suma el botón "Ver OT". El técnico ve sus OT asignadas en Tareas (solo lectura, sin precios) y gerencia las de todos. Sigue sin promover a `main`, igual que el
-resto de "Arranque de Trabajos" (necesita el OK de Luis Devoto).
+**Promoción a `main` del 01-10-2026 (en horario laboral, con el OK explícito
+de Luis Devoto) — Operaciones: Arranque de Trabajos completo + programación
+de la OT (v1.34 y v1.40). EN PRODUCCIÓN Y CONFIRMADO POR LUIS.** Commits en
+`main`: `ee000f3` (la promoción) y `60cd435` (fix del build, ver abajo). Instrucción de Luis: pasar solo lo de Operaciones;
+**Cobranza sigue en `staging`, excluida**. La rama `staging` no se pudo fusionar
+(390 commits "por delante" que en buena parte ya están en `main` con otro SHA),
+así que se armó una rama desde `main` tomando de `staging` solo los archivos de
+Operaciones y, en los archivos compartidos (`db.js`, `users.js`, `server.js`,
+`App.jsx`, `Layout.jsx`), solo los bloques sin Cobranza. No se promovió nada de
+`middleware/auth.js`, `routes/auth.js`, `services/email.js` ni `Usuarios.jsx`
+(solo tenían cambios de Cobranza).
+
+- **Qué incluye**: tipo de trabajo obligatorio al pasar a "Aceptado", Orden de
+  Trabajo automática con plantillas (Config → Plantillas de Orden de Trabajo),
+  PDF de la OT y su sección en el informe de Postventa, programación y ejecución
+  de la OT (fecha programada, horas programadas, técnicos, fecha de ejecución,
+  horas ejecutadas, ID Fracttal; las reglas aplican solo a OT nuevas), botón
+  "Ver OT" en el Pipeline, pestaña "OT's" en Reportes (cantidad, valor, por
+  técnico, por tipo, brecha de fechas y de horas) y reportes `ots_*` para
+  Cowork, el técnico ve sus OT asignadas en Tareas (solo lectura, sin precios)
+  y entra a Tareas al iniciar sesión, gerencia ve las de todos los técnicos,
+  importador de oportunidades con las columnas nuevas y alerta en Config →
+  Pipeline si cambian los nombres de Aceptado/Programado/Ejecutado. Ver
+  `docs/HT-AP-03-nota-cambio-v1.34.md` y `docs/HT-AP-03-nota-cambio-v1.40.md`.
+- **Migración de schema** (en `db.js`, con `IF NOT EXISTS`): `negocios.tipo_trabajo`,
+  tablas `ordenes_trabajo`, `ot_items`, `ot_plantilla_items`, `ot_tecnicos`. Las
+  OT que existan al desplegar quedan exentas de las reglas nuevas
+  (`exige_programacion = false`, migración `ot_programacion_v1.40`). No crea
+  nada de Cobranza.
+- **Cómo se probó** (lección del 23-09): base creada con el schema de `main`
+  (sin tablas de OT ni de Cobranza) y encima el código a promover; ~40 endpoints
+  autenticados con admin, vendedor, técnico y gerencia sin ningún 500; negocios
+  que ya estaban en Aceptado y Programado sin OT; reglas de cada etapa,
+  importador, reportes, PDF, permisos del técnico; frontend compilado y revisado
+  en navegador. Búsqueda de referencias a objetos de Cobranza en el código
+  promovido: ninguna. Tras el push hay que verificar producción.
+- **Incidente del primer despliegue**: `ee000f3` falló en Railway ("cannot
+  replace to directory .../backend/node_modules with file"): el commit llevaba
+  por error dos **enlaces simbólicos** `backend/node_modules` y
+  `frontend/node_modules`, creados solo para probar en una carpeta temporal.
+  `.gitignore` ignora `node_modules/` (carpetas), no enlaces, y `git add -A` los
+  incluyó. Producción no se cayó (Railway conserva el despliegue anterior si el
+  build falla), pero la verificación con el conector leyó la versión **vieja** y
+  se informó "estable" antes de tiempo. Corregido con `60cd435` (borra solo esos
+  dos archivos), probado antes con un clon limpio y el comando de build de
+  `railway.json`.
+- **Lecciones para la próxima promoción** (Cobranza): revisar la lista de
+  archivos del commit antes del push (`git diff --stat origin/main HEAD` y
+  `git ls-files -s | grep ^120000`); no usar `git add -A` en carpetas de prueba
+  con enlaces; reproducir el build desde un clon limpio; y dar por buena la
+  promoción solo con el estado **Success** del despliegue en Railway, no con una
+  consulta al conector. Procedimiento completo en el consolidado, §17.
+- **Pendiente al desplegar**: los 31 negocios en Programado y 24 en Ejecutado
+  que ya existían no tienen OT (al moverlos se piden los datos); hacen falta
+  usuarios con rol `tecnico` para asignar técnicos.
+- **Cobranza**: sigue en `staging` sin promover (módulo con desarrollo pendiente).
+  `staging` conserva su propio historial; al promover Cobranza hay que repetir
+  este procedimiento por archivo, no fusionar la rama.
 
 ## Pendientes (actualizado 30-09-2026)
 
