@@ -9,10 +9,14 @@ export default function ConfigPipeline() {
   const [error, setError] = useState(''); const [msg, setMsg] = useState('');
   const [nuevo, setNuevo] = useState({ nombre: '', probabilidad_cierre: 0 });
   const [nuevoPipeline, setNuevoPipeline] = useState('');
+  // Etapas del flujo de Órdenes de Trabajo (Aceptado/Programado/Ejecutado de
+  // Operaciones) que no existen: el sistema las reconoce por nombre (v1.40).
+  const [flujoOT, setFlujoOT] = useState(null);
 
   const cargar = async () => {
     try { setEtapas((await api.get('/config/pipeline-etapas', { params: { pipeline_id: pipelineId } })).data); }
     catch { setError('No se pudieron cargar las etapas.'); }
+    api.get('/config/flujo-ot').then(r => setFlujoOT(r.data)).catch(() => {});
   };
   useEffect(() => { api.get('/config/pipelines').then(r => setPipelines(r.data)).catch(() => {}); }, []);
   useEffect(() => {
@@ -24,11 +28,20 @@ export default function ConfigPipeline() {
 
   const guardar = async (e) => {
     setError(''); setMsg('');
+    const body = {
+      nombre: e.nombre, probabilidad_cierre: Number(e.probabilidad_cierre), activo: e.activo,
+      secuencia_id: e.secuencia_id || null,
+    };
     try {
-      await api.put(`/config/pipeline-etapas/${e.id}`, {
-        nombre: e.nombre, probabilidad_cierre: Number(e.probabilidad_cierre), activo: e.activo,
-        secuencia_id: e.secuencia_id || null,
-      });
+      try {
+        await api.put(`/config/pipeline-etapas/${e.id}`, body);
+      } catch (err) {
+        // Renombrar/desactivar una etapa del flujo de OT pide confirmación.
+        if (err.response?.status === 409 && err.response.data?.requiere_confirmacion) {
+          if (!window.confirm(`${err.response.data.error}\n\n¿Guardar de todas formas?`)) { cargar(); return; }
+          await api.put(`/config/pipeline-etapas/${e.id}`, { ...body, confirmar_flujo_ot: true });
+        } else throw err;
+      }
       setMsg('Etapa guardada.'); cargar();
     } catch (err) { setError(err.response?.data?.error || 'Error al guardar.'); }
   };
@@ -36,8 +49,16 @@ export default function ConfigPipeline() {
   const eliminar = async (e) => {
     if (!window.confirm(`¿Eliminar la etapa "${e.nombre}"?`)) return;
     setError(''); setMsg('');
-    try { await api.delete(`/config/pipeline-etapas/${e.id}`); cargar(); }
-    catch (err) { setError(err.response?.data?.error || 'Error al eliminar.'); }
+    try {
+      try { await api.delete(`/config/pipeline-etapas/${e.id}`); }
+      catch (err) {
+        if (err.response?.status === 409 && err.response.data?.requiere_confirmacion) {
+          if (!window.confirm(`${err.response.data.error}\n\n¿Eliminar de todas formas?`)) return;
+          await api.delete(`/config/pipeline-etapas/${e.id}`, { params: { confirmar_flujo_ot: 'true' } });
+        } else throw err;
+      }
+      cargar();
+    } catch (err) { setError(err.response?.data?.error || 'Error al eliminar.'); }
   };
 
   // Reordenar solo tiene sentido entre las etapas "abiertas" — las
@@ -81,6 +102,15 @@ export default function ConfigPipeline() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Configuración del pipeline</h1>
       <p className="text-gray-500 text-sm mb-6">Etapas y probabilidad de cierre por defecto, por pipeline. "Ganado" y "Perdido" no se pueden eliminar.</p>
+
+      {flujoOT && (!flujoOT.pipeline_encontrado || flujoOT.faltantes.length > 0) && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded text-sm">
+          {flujoOT.pipeline_encontrado
+            ? <>Al pipeline Operaciones le falta la etapa {flujoOT.faltantes.map(f => `"${f.charAt(0).toUpperCase() + f.slice(1)}"`).join(', ')}. El sistema las reconoce por su nombre: sin ella no se aplican las reglas de Órdenes de Trabajo (tipo de trabajo, horas y técnicos, fecha de ejecución) ni funciona el reporte de OT's.</>
+            : <>No se encontró el pipeline "Operaciones" (¿fue renombrado?). Sin él no se aplican las reglas de Órdenes de Trabajo ni funciona el reporte de OT's.</>}
+        </div>
+      )}
+      <p className="text-xs text-gray-500 mb-4">En el pipeline Operaciones, las etapas "Aceptado", "Programado" y "Ejecutado" son parte del flujo de Órdenes de Trabajo y se reconocen por su nombre: el sistema pide confirmación antes de renombrarlas, desactivarlas o eliminarlas.</p>
 
       {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
       {msg && <div className="mb-4 p-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}

@@ -7,8 +7,9 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const r2 = require('../services/r2');
 const { enviarPostventaVencidosSiHay, enviarAvisoCasoNuevo } = require('../services/postventaVencidos');
-const { generarInformePostventaPDFBuffer, generarCotizacionPDFBuffer } = require('../services/pdf');
+const { generarInformePostventaPDFBuffer, generarCotizacionPDFBuffer, generarOTPDFBuffer } = require('../services/pdf');
 const { fetchCompleta: fetchCotizacionCompleta } = require('../services/cotizacion_data');
+const { cargarOTCompleta } = require('../services/ot');
 const { filtroTipoPermitido, headersDescargaSegura } = require('../utils/archivosSeguros');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 }, fileFilter: filtroTipoPermitido });
@@ -392,8 +393,8 @@ router.get('/adjuntos/:adjuntoId/archivo', async (req, res) => {
 
 // GET /api/postventa/:id/informe-pdf — informe completo del caso: datos,
 // adjuntos (fotos incrustadas; el resto listado — un video no se puede
-// incrustar en un PDF de ninguna forma), y la cotización del negocio de
-// origen si existe, fusionada página por página con pdf-lib (PDFKit genera
+// incrustar en un PDF de ninguna forma), y la cotización/OT del negocio de
+// origen si existen, fusionadas página por página con pdf-lib (PDFKit genera
 // contenido nuevo, pero no puede importar páginas de un PDF ya existente).
 router.get('/:id/informe-pdf', async (req, res) => {
   try {
@@ -449,6 +450,22 @@ router.get('/:id/informe-pdf', async (req, res) => {
       if (cot) {
         const cotCompleta = await fetchCotizacionCompleta({ id: cot.id });
         if (cotCompleta) buffers.push(await generarCotizacionPDFBuffer(cotCompleta));
+      }
+
+      const otCompleta = await cargarOTCompleta('o.negocio_id', caso.negocio_id);
+      if (otCompleta) {
+        const emisor = await db.get('SELECT * FROM config_empresa WHERE id = 1') || {};
+        buffers.push(await generarOTPDFBuffer({
+          ot: otCompleta.ot,
+          items: otCompleta.items,
+          tecnicos: otCompleta.tecnicos,
+          cliente: {
+            contacto_nombre: otCompleta.ot.contacto_nombre, contacto_apellido: otCompleta.ot.contacto_apellido,
+            contacto_email: otCompleta.ot.contacto_email, empresa_nombre: otCompleta.ot.empresa_nombre,
+            empresa_direccion: otCompleta.ot.empresa_direccion, empresa_comuna: otCompleta.ot.empresa_comuna,
+          },
+          emisor,
+        }));
       }
     }
     buffers.push(...adjuntosPdfBuffers);

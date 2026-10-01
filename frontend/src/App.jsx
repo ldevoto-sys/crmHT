@@ -12,6 +12,7 @@ import ConfigPipeline from './pages/admin/ConfigPipeline';
 import ReglasAsignacion from './pages/admin/ReglasAsignacion';
 import ConfigEmpresa from './pages/admin/ConfigEmpresa';
 import ConfigSecuencias from './pages/admin/ConfigSecuencias';
+import ConfigPlantillasOT from './pages/admin/ConfigPlantillasOT';
 import ConfigBotWhatsApp from './pages/admin/ConfigBotWhatsApp';
 import ConfigAlertasRespuesta from './pages/admin/ConfigAlertasRespuesta';
 import ConfigEncuesta from './pages/admin/ConfigEncuesta';
@@ -30,6 +31,7 @@ import ImportarProductos from './pages/maestros/ImportarProductos';
 import Pipeline from './pages/ventas/Pipeline';
 import ImportarNegocios from './pages/ventas/ImportarNegocios';
 import DetalleNegocio from './pages/ventas/DetalleNegocio';
+import DetalleOT from './pages/ventas/DetalleOT';
 import Cotizaciones from './pages/ventas/Cotizaciones';
 import NuevaCotizacion from './pages/ventas/NuevaCotizacion';
 import DetalleCotizacion from './pages/ventas/DetalleCotizacion';
@@ -119,6 +121,9 @@ export default function App() {
             <Route path="negocios/:id" element={
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleNegocio /></ProtectedRoute>
             } />
+            <Route path="negocios/:negocioId/ot" element={
+              <ProtectedRoute roles={[...ROLES_SIN_TECNICO, 'tecnico']}><DetalleOT /></ProtectedRoute>
+            } />
             <Route path="negocios/:negocioId/cotizar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
             } />
@@ -137,7 +142,7 @@ export default function App() {
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={
-              <ProtectedRoute roles={ROLES_SIN_TECNICO}><MisTareas /></ProtectedRoute>
+              <ProtectedRoute roles={[...ROLES_SIN_TECNICO, 'tecnico']}><MisTareas /></ProtectedRoute>
             } />
             <Route path="reportes" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>
@@ -147,6 +152,9 @@ export default function App() {
             } />
             <Route path="reportes/whatsapp" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="whatsapp" /></ProtectedRoute>
+            } />
+            <Route path="reportes/ots" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="ots" /></ProtectedRoute>
             } />
 
             {/* Servicio Técnico — abierto a todos los roles existentes, más el rol dedicado "tecnico" */}
@@ -209,6 +217,9 @@ export default function App() {
             } />
             <Route path="config/secuencias" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigSecuencias /></ProtectedRoute>
+            } />
+            <Route path="config/plantillas-ot" element={
+              <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigPlantillasOT /></ProtectedRoute>
             } />
             <Route path="config/bot-whatsapp" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial']}><ConfigBotWhatsApp /></ProtectedRoute>

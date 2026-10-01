@@ -42,8 +42,8 @@ export default function Login() {
     try {
       const { data } = await api.post('/auth/login', { email, password });
       login(data.user, data.token);
-      // El rol "tecnico" no tiene acceso a /dashboard — su única pantalla es Servicio Técnico.
-      const destino = data.user.rol === 'tecnico' ? '/servicio-tecnico' : '/dashboard';
+      // El rol "tecnico" no tiene acceso a /dashboard — entra a Tareas (sus OT asignadas).
+      const destino = data.user.rol === 'tecnico' ? '/tareas' : '/dashboard';
       navigate(data.user.must_change_password ? '/cambiar-password' : destino);
     } catch (err) {
       setError(err.response?.data?.error || 'Credenciales incorrectas');

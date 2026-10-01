@@ -5,9 +5,11 @@ const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
 const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
+const ot = require('../services/ot');
+const { requiereDatosOT } = ot;
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
-const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS } = require('../services/import_negocios');
+const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
 const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
@@ -50,11 +52,12 @@ router.get('/', async (req, res) => {
     const { where, params } = filtrosNegocios(req.query, req.user);
     const negocios = await db.all(
       `SELECT n.id, n.titulo, n.etapa_id, n.pipeline_id, n.probabilidad_cierre, n.monto_estimado, n.vendedor_id,
-              n.fecha_cierre_estimada, n.fecha_compromiso, n.ultima_actividad, n.created_at,
+              n.fecha_cierre_estimada, n.fecha_compromiso, n.ultima_actividad, n.created_at, n.tipo_trabajo,
               pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.orden AS etapa_orden,
               u.nombre AS vendedor_nombre, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
               e.razon_social AS empresa_nombre,
-              EXTRACT(DAY FROM now() - n.ultima_actividad)::int AS dias_sin_actividad
+              EXTRACT(DAY FROM now() - n.ultima_actividad)::int AS dias_sin_actividad,
+              EXISTS (SELECT 1 FROM ordenes_trabajo ot WHERE ot.negocio_id = n.id) AS tiene_ot
        FROM negocios n
        JOIN contactos c ON c.id = n.contacto_id
        LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
@@ -156,7 +159,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/negocios
 router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callcenter'), async (req, res) => {
   try {
-    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id } = req.body;
+    const { contacto_id, titulo, empresa_id, monto_estimado, vendedor_id, fecha_cierre_estimada, fecha_compromiso, pipeline_id, tipo_trabajo } = req.body;
     if (!contacto_id || !titulo) return res.status(400).json({ error: 'Contacto y título requeridos' });
 
     const contacto = await db.get('SELECT id, empresa_id FROM contactos WHERE id = $1', [contacto_id]);
@@ -183,16 +186,30 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
     );
     const emp = empresa_id || contacto.empresa_id || null;
 
+    // Arranque de Trabajos (HT-AP-03, pendiente 06-09-2026): si la etapa
+    // inicial resulta ser "Aceptado" (pipeline Operaciones reordenado sin
+    // Lead/Cotizado/Negociación antes, o un pipeline nuevo con Aceptado
+    // como primera etapa), exige tipo de trabajo igual que PUT /:id/etapa
+    // — no es solo la ruta del kanban la que puede aterrizar ahí.
+    const entraAAceptado = etapaInicial?.nombre.toLowerCase() === 'aceptado';
+    if (entraAAceptado) {
+      if (!tipo_trabajo) return res.status(400).json({ error: 'El tipo de trabajo es obligatorio para pasar a "Aceptado"' });
+      if (!TIPOS_TRABAJO.includes(tipo_trabajo)) return res.status(400).json({ error: 'Tipo de trabajo inválido' });
+    }
+
     const r = await db.run(
-      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id, fecha_compromiso)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre_estimada, pipeline_id, fecha_compromiso, tipo_trabajo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [contacto_id, emp, dueno, titulo, monto_estimado || null,
        etapaInicial ? etapaInicial.id : null, etapaInicial ? etapaInicial.probabilidad_cierre : null,
-       fecha_cierre_estimada || null, pipelineId, fecha_compromiso || null]
+       fecha_cierre_estimada || null, pipelineId, fecha_compromiso || null, entraAAceptado ? tipo_trabajo : null]
     );
     const negocio = r.rows[0];
     if (etapaInicial) {
       await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaInicial.id]);
+    }
+    if (entraAAceptado) {
+      await ot.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo }, db, req.user.id);
     }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
@@ -250,7 +267,7 @@ router.put('/:id', async (req, res) => {
 // para que confirmar una sugerencia dispare exactamente lo mismo que mover
 // la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
 // `.status` para que el caller los traduzca a la respuesta HTTP.
-async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, permitirPerdidaSinCausa } = {}, usuarioId) {
+async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, tipo_trabajo, permitirPerdidaSinCausa, horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, horas_ejecutadas, id_fracttal } = {}, usuarioId) {
   const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
   if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
 
@@ -269,17 +286,47 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   if (etapa.tipo === 'perdida' && !causa_no_cierre_id && !permitirPerdidaSinCausa) {
     const e = new Error('La causa de no cierre es obligatoria al marcar perdido'); e.status = 400; throw e;
   }
+  // Arranque de Trabajos (HT-AP-03, pendiente 06-09-2026): entrar a
+  // "Aceptado" exige tipo de trabajo — determina cómo se prellena la OT
+  // (ver services/ot.js). Puede venir recién en este request (primera vez
+  // que se fija) o ya estar en el negocio de una entrada anterior. Va acá
+  // (no en la ruta) para que cualquier caller de cambiarEtapaNegocio —
+  // también /sugerencias-facturacion/:folio/confirmar — quede protegido.
+  const entraAAceptado = etapa.nombre.toLowerCase() === 'aceptado';
+  const tipoTrabajoFinal = tipo_trabajo || negocio.tipo_trabajo;
+  if (entraAAceptado) {
+    if (!tipoTrabajoFinal) { const e = new Error('El tipo de trabajo es obligatorio para pasar a "Aceptado"'); e.status = 400; throw e; }
+    if (!TIPOS_TRABAJO.includes(tipoTrabajoFinal)) { const e = new Error('Tipo de trabajo inválido'); e.status = 400; throw e; }
+  }
+  // Programación de OT (v1.40): entrar a "Programado" exige horas de trabajo
+  // y técnicos; a "Ejecutado", además la fecha de ejecución (ver
+  // services/ot.js). Se valida antes de tocar nada; lo validado se guarda
+  // después de mover la etapa.
+  if (requiereDatosOT(etapa.nombre) && tipoTrabajoFinal && !TIPOS_TRABAJO.includes(tipoTrabajoFinal)) {
+    const e = new Error('Tipo de trabajo inválido'); e.status = 400; throw e;
+  }
+  const preOT = await ot.validarEntradaAEtapa({
+    negocio, etapa, tipoTrabajo: tipoTrabajoFinal,
+    datos: { horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, horas_ejecutadas, id_fracttal },
+  });
+
   const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
   await db.run(
     `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,
-            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now()
-     WHERE id=$6`,
+            causa_no_cierre_id=$3, causa_no_cierre_detalle=$4, fecha_cierre=$5, ultima_actividad=now(),
+            tipo_trabajo=$6
+     WHERE id=$7`,
     [etapa.id, etapa.probabilidad_cierre,
      etapa.tipo === 'perdida' ? causa_no_cierre_id : null,
      etapa.tipo === 'perdida' ? (causa_no_cierre_detalle || null) : null,
      cierra ? new Date().toISOString() : null,
+     tipo_trabajo ? tipoTrabajoFinal : negocio.tipo_trabajo,
      negocioId]
   );
+  if (entraAAceptado) {
+    await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: tipoTrabajoFinal }, db, usuarioId);
+  }
+  await ot.aplicarEntradaAEtapa(negocioId, preOT, db, usuarioId);
   if (etapa.id !== negocio.etapa_id) {
     await db.run(
       'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
@@ -692,6 +739,29 @@ async function resolverVendedores(client, validos) {
   return resolver;
 }
 
+// Resuelve los técnicos de cada fila (email o nombre, separados por ";" en el
+// CSV) contra usuarios activos con perfil técnico. Devuelve una función
+// fila → { ids, noEncontrados }.
+async function resolverTecnicos(client, validos) {
+  const valores = [...new Set(validos.flatMap(v => v.negocio.tecnicos_lista || []).map(t => t.toLowerCase()))];
+  const mapa = new Map();
+  if (valores.length) {
+    const r = await client.query(
+      `SELECT id, lower(email) AS e, lower(nombre) AS n FROM users WHERE activo = true AND rol = 'tecnico' AND (lower(email) = ANY($1) OR lower(nombre) = ANY($1))`,
+      [valores]
+    );
+    r.rows.forEach(row => { mapa.set(row.e, row.id); mapa.set(row.n, row.id); });
+  }
+  return negocio => {
+    const ids = []; const noEncontrados = [];
+    for (const t of negocio.tecnicos_lista || []) {
+      const id = mapa.get(t.toLowerCase());
+      if (id) ids.push(id); else noEncontrados.push(t);
+    }
+    return { ids: [...new Set(ids)], noEncontrados };
+  };
+}
+
 // Resuelve (creando si hace falta) la empresa referenciada por rut/nombre.
 // Cachea en memoria dentro de la misma corrida para no duplicar una empresa
 // citada en varias filas del mismo archivo (ej: 40 O/C de "CENCOSUD S.A.").
@@ -752,12 +822,15 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
     if (pipelineInfo.error) return res.status(400).json({ error: pipelineInfo.error });
 
     const resolverVendedor = await resolverVendedores(client, validos);
+    const resolverTecnico = await resolverTecnicos(client, validos);
     const finales = [];
     for (const v of validos) {
       const vendedorId = resolverVendedor(v.negocio.vendedor);
       if (!vendedorId) { rechazos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${v.negocio.vendedor}"` }); continue; }
       const etapa = resolverEtapaFila(pipelineInfo, v.negocio.estado);
       if (!etapa) { rechazos.push({ fila: v.fila, motivo: `estado "${v.negocio.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
+      const tecnicos = resolverTecnico(v.negocio);
+      if (tecnicos.noEncontrados.length) { rechazos.push({ fila: v.fila, motivo: `técnico no encontrado (usuario activo con perfil técnico): ${tecnicos.noEncontrados.map(t => `"${t}"`).join(', ')}` }); continue; }
       v.etapaNombre = etapa.nombre;
       finales.push(v);
     }
@@ -774,6 +847,12 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
         contacto: `${v.negocio.contacto_nombre} ${v.negocio.contacto_apellido || ''}`.trim(),
         titulo: v.negocio.titulo,
         estado: v.etapaNombre,
+        tipo_trabajo: v.negocio.tipo_trabajo || '',
+        horas_programadas: v.negocio.horas_programadas || '',
+        fecha_programada: v.negocio.fecha_programada || '',
+        horas_ejecutadas: v.negocio.horas_ejecutadas || '',
+        tecnicos: (v.negocio.tecnicos_lista || []).join('; '),
+        fecha_ejecucion: v.negocio.fecha_ejecucion || '',
         n_oc: v.negocio.n_oc || '',
         monto: v.negocio.monto,
         fecha_cierre: v.negocio.fecha_cierre || '',
@@ -805,6 +884,7 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
     const { pipelineId } = pipelineInfo;
 
     const resolverVendedor = await resolverVendedores(client, validos);
+    const resolverTecnico = await resolverTecnicos(client, validos);
     const resolverEmpresa = crearResolverEmpresas(client);
 
     let creados = 0;
@@ -815,6 +895,8 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       if (!vendedorId) { omitidos.push({ fila: v.fila, motivo: `vendedor no encontrado: "${n.vendedor}"` }); continue; }
       const etapa = resolverEtapaFila(pipelineInfo, n.estado);
       if (!etapa) { omitidos.push({ fila: v.fila, motivo: `estado "${n.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
+      const tecnicos = resolverTecnico(n);
+      if (tecnicos.noEncontrados.length) { omitidos.push({ fila: v.fila, motivo: `técnico no encontrado (usuario activo con perfil técnico): ${tecnicos.noEncontrados.map(t => `"${t}"`).join(', ')}` }); continue; }
 
       const empresaId = await resolverEmpresa({ empresa_rut: n.empresa_rut, empresa_nombre: n.empresa_nombre });
       const contactoId = await resolverOCrearContacto(client, n, empresaId);
@@ -826,9 +908,9 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       const fechaCierreEstimada = esCerrada ? null : (n.fecha_cierre || null);
 
       const r = await client.query(
-        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, fecha_cierre_estimada, pipeline_id, n_oc)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id`,
-        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, fechaCierreEstimada, pipelineId, n.n_oc || null]
+        `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, monto_estimado, etapa_id, probabilidad_cierre, fecha_cierre, fecha_cierre_estimada, pipeline_id, n_oc, tipo_trabajo)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [contactoId, empresaId, vendedorId, n.titulo, n.monto, etapa.id, etapa.probabilidad_cierre, fechaCierre, fechaCierreEstimada, pipelineId, n.n_oc || null, n.tipo_trabajo || null]
       );
       const negocioId = r.rows[0].id;
       await client.query('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocioId, etapa.id]);
@@ -836,6 +918,24 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
         contacto_id: contactoId, empresa_id: empresaId, negocio_id: negocioId, tipo: 'cambio_etapa',
         descripcion: `Negocio creado por importación de oportunidades (O/C directo a "${etapa.nombre}")`, usuario_id: req.user.id,
       }, client);
+      // Arranque de Trabajos: si la fila entra directo a "Aceptado" (con su
+      // tipo_trabajo ya validado en mapearFila), se le genera la OT ahí
+      // mismo — mismo comportamiento que el kanban manual, para no divergir.
+      if (etapa.nombre.toLowerCase() === 'aceptado') {
+        await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+      }
+      // Programado/Ejecutado: la OT nace acá con sus datos de programación
+      // (mapearFila ya exigió horas, técnicos y —en Ejecutado— fecha). Aceptado
+      // también guarda lo que venga en las columnas opcionales.
+      if (ot.ETAPAS_OT.includes(etapa.nombre.toLowerCase()) || n.horas_programadas || n.horas_ejecutadas || tecnicos.ids.length || n.fecha_programada || n.fecha_ejecucion || n.id_fracttal) {
+        if (n.tipo_trabajo) {
+          const otId = await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+          await ot.guardarProgramacion(otId, {
+            horas_programadas: n.horas_programadas, horas_ejecutadas: n.horas_ejecutadas, fecha_programada: n.fecha_programada, fecha_ejecucion: n.fecha_ejecucion, id_fracttal: n.id_fracttal,
+            tecnico_ids: tecnicos.ids,
+          }, client);
+        }
+      }
       creados++;
     }
 
@@ -924,7 +1024,18 @@ async function cargarContextoActualizacion(client, ids) {
   const causasDb = (await client.query(`SELECT id, nombre FROM causas_no_cierre WHERE activo = true`)).rows;
   const causasPorNombre = new Map(causasDb.map(c => [c.nombre.toLowerCase(), c.id]));
 
-  return { negociosPorId, etapasPorClave, causasPorNombre };
+  // OT de esos negocios + pipeline Operaciones: la actualización masiva no
+  // trae horas/técnicos/fecha, así que solo puede mover a Programado/Ejecutado
+  // una OT que ya tenga esos datos (ver services/ot.js).
+  const otsDb = ids.length ? (await client.query(
+    `SELECT o.negocio_id, o.id, o.exige_programacion, o.horas_programadas, o.horas_ejecutadas, o.fecha_programada, o.fecha_ejecucion,
+            (SELECT count(*)::int FROM ot_tecnicos t WHERE t.ot_id = o.id) AS n_tecnicos
+     FROM ordenes_trabajo o WHERE o.negocio_id = ANY($1)`, [ids]
+  )).rows : [];
+  const otsPorNegocio = new Map(otsDb.map(o => [o.negocio_id, o]));
+  const pipelineOperaciones = (await client.query(`SELECT id FROM pipelines WHERE nombre = 'Operaciones' LIMIT 1`)).rows[0];
+
+  return { negociosPorId, etapasPorClave, causasPorNombre, otsPorNegocio, pipelineOperacionesId: pipelineOperaciones?.id ?? null };
 }
 
 // Resuelve y valida una fila contra el contexto ya cargado — sin consultas
@@ -967,6 +1078,24 @@ function resolverFilaActualizacion(contexto, row, fila) {
   if (etapaCsv && etapaCsv.toLowerCase() !== etapaDb.toLowerCase()) {
     etapaNueva = contexto.etapasPorClave.get(`${negocio.pipeline_id}:${etapaCsv.toLowerCase()}`);
     if (!etapaNueva) return { error: { fila, motivo: `etapa "${etapaCsv}" no es una etapa activa del pipeline de este negocio` } };
+  }
+
+  // Programado/Ejecutado en el pipeline Operaciones: misma regla que el
+  // kanban. Este archivo no trae horas/técnicos/fecha, así que la OT debe
+  // tenerlos ya cargados (desde la ficha de la OT o el Pipeline).
+  if (etapaNueva && requiereDatosOT(etapaNueva.nombre) && negocio.pipeline_id === contexto.pipelineOperacionesId) {
+    const otInfo = contexto.otsPorNegocio.get(negocio.id);
+    if (!otInfo) {
+      return { error: { fila, motivo: `para pasar a "${etapaNueva.nombre}" el negocio necesita una Orden de Trabajo con su programación: muévelo desde el Pipeline` } };
+    }
+    if (otInfo.exige_programacion) {
+      const faltan = ot.faltantesParaEtapa(etapaNueva.nombre, {
+        horas: otInfo.horas_programadas, tecnicoIds: Array.from({ length: otInfo.n_tecnicos }, () => 0), fechaEjecucion: otInfo.fecha_ejecucion, fechaProgramada: otInfo.fecha_programada, horasEjecutadas: otInfo.horas_ejecutadas,
+      });
+      if (faltan.length) {
+        return { error: { fila, motivo: `para pasar a "${etapaNueva.nombre}" a la OT le falta: ${faltan.join(', ')} (cárgalo en la ficha de la OT o desde el Pipeline)` } };
+      }
+    }
   }
 
   let causaId = null;

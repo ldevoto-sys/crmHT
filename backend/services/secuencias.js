@@ -188,6 +188,15 @@ async function cambiarEtapaSeguimiento(ns, paso) {
     return `Paso ${paso.orden} de "${ns.secuencia_nombre}" no se pudo ejecutar (el negocio o la etapa destino ya no existen)`;
   }
 
+  // Programado/Ejecutado exigen datos de la OT (horas, técnicos, fecha): una
+  // secuencia automática no puede saltarse esa regla.
+  try {
+    await require('./ot').validarEntradaAEtapa({ negocio, etapa: etapaNueva, tipoTrabajo: negocio.tipo_trabajo });
+  } catch (err) {
+    if (err.status === 400) return `Paso ${paso.orden} de "${ns.secuencia_nombre}" no se pudo ejecutar: ${err.message}`;
+    throw err;
+  }
+
   const cierra = etapaNueva.tipo === 'ganada' || etapaNueva.tipo === 'perdida';
   await db.run(
     `UPDATE negocios SET etapa_id=$1, probabilidad_cierre=$2,

@@ -93,6 +93,7 @@ const menuByRole = {
   ],
   // Rol dedicado: solo ve Servicio Técnico, nada más (HT-AP-03).
   tecnico: [
+    { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
 };
@@ -143,6 +144,8 @@ configByRole.administrador.push({ label: 'Lugares frecuentes de despacho', to: '
 configByRole.jefe_comercial.push({ label: 'Lugares frecuentes de despacho', to: '/config/lugares-despacho', seccion: SECCION_DESPACHO });
 configByRole.administrador.push({ label: 'Cotizador Operaciones', to: '/config/operaciones', seccion: SECCION_OPERACIONES });
 configByRole.jefe_comercial.push({ label: 'Cotizador Operaciones', to: '/config/operaciones', seccion: SECCION_OPERACIONES });
+configByRole.administrador.push({ label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot', seccion: SECCION_OPERACIONES });
+configByRole.jefe_comercial.push({ label: 'Plantillas de Orden de Trabajo', to: '/config/plantillas-ot', seccion: SECCION_OPERACIONES });
 configByRole.administrador.push({ label: 'Formas de pago', to: '/config/formas-pago', seccion: SECCION_VENTAS });
 configByRole.jefe_comercial.push({ label: 'Formas de pago', to: '/config/formas-pago', seccion: SECCION_VENTAS });
 configByRole.administrador.push({ label: 'Causas de no cierre', to: '/config/causas-no-cierre', seccion: SECCION_VENTAS });

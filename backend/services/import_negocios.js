@@ -2,9 +2,10 @@
 // del pipeline "Operaciones" (por defecto "Aceptado" si la fila no indica
 // otra), sin cotización asociada (O/C de Cencosud, Sodimac, etc. contra un
 // contrato ya firmado).
-// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, estado, n_oc, monto, fecha_cierre, vendedor
+// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, estado, tipo_trabajo, n_oc, monto, fecha_cierre, vendedor, horas_programadas, tecnicos, fecha_programada, fecha_ejecucion, horas_ejecutadas, id_fracttal
 const { normalizarTelefono } = require('./dedup');
 const { validarRut, normalizarRut, validarEmail } = require('../utils/validaciones');
+const { ETAPAS_OT, faltantesParaEtapa } = require('./ot');
 
 const MAPA = {
   'empresa': 'empresa_nombre', 'razon_social': 'empresa_nombre', 'razón social': 'empresa_nombre',
@@ -17,18 +18,49 @@ const MAPA = {
   'celular': 'contacto_telefono', 'fono': 'contacto_telefono',
   'titulo': 'titulo', 'título': 'titulo', 'nombre_negocio': 'titulo', 'oportunidad': 'titulo',
   'estado': 'estado', 'etapa': 'estado',
+  'tipo_trabajo': 'tipo_trabajo', 'tipo de trabajo': 'tipo_trabajo', 'tipo trabajo': 'tipo_trabajo',
   'n_oc': 'n_oc', 'oc': 'n_oc', 'orden_compra': 'n_oc', 'orden de compra': 'n_oc',
   'n° oc': 'n_oc', 'nº oc': 'n_oc', 'numero_oc': 'n_oc', 'número de oc': 'n_oc',
   'monto': 'monto', 'monto_estimado': 'monto', 'total': 'monto',
   'fecha_cierre': 'fecha_cierre', 'fecha': 'fecha_cierre', 'fecha aceptacion': 'fecha_cierre',
   'fecha_aceptacion': 'fecha_cierre',
   'vendedor': 'vendedor', 'vendedor_email': 'vendedor', 'responsable': 'vendedor',
+  // Programación de la OT (v1.40)
+  'horas_programadas': 'horas_programadas', 'horas programadas': 'horas_programadas', 'horas': 'horas_programadas',
+  'tecnicos': 'tecnicos', 'técnicos': 'tecnicos', 'tecnico': 'tecnicos', 'técnico': 'tecnicos',
+  'horas_ejecutadas': 'horas_ejecutadas', 'horas ejecutadas': 'horas_ejecutadas',
+  'fecha_programada': 'fecha_programada', 'fecha programada': 'fecha_programada',
+  'fecha_ejecucion': 'fecha_ejecucion', 'fecha ejecucion': 'fecha_ejecucion', 'fecha ejecución': 'fecha_ejecucion',
+  'fecha_ejecución': 'fecha_ejecucion',
+  'id_fracttal': 'id_fracttal', 'id fracttal': 'id_fracttal', 'fracttal': 'id_fracttal',
 };
 
 const PLANTILLA_HEADERS = [
   'empresa', 'rut_empresa', 'contacto_nombre', 'contacto_apellido', 'contacto_email',
-  'contacto_telefono', 'titulo', 'estado', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
+  'contacto_telefono', 'titulo', 'estado', 'tipo_trabajo', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
+  'horas_programadas', 'tecnicos', 'fecha_programada', 'fecha_ejecucion', 'horas_ejecutadas', 'id_fracttal',
 ];
+
+// Mismos 5 valores que el CHECK de negocios.tipo_trabajo en db.js. Exportado
+// para que routes/negocios.js valide con la misma lista en el gate manual
+// de "Aceptado" (PUT /:id/etapa), sin duplicarla.
+const TIPOS_TRABAJO = ['mantenimiento_preventivo', 'lavado', 'impermeabilizado', 'mantenimiento_correctivo', 'otro'];
+
+// Acepta tanto el valor enum tal cual como etiquetas legibles typeadas a
+// mano en el CSV (con o sin tildes/espacios) — normaliza antes de validar.
+const SINONIMOS_TIPO_TRABAJO = {
+  'mantenimiento preventivo': 'mantenimiento_preventivo', 'preventivo': 'mantenimiento_preventivo',
+  'lavado': 'lavado', 'lavado de estanque': 'lavado', 'lavado estanque': 'lavado',
+  'impermeabilizado': 'impermeabilizado', 'impermeabilizacion': 'impermeabilizado', 'impermeabilización': 'impermeabilizado',
+  'mantenimiento correctivo': 'mantenimiento_correctivo', 'correctivo': 'mantenimiento_correctivo',
+  'otro': 'otro',
+};
+function normalizarTipoTrabajo(valor) {
+  if (!valor) return null;
+  const limpio = valor.toLowerCase().trim();
+  if (TIPOS_TRABAJO.includes(limpio)) return limpio;
+  return SINONIMOS_TIPO_TRABAJO[limpio] || null;
+}
 
 // Fecha del CSV en formato local DD-MM-AAAA (no ISO) — se convierte a
 // AAAA-MM-DD antes de guardar, que es lo que espera la columna DATE.
@@ -78,12 +110,57 @@ function mapearFila(row) {
 
   n.estado = n.estado || null;
 
+  // Programación de la OT (v1.40). Formato de fecha igual que fecha_cierre
+  // (DD-MM-AAAA); técnicos separados por ";" (email o nombre de usuario con
+  // perfil técnico — se resuelven contra la BD en routes/negocios.js).
+  for (const campo of ['horas_programadas', 'horas_ejecutadas']) {
+    if (n[campo]) {
+      const hRaw = n[campo];
+      const h = Number(hRaw.includes(',') ? hRaw.replace(/\./g, '').replace(',', '.') : hRaw);
+      n[campo] = Number.isFinite(h) && h > 0 ? h : NaN;
+    } else {
+      n[campo] = null;
+    }
+  }
+  n.tecnicos_lista = (n.tecnicos || '').split(';').map(t => t.trim()).filter(Boolean);
+  for (const campo of ['fecha_programada', 'fecha_ejecucion']) {
+    if (n[campo]) {
+      const m = FECHA_RE.exec(n[campo]);
+      n[campo] = m ? `${m[3]}-${m[2]}-${m[1]}` : NaN;
+    } else {
+      n[campo] = null;
+    }
+  }
+  n.id_fracttal = n.id_fracttal || null;
+
+  // El tipo de trabajo se exige para "Aceptado" (o fila sin estado, que cae
+  // ahí por defecto) y para "Programado"/"Ejecutado" (la OT se crea ahí
+  // mismo) — el resto de las etapas del CSV no lo necesitan en este punto.
+  const etapaClave = (n.estado || '').toLowerCase();
+  const entraAAceptado = !n.estado || etapaClave === 'aceptado' || ETAPAS_OT.includes(etapaClave);
+  const tipoTrabajoNormalizado = normalizarTipoTrabajo(n.tipo_trabajo);
+  if (n.tipo_trabajo && !tipoTrabajoNormalizado) advertencias.push(`tipo_trabajo "${n.tipo_trabajo}" no reconocido (se ignoró)`);
+  n.tipo_trabajo = tipoTrabajoNormalizado;
+
   const errores = [];
   if (!n.empresa_nombre && !n.empresa_rut) errores.push('falta empresa (nombre o RUT)');
   if (!n.contacto_nombre) errores.push('falta nombre del contacto');
   if (!n.contacto_email && !n.contacto_telefono_e164) errores.push('el contacto no tiene email ni teléfono');
   if (!n.titulo) errores.push('falta título de la oportunidad');
   if (!n.vendedor) errores.push('falta vendedor responsable');
+  if (entraAAceptado && !n.tipo_trabajo) errores.push('falta tipo_trabajo (obligatorio para filas que entran a "Aceptado", "Programado" o "Ejecutado")');
+  if (Number.isNaN(n.horas_programadas)) errores.push('horas_programadas no es un número mayor a 0');
+  if (Number.isNaN(n.horas_ejecutadas)) errores.push('horas_ejecutadas no es un número mayor a 0');
+  if (Number.isNaN(n.fecha_programada)) errores.push('fecha_programada no tiene formato DD-MM-AAAA');
+  if (Number.isNaN(n.fecha_ejecucion)) errores.push('fecha_ejecucion no tiene formato DD-MM-AAAA');
+  // Mismas reglas que el kanban (services/ot.js#faltantesParaEtapa): una
+  // fila que entra directo a Programado/Ejecutado no puede esquivarlas.
+  if (ETAPAS_OT.includes(etapaClave)) {
+    const faltan = faltantesParaEtapa(n.estado, {
+      horas: n.horas_programadas, tecnicoIds: n.tecnicos_lista, fechaEjecucion: n.fecha_ejecucion, fechaProgramada: n.fecha_programada, horasEjecutadas: n.horas_ejecutadas,
+    });
+    if (faltan.length) errores.push(`para la etapa "${n.estado}" falta: ${faltan.join(', ')}`);
+  }
 
   return { negocio: n, advertencias, errores };
 }
@@ -102,4 +179,4 @@ function mapearNegocios(rows) {
   return { validos, rechazos };
 }
 
-module.exports = { mapearNegocios, PLANTILLA_HEADERS };
+module.exports = { mapearNegocios, PLANTILLA_HEADERS, TIPOS_TRABAJO };

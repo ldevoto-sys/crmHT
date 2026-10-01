@@ -3,8 +3,16 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { slaEstado, ESTILO_SLA } from '../../utils/sla';
+import ModalProgramacionOT, { pideDatosOT } from '../../components/ModalProgramacionOT';
 
 const money = v => v ? `$${Number(v).toLocaleString('es-CL')}` : '$0';
+const TIPOS_TRABAJO = [
+  ['mantenimiento_preventivo', 'Mantenimiento preventivo'],
+  ['lavado', 'Lavado de estanque'],
+  ['impermeabilizado', 'Impermeabilizado'],
+  ['mantenimiento_correctivo', 'Mantenimiento correctivo'],
+  ['otro', 'Otro'],
+];
 const fecha = d => d ? new Date(d.slice(0, 10) + 'T00:00:00').toLocaleDateString('es-CL') : '';
 const PUEDE_EXPORTAR = ['administrador', 'jefe_comercial'];
 // Solo estos roles ven el selector para cambiar de pipeline y el filtro de
@@ -41,6 +49,9 @@ export default function Pipeline() {
   const [drag, setDrag] = useState(null);
   const [modalPerdido, setModalPerdido] = useState(null); // {negocio, etapa}
   const [causaSel, setCausaSel] = useState(''); const [detalle, setDetalle] = useState('');
+  const [modalAceptado, setModalAceptado] = useState(null); // {negocio, etapa}
+  const [tipoTrabajoSel, setTipoTrabajoSel] = useState('');
+  const [modalProgramacion, setModalProgramacion] = useState(null); // {negocio, etapa} — Programado/Ejecutado de Operaciones
   const [showNuevo, setShowNuevo] = useState(false);
 
   const cargar = async () => {
@@ -99,8 +110,17 @@ export default function Pipeline() {
   // Compartido entre el drag-and-drop (desktop) y el selector "Mover a etapa"
   // (mobile, donde arrastrar con el dedo sobre columnas no es viable).
   const moverAEtapa = (negocio, etapa) => {
-    if (etapa.tipo === 'perdida') { setModalPerdido({ negocio, etapa }); setCausaSel(''); setDetalle(''); }
-    else mover(negocio, etapa);
+    if (etapa.tipo === 'perdida') { setModalPerdido({ negocio, etapa }); setCausaSel(''); setDetalle(''); return; }
+    // Arranque de Trabajos (HT-AP-03, v1.34): entrar a "Aceptado" exige
+    // tipo de trabajo — mismo gate que en la ficha del negocio, acá para
+    // que también lo pida el drag-and-drop y el selector "Mover a etapa".
+    if (etapa.nombre.toLowerCase() === 'aceptado' && !negocio.tipo_trabajo) {
+      setModalAceptado({ negocio, etapa }); setTipoTrabajoSel(''); return;
+    }
+    // Programación de OT (v1.40): Programado exige horas y técnicos;
+    // Ejecutado, además, fecha de ejecución.
+    if (pideDatosOT(etapa)) { setModalProgramacion({ negocio, etapa }); return; }
+    mover(negocio, etapa);
   };
 
   const onDrop = (etapa) => {
@@ -122,6 +142,22 @@ export default function Pipeline() {
     if (!causaSel) return;
     await mover(modalPerdido.negocio, modalPerdido.etapa, { causa_no_cierre_id: Number(causaSel), causa_no_cierre_detalle: detalle });
     setModalPerdido(null);
+  };
+
+  // Devuelve el mensaje de error del backend (el modal lo muestra y sigue
+  // abierto) o null si se movió.
+  const confirmarProgramacion = async extra => {
+    try {
+      await api.put(`/negocios/${modalProgramacion.negocio.id}/etapa`, { etapa_id: modalProgramacion.etapa.id, ...extra });
+      setModalProgramacion(null); cargar();
+      return null;
+    } catch (err) { return err.response?.data?.error || 'No se pudo cambiar la etapa.'; }
+  };
+
+  const confirmarAceptado = async () => {
+    if (!tipoTrabajoSel) return;
+    await mover(modalAceptado.negocio, modalAceptado.etapa, { tipo_trabajo: tipoTrabajoSel });
+    setModalAceptado(null);
   };
 
   // Filtro por nombre de oportunidad, aplicado antes de repartir por columna
@@ -257,6 +293,12 @@ export default function Pipeline() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{n.dias_sin_actividad}d</span>
                       )}
                     </div>
+                    {n.tiene_ot && (
+                      <Link to={`/negocios/${n.id}/ot`} draggable={false}
+                        className="inline-block mt-2 text-xs font-medium text-ht-navy border border-ht-navy/30 rounded px-2 py-1 hover:bg-ht-navy/5">
+                        Ver OT
+                      </Link>
+                    )}
                     {n.fecha_compromiso && (
                       <div className={`text-[11px] mt-1 ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'Compromiso '}{fecha(n.fecha_compromiso)}</div>
                     )}
@@ -320,6 +362,30 @@ export default function Pipeline() {
             <button onClick={() => setModalPerdido(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
           </div>
         </Modal>
+      )}
+
+      {modalAceptado && (
+        <Modal onClose={() => setModalAceptado(null)}>
+          <h2 className="font-semibold text-ht-navy text-lg mb-1">Tipo de trabajo</h2>
+          <p className="text-sm text-gray-500 mb-3">
+            Obligatorio para pasar a "{modalAceptado.etapa.nombre}" — determina cómo se prellena la Orden de Trabajo.
+          </p>
+          <select value={tipoTrabajoSel} onChange={e => setTipoTrabajoSel(e.target.value)}
+            className="w-full border border-gray-300 rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-ht-accent">
+            <option value="">— Selecciona tipo de trabajo —</option>
+            {TIPOS_TRABAJO.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+          <div className="flex gap-2">
+            <button onClick={confirmarAceptado} disabled={!tipoTrabajoSel}
+              className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">Confirmar</button>
+            <button onClick={() => setModalAceptado(null)} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
+          </div>
+        </Modal>
+      )}
+
+      {modalProgramacion && (
+        <ModalProgramacionOT negocio={modalProgramacion.negocio} etapa={modalProgramacion.etapa}
+          onConfirmar={confirmarProgramacion} onCancelar={() => setModalProgramacion(null)} />
       )}
 
       {showNuevo && <NuevoNegocio onClose={() => setShowNuevo(false)} onCreado={() => { setShowNuevo(false); cargar(); }} />}

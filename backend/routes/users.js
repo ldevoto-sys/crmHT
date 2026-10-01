@@ -49,6 +49,17 @@ router.get('/vendedores', async (req, res) => {
   }
 });
 
+// GET /api/users/tecnicos — usuarios activos con perfil técnico (rol
+// 'tecnico'), para elegir quién ejecuta una Orden de Trabajo.
+router.get('/tecnicos', async (req, res) => {
+  try {
+    res.json(await db.all(`SELECT id, nombre FROM users WHERE activo = true AND rol = 'tecnico' ORDER BY nombre`));
+  } catch (err) {
+    console.error('[users/GET /tecnicos]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // GET /api/users/activos — todos los usuarios activos, cualquier rol (para
 // filtros de listados, ej. Bandeja WhatsApp, donde se quiere poder filtrar
 // por cualquier persona del equipo, no solo por vendedores). Distinto de
