@@ -114,6 +114,8 @@ El rol `tecnico` ahora ve **Mis Tareas** en el menú. Arriba de las tareas apare
 - Cada tarjeta abre la ficha de la OT (materiales, herramientas, observaciones y
   PDF) en **solo lectura**. El técnico solo abre las OT donde está asignado (otra
   da 403) y **no ve precios** ni valor de venta, ni en pantalla ni en el PDF.
+- Al iniciar sesión el técnico **entra a Tareas** (antes entraba a Servicio Técnico, que
+  sigue en su menú); cualquier ruta que no le corresponda lo devuelve ahí.
 - No ve negocios, contactos ni empresas; no puede editar ni mover etapas.
 - API: `GET /api/ordenes-trabajo/mis-ots?estado=programadas|ejecutadas&mes=AAAA-MM|todos&tecnico_id=`;
   `GET /negocio/:id` y `GET /:id/pdf` aceptan al técnico asignado.
