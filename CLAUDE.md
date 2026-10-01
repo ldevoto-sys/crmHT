@@ -110,6 +110,57 @@ lectura, nota de cambio v1.38). No toca `db.js`: sin migración de schema.
   token de usuario real y el frontend compilando. Tras el push se verificó
   producción con el conector (los campos nuevos ya aparecen).
 
+**Promoción a `main` del 30-09-2026 (21:12 hora de Chile, fuera de
+horario) — WhatsApp: un lead por conversación (v1.39).** Instrucción
+explícita de Luis Devoto, con "lead nuevo" para el cliente que vuelve tras un
+lead cerrado. Commit en `main`: `f8ccfb7` (en `staging`: `e4db916`). Solo
+toca `backend/routes/public.js`; sin migración de schema. Ver
+`docs/HT-AP-03-nota-cambio-v1.39.md`.
+
+- **Problema**: por cada mensaje de un cliente el bot creaba otro lead cuando
+  el último lead del contacto no tenía estado del bot (`bot_estado` vacío).
+  Antes del arreglo, en producción: 2.914 leads de WhatsApp para unos 450 a
+  600 contactos; 2.255 (77%) creados a menos de 60 minutos de otro lead del
+  mismo contacto, en 475 contactos; 2.484 leads "nuevo" sin vendedor; el 88%
+  se creó en horario laboral (clasificación aproximada). La categorización
+  del bot está **desactivada** en producción (confirmado por Luis en
+  Config → Bot de WhatsApp).
+- **Regla nueva**: un lead abierto (`nuevo` o `asignado`) que el bot nunca
+  manejó se reutiliza: fuera de horario, en horario con la categorización
+  desactivada, o si ya tiene vendedor. Con la categorización activa, el lead
+  "nuevo" creado de noche se usa para iniciar la categorización. Si el último
+  lead está cerrado (`convertido` o `descartado`), el cliente que vuelve abre
+  un lead nuevo.
+- **No cambia**: los leads ya derivados por el bot (`bot_estado = 'derivado'`)
+  se comportan igual, aunque estén cerrados; los leads que ya existían,
+  incluidos los 2.484 sin asignar; las cuentas distintas de Ventas.
+- **Efecto a vigilar**: el lead nuevo de un cliente que vuelve no hereda el
+  vendedor del anterior; con la categorización desactivada queda en la cola
+  de asignación y la Bandeja puede mostrar la conversación "sin asignar".
+- **Cómo se probó**: servidor real + Postgres con el schema real + mensajes
+  de WhatsApp firmados como los de Meta (sin credenciales el CRM no envía
+  nada), 10 verificaciones sobre 9 escenarios, con el código de `main` y el
+  de `staging`. Antes del cambio fallaban 6; después pasan las 10. No se
+  probó contra datos reales de producción.
+- **Para analizar**: desde esa hora los leads equivalen a conversaciones; para
+  fechas anteriores hay que contar **contactos**, no leads.
+
+**Hallazgos del diagnóstico de solo lectura del 30-09-2026** (consultas sobre
+`whatsapp_mensajes`, `leads` y `negocios`, sin textos de mensajes):
+- WhatsApp real parte a comienzos de septiembre: 7 mensajes en julio (ids 1 a
+  7, del 26 y 27 de julio, contacto 1, probablemente pruebas), 26 en agosto
+  (todos el 31-08) y 10.881 en septiembre, consistente con la migración del
+  número oficial del 06-09. La hora real de Meta (`wa_timestamp`) existe solo
+  desde el 23-09.
+- Hay un contacto anonimizado, con 9 mensajes.
+- `leads.negocio_id` solo se llena con el botón manual "convertir lead"
+  (`routes/leads.js`): de 607 contactos con mensajes desde agosto, 0 tienen el
+  negocio ligado por el lead y 248 (41%) lo tienen por `negocios.contacto_id`.
+  Eso mide contactos con algún negocio, no una tasa de conversión.
+- Conversaciones cerradas sin vendedor: 212 de 558 (159 porque su último lead
+  es uno "nuevo" sin asignar, 53 sin ningún lead). Las 53 sin lead no se han
+  explicado.
+
 **Conector MCP** (repo `ldevoto-sys/crm-mcp-hidrotecnica`; Railway, proyecto
 CRM-MCP). Dos ambientes, ambos con despliegue automático al hacer push:
 Production (servicio `adequate-grace`) y Staging (`crm-mcp-hidrotecnica`).
@@ -132,9 +183,17 @@ hasta jul-2026), pero aún no se probó con un rango que tenga datos.
   julio; notas de venta y facturas de agosto-septiembre), y desde qué fecha
   hay datos en cotizaciones, mensajes y seguimientos (usar `limit=1` y leer
   `total`, sin leer datos de clientes).
-- **Mensajes de WhatsApp**: la primera página de agosto-septiembre partía el
-  31-08 y no aparecían los ids 1 a 7. Causa sin determinar; hay una
-  consulta de diagnóstico preparada (solo lectura), aún no ejecutada.
+- **Leads de WhatsApp, verificar con tráfico real**: comparar los leads
+  creados desde el 30-09 21:12 contra las conversaciones (debería haber uno
+  por conversación) y revisar que la cola de asignación no crezca por
+  duplicados.
+- **Vínculo conversación → negocio**: exponer los negocios por contacto
+  (`negocios.contacto_id`) en los endpoints de lectura de WhatsApp, porque el
+  vínculo por lead está vacío.
+- **Leads, ajustes opcionales (no pedidos)**: que los leads ya derivados y
+  cerrados también abran lead nuevo cuando el cliente vuelve; que el lead nuevo
+  herede el vendedor del anterior; limpiar los leads duplicados que ya existen
+  (2.484 sin asignar), siempre con respaldo previo.
 - **Softland**: la historia anterior a 2023-01-01 no está replicada. Falta
   decidir si hace falta.
 - **Fase 2, sin iniciar**: causa de pérdida "Otro" con comentario
