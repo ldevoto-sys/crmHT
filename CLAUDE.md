@@ -91,7 +91,8 @@ avise lo contrario otra vez.
 **Operaciones — OT: programación, ejecución y pestaña "OT's" en Reportes
 (v1.40, solo en `staging`).** Pedido de Luis Devoto. La OT suma fecha
 programada, horas programadas (por técnico), técnicos (rol `tecnico`), fecha de
-ejecución real (la brecha entre ambas fechas se ve en el reporte) e ID Fracttal; las reglas de entrada a Programado y Ejecutado aplican solo a OT
+ejecución real y horas ejecutadas (la brecha entre fechas y entre horas se ve en el
+reporte) e ID Fracttal; las reglas de entrada a Programado y Ejecutado aplican solo a OT
 nuevas, el importador de oportunidades las respeta y Config → Pipeline alerta
 si cambian los nombres de las etapas del flujo. Ver
 `docs/HT-AP-03-nota-cambio-v1.40.md`. El Pipeline suma el botón "Ver OT". Sigue sin promover a `main`, igual que el

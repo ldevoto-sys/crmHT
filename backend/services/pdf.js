@@ -306,6 +306,7 @@ async function generarOTPDF(data, stream) {
   if (tecnicos.length) info.push([tecnicos.length > 1 ? 'Técnicos' : 'Técnico', tecnicos.map(t => t.nombre).join(', ')]);
   if (ot.fecha_programada) info.push(['Fecha programada', String(ot.fecha_programada).slice(0, 10).split('-').reverse().join('-')]);
   if (ot.fecha_ejecucion) info.push(['Fecha de ejecución', String(ot.fecha_ejecucion).slice(0, 10).split('-').reverse().join('-')]);
+  if (ot.horas_ejecutadas !== null && ot.horas_ejecutadas !== undefined) info.push(['Horas ejecutadas', `${Number(ot.horas_ejecutadas)} h`]);
   if (ot.id_fracttal) info.push(['ID Fracttal', ot.id_fracttal]);
   let yi = y + 16;
   info.forEach(([k, v]) => {

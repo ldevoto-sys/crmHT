@@ -140,7 +140,7 @@ export default function ReporteriaOTs() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-1">Órdenes de Trabajo</h1>
       <p className="text-xs text-gray-500 mb-4">
-        Valor de venta = neto de la cotización vigente (o el monto del negocio si no tiene cotización). Horas-hombre = horas de trabajo × cantidad de técnicos.
+        Valor de venta = neto de la cotización vigente (o el monto del negocio si no tiene cotización). Horas-hombre = horas por técnico × cantidad de técnicos; en las ejecutadas se usan las horas ejecutadas registradas (en OT anteriores, que no las tienen, se estiman con las programadas).
         Programadas se cuentan por su fecha programada; ejecutadas, por su fecha de ejecución. Brecha = fecha de ejecución − fecha programada (positiva: se ejecutó después de lo programado; "a tiempo" = brecha de 0 o menos).
         La brecha solo existe para OT con fecha programada. {kpis?.sin_cotizacion_cantidad > 0 && `${kpis.sin_cotizacion_cantidad} OT del período no tienen cotización: su valor es el monto del negocio.`}
       </p>
@@ -186,7 +186,7 @@ export default function ReporteriaOTs() {
       {cargando && !kpis ? <div className="text-gray-400 text-sm">Cargando reporte…</div> : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-5">
-            <Kpi label="Ejecutadas" valor={kpis?.ejecutadas_cantidad ?? 0} sub={`${money(kpis?.ejecutadas_valor)} en venta · ${num(kpis?.horas_hombre_ejecutadas)} horas-hombre`} oscuro />
+            <Kpi label="Ejecutadas" valor={kpis?.ejecutadas_cantidad ?? 0} sub={`${money(kpis?.ejecutadas_valor)} en venta · ${num(kpis?.horas_hombre_ejecutadas)} horas-hombre (programadas: ${num(kpis?.horas_hombre_programadas_de_ejecutadas)})`} oscuro />
             <Kpi label="Programadas en el período" valor={kpis?.programadas_cantidad ?? 0} sub={`${money(kpis?.programadas_valor)} en venta`} />
             <Kpi label="Pendientes de ejecución hoy" valor={kpis?.pendientes_cantidad ?? 0}
               sub={`${kpis?.atrasadas_cantidad ?? 0} atrasadas (${money(kpis?.atrasadas_valor)}) · ${num(kpis?.horas_hombre_pendientes)} horas-hombre`} oscuro />
@@ -205,12 +205,13 @@ export default function ReporteriaOTs() {
               <p className="text-xs text-gray-500 mb-3">Cada técnico suma las horas completas de la OT; el valor de venta se reparte en partes iguales entre sus técnicos.</p>
               {porTecnico.length === 0 ? <div className="text-sm text-gray-400">Sin OT con técnicos en el período.</div> : (
                 <table className="w-full text-sm">
-                  <thead><tr className={encabezado}><Th>Técnico</Th><Th der>Ejecutadas</Th><Th der>Horas</Th><Th der>Venta (prorrateada)</Th><Th der>Brecha promedio</Th><Th der>A tiempo</Th><Th der>Programadas</Th><Th der>Pendientes (atrasadas)</Th></tr></thead>
+                  <thead><tr className={encabezado}><Th>Técnico</Th><Th der>Ejecutadas</Th><Th der>Horas programadas</Th><Th der>Horas ejecutadas</Th><Th der>Venta (prorrateada)</Th><Th der>Brecha promedio</Th><Th der>A tiempo</Th><Th der>Programadas</Th><Th der>Pendientes (atrasadas)</Th></tr></thead>
                   <tbody>
                     {porTecnico.map(t => (
                       <tr key={t.tecnico_id} className="border-b border-gray-100 last:border-0">
                         <td className="py-1.5">{t.tecnico_nombre}</td>
                         <td className="py-1.5 text-right font-medium text-ht-navy">{t.ejecutadas_cantidad}</td>
+                        <td className="py-1.5 text-right">{num(t.horas_programadas_de_ejecutadas)}</td>
                         <td className="py-1.5 text-right">{num(t.horas_ejecutadas)}</td>
                         <td className="py-1.5 text-right">{money(t.ejecutadas_valor_prorrateado)}</td>
                         <td className="py-1.5 text-right">{brecha(t.brecha_promedio_dias)}</td>
@@ -228,14 +229,14 @@ export default function ReporteriaOTs() {
               <div className="text-sm font-semibold text-ht-navy mb-3">Por tipo de trabajo</div>
               {porTipo.length === 0 ? <div className="text-sm text-gray-400">Sin datos en el período.</div> : (
                 <table className="w-full text-sm">
-                  <thead><tr className={encabezado}><Th>Tipo</Th><Th der>Ejecutadas</Th><Th der>Venta ejecutada</Th><Th der>Horas-hombre</Th><Th der>Brecha promedio</Th><Th der>A tiempo</Th><Th der>Programadas</Th><Th der>Venta programada</Th></tr></thead>
+                  <thead><tr className={encabezado}><Th>Tipo</Th><Th der>Ejecutadas</Th><Th der>Venta ejecutada</Th><Th der>Horas-hombre (programadas)</Th><Th der>Brecha promedio</Th><Th der>A tiempo</Th><Th der>Programadas</Th><Th der>Venta programada</Th></tr></thead>
                   <tbody>
                     {porTipo.map(t => (
                       <tr key={t.tipo_trabajo} className="border-b border-gray-100 last:border-0">
                         <td className="py-1.5">{TIPOS_TRABAJO[t.tipo_trabajo] || t.tipo_trabajo}</td>
                         <td className="py-1.5 text-right font-medium text-ht-navy">{t.ejecutadas_cantidad}</td>
                         <td className="py-1.5 text-right">{money(t.ejecutadas_valor)}</td>
-                        <td className="py-1.5 text-right">{num(t.horas_hombre_ejecutadas)}</td>
+                        <td className="py-1.5 text-right">{num(t.horas_hombre_ejecutadas)} <span className="text-gray-400">({num(t.horas_hombre_programadas_de_ejecutadas)})</span></td>
                         <td className="py-1.5 text-right">{brecha(t.brecha_promedio_dias)}</td>
                         <td className="py-1.5 text-right">{pct(t.a_tiempo_pct)}</td>
                         <td className="py-1.5 text-right">{t.programadas_cantidad}</td>
@@ -276,7 +277,7 @@ export default function ReporteriaOTs() {
             <div className="text-sm font-semibold text-ht-navy mb-3">Detalle ({detalle.length}{detalle.length >= 5000 ? '+' : ''})</div>
             {detalle.length === 0 ? <div className="text-sm text-gray-400">Sin OT programadas ni ejecutadas en el período.</div> : (
               <table className="w-full text-sm min-w-[900px]">
-                <thead><tr className={encabezado}><Th>OT</Th><Th>Cliente</Th><Th>Tipo</Th><Th>Etapa</Th><Th>Técnicos</Th><Th der>Horas</Th><Th>Programada</Th><Th>Ejecutada</Th><Th der>Brecha</Th><Th der>Venta</Th><Th>ID Fracttal</Th></tr></thead>
+                <thead><tr className={encabezado}><Th>OT</Th><Th>Cliente</Th><Th>Tipo</Th><Th>Etapa</Th><Th>Técnicos</Th><Th der>Horas programadas</Th><Th der>Horas ejecutadas</Th><Th>Programada</Th><Th>Ejecutada</Th><Th der>Brecha</Th><Th der>Venta</Th><Th>ID Fracttal</Th></tr></thead>
                 <tbody>
                   {detalle.slice(0, 200).map(o => (
                     <tr key={o.negocio_id} className="border-b border-gray-100 last:border-0">
@@ -286,6 +287,9 @@ export default function ReporteriaOTs() {
                       <td className="py-1.5">{o.etapa_actual}</td>
                       <td className="py-1.5">{o.tecnicos || '—'}</td>
                       <td className="py-1.5 text-right">{o.horas_programadas === null ? '—' : num(o.horas_programadas)}</td>
+                      <td className="py-1.5 text-right" title={o.horas_origen || ''}>
+                        {o.horas_ejecutadas === null ? (o.horas_origen ? <span className="text-gray-400">sin registro</span> : '—') : num(o.horas_ejecutadas)}
+                      </td>
                       <td className="py-1.5">{o.fecha_programada || '—'}</td>
                       <td className="py-1.5">{o.fecha_ejecucion || '—'}</td>
                       <td className="py-1.5 text-right">{brecha(o.brecha_dias)}</td>

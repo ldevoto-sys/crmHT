@@ -27,6 +27,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
   const [tecnicoIds, setTecnicoIds] = useState([]);
   const [fechaProgramada, setFechaProgramada] = useState('');
   const [fechaEjecucion, setFechaEjecucion] = useState('');
+  const [horasEjecutadas, setHorasEjecutadas] = useState(''); // en blanco por defecto, aunque la OT ya traiga un valor se muestra para poder corregirlo
   const [idFracttal, setIdFracttal] = useState('');
   const [tipoTrabajo, setTipoTrabajo] = useState('');
   const [error, setError] = useState('');
@@ -41,6 +42,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         setTecnicoIds((data.tecnicos || []).map(t => t.id));
         setFechaProgramada(data.fecha_programada || '');
         setFechaEjecucion(data.fecha_ejecucion || '');
+        setHorasEjecutadas(data.horas_ejecutadas ? String(Number(data.horas_ejecutadas)) : '');
         setIdFracttal(data.id_fracttal || '');
       })
       .catch(() => setOt(null));
@@ -55,6 +57,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
   if (exige && !(Number(horas) > 0)) faltan.push('horas de trabajo');
   if (exige && tecnicoIds.length === 0) faltan.push('al menos un técnico');
   if (exige && esEjecutado && !fechaEjecucion) faltan.push('fecha de ejecución');
+  if (exige && esEjecutado && !(Number(horasEjecutadas) > 0)) faltan.push('horas ejecutadas');
 
   const alternar = id => setTecnicoIds(ids => (ids.includes(id) ? ids.filter(i => i !== id) : [...ids, id]));
 
@@ -67,6 +70,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
     };
     if (fechaProgramada) extra.fecha_programada = fechaProgramada;
     if (esEjecutado && fechaEjecucion) extra.fecha_ejecucion = fechaEjecucion;
+    if (esEjecutado && horasEjecutadas !== '') extra.horas_ejecutadas = Number(horasEjecutadas);
     if (necesitaTipo) extra.tipo_trabajo = tipoTrabajo;
     const msg = await onConfirmar(extra);
     if (msg) { setError(msg); setGuardando(false); }
@@ -81,7 +85,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         <h2 className="font-semibold text-ht-navy text-lg mb-1">Pasar a "{etapa.nombre}"</h2>
         <p className="text-sm text-gray-500 mb-4">
           {esEjecutado
-            ? 'Obligatorio: fecha de ejecución (la real), fecha programada, horas de trabajo y técnicos.'
+            ? 'Obligatorio: fecha de ejecución (la real), horas ejecutadas, fecha programada, horas programadas y técnicos.'
             : 'Obligatorio: fecha programada para ejecutar, horas de trabajo programadas y los técnicos que ejecutan la tarea.'}
           {!exige && ' Esta OT es anterior a esta regla: los datos son opcionales.'}
         </p>
@@ -131,6 +135,18 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
                 {fechaProgramada && fechaEjecucion && fechaProgramada !== fechaEjecucion && (
                   <p className="text-xs text-gray-500 mt-1">
                     {(() => { const d = Math.round((new Date(fechaEjecucion) - new Date(fechaProgramada)) / 86400000); return d > 0 ? `${d} día(s) después de lo programado.` : `${-d} día(s) antes de lo programado.`; })()}
+                  </p>
+                )}
+              </div>
+            )}
+            {esEjecutado && (
+              <div>
+                <label className={label}>Horas ejecutadas (por técnico)</label>
+                <input type="number" min="0" step="0.5" value={horasEjecutadas} onChange={e => setHorasEjecutadas(e.target.value)} className={campo} />
+                {Number(horasEjecutadas) > 0 && tecnicoIds.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {tecnicoIds.length} técnico(s) × {horasEjecutadas} h = {tecnicoIds.length * Number(horasEjecutadas)} horas-hombre
+                    {Number(horas) > 0 && ` (programadas: ${tecnicoIds.length * Number(horas)})`}.
                   </p>
                 )}
               </div>

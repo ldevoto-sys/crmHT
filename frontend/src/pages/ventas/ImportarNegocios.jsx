@@ -91,7 +91,7 @@ export default function ImportarNegocios() {
         Para las filas en <strong>Programado</strong> o <strong>Ejecutado</strong> también son obligatorias{' '}
         <strong>fecha_programada</strong>, <strong>horas_programadas</strong> (por técnico) y <strong>tecnicos</strong> (email o nombre de usuarios con perfil
         técnico, separados por punto y coma: <code>ana@hidrotecnica.cl;Juan Pérez</code>); en <strong>Ejecutado</strong>,
-        además <strong>fecha_ejecucion</strong>. <strong>id_fracttal</strong> es opcional. El <strong>monto</strong>{' '}
+        además <strong>fecha_ejecucion</strong> y <strong>horas_ejecutadas</strong> (por técnico). <strong>id_fracttal</strong> es opcional. El <strong>monto</strong>{' '}
         es el valor de venta (neto) de las oportunidades sin cotización.
         La empresa y el contacto se buscan o se crean automáticamente; el vendedor debe existir ya en el sistema.
       </p>
@@ -147,6 +147,7 @@ export default function ImportarNegocios() {
                   <th className="text-left px-4 py-1 font-medium">Técnicos</th>
                   <th className="text-left px-4 py-1 font-medium">Fecha programada</th>
                   <th className="text-left px-4 py-1 font-medium">Fecha ejecución</th>
+                  <th className="text-left px-4 py-1 font-medium">Horas ejecutadas</th>
                   <th className="text-left px-4 py-1 font-medium">N° O/C</th>
                   <th className="text-left px-4 py-1 font-medium">Monto</th>
                   <th className="text-left px-4 py-1 font-medium">Fecha cierre</th>
@@ -165,6 +166,7 @@ export default function ImportarNegocios() {
                       <td className="px-4 py-1 text-gray-600">{m.tecnicos || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.fecha_programada || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.fecha_ejecucion || '—'}</td>
+                      <td className="px-4 py-1 text-gray-600">{m.horas_ejecutadas || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.n_oc || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.monto ?? '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.fecha_cierre || '—'}</td>

@@ -72,8 +72,8 @@ router.put('/:id/programacion', async (req, res) => {
     if (!negocio) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
     if (!puedeEditar(negocio, req.user)) return res.status(403).json({ error: 'Solo el vendedor dueño puede editar' });
 
-    const { horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal } = req.body;
-    const normalizados = otSvc.normalizarDatosProgramacion({ horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal });
+    const { horas_programadas, horas_ejecutadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal } = req.body;
+    const normalizados = otSvc.normalizarDatosProgramacion({ horas_programadas, horas_ejecutadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal });
     if (normalizados.tecnico_ids) await otSvc.validarTecnicos(normalizados.tecnico_ids);
 
     const actual = await db.get('SELECT * FROM ordenes_trabajo WHERE id = $1', [req.params.id]);
@@ -85,6 +85,7 @@ router.put('/:id/programacion', async (req, res) => {
         tecnicoIds: normalizados.tecnico_ids ?? tecnicoIdsAntes,
         fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : actual.fecha_ejecucion,
         fechaProgramada: normalizados.fecha_programada !== undefined ? normalizados.fecha_programada : actual.fecha_programada,
+        horasEjecutadas: normalizados.horas_ejecutadas !== undefined ? normalizados.horas_ejecutadas : actual.horas_ejecutadas,
       });
       if (faltan.length) return res.status(400).json({ error: `La OT está en "${etapa.nombre}": no puede quedar sin ${faltan.join(', ')}` });
     }

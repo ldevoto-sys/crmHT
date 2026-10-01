@@ -18,9 +18,10 @@
 //   se ejecutó tarde, 0 = el día programado, negativa = antes). "A tiempo" =
 //   brecha <= 0. Solo se calcula para OT ejecutadas que tienen fecha
 //   programada.
-// - Horas-hombre: horas de trabajo × cantidad de técnicos (3 técnicos en una
-//   OT de 6 horas = 18 horas-hombre). No hay horas "reales": se usan las
-//   programadas.
+// - Horas-hombre: horas por técnico × cantidad de técnicos (3 técnicos en una
+//   OT de 6 horas = 18 horas-hombre). En OT ejecutadas se usan las horas
+//   ejecutadas (reales); si la OT no las registró (anteriores a esta
+//   versión) se estiman con las programadas. En pendientes, las programadas.
 // - Por técnico: cada técnico suma las horas completas de la OT; el valor de
 //   venta se reparte en partes iguales entre los técnicos de la OT, para que
 //   la suma por técnico coincida con el total.
@@ -52,7 +53,7 @@ function construir(query, vendedorId, { conRango = true } = {}) {
 
   const cte = `
     WITH base AS (
-      SELECT o.id AS ot_id, o.negocio_id, o.horas_programadas, o.fecha_programada, o.fecha_ejecucion, o.id_fracttal,
+      SELECT o.id AS ot_id, o.negocio_id, o.horas_programadas, o.horas_ejecutadas, o.fecha_programada, o.fecha_ejecucion, o.id_fracttal,
              n.tipo_trabajo, n.titulo, n.empresa_id, e.razon_social AS cliente, pe.nombre AS etapa_actual,
              COALESCE(cot.neto, n.monto_estimado, 0) AS valor, (cot.neto IS NULL) AS sin_cotizacion,
              (SELECT COUNT(*) FROM ot_tecnicos t WHERE t.ot_id = o.id)::int AS n_tecnicos
@@ -72,7 +73,8 @@ function construir(query, vendedorId, { conRango = true } = {}) {
 
 const TECNICOS_TEXTO = `(SELECT string_agg(u.nombre, ', ' ORDER BY u.nombre) FROM ot_tecnicos t JOIN users u ON u.id = t.user_id WHERE t.ot_id = base.ot_id)`;
 
-const HH = `COALESCE(horas_programadas, 0) * n_tecnicos`;
+const HH = `COALESCE(horas_programadas, 0) * n_tecnicos`;                       // programadas
+const HHE = `COALESCE(horas_ejecutadas, horas_programadas, 0) * n_tecnicos`;   // ejecutadas (reales; programadas si faltan)
 const BRECHA = `(fecha_ejecucion - fecha_programada)`;
 
 // Una sola fila con los totales del período y lo pendiente hoy.
@@ -84,7 +86,8 @@ async function otsKpis(query, vendedorId) {
             COALESCE(SUM(valor) FILTER (WHERE ${c.progOK}), 0)::float8 AS programadas_valor,
             COUNT(*) FILTER (WHERE ${c.ejecOK})::int AS ejecutadas_cantidad,
             COALESCE(SUM(valor) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS ejecutadas_valor,
-            COALESCE(SUM(${HH}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_ejecutadas,
+            COALESCE(SUM(${HHE}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_ejecutadas,
+            COALESCE(SUM(${HH}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_programadas_de_ejecutadas,
             COUNT(*) FILTER (WHERE ${c.pendiente})::int AS pendientes_cantidad,
             COALESCE(SUM(valor) FILTER (WHERE ${c.pendiente}), 0)::float8 AS pendientes_valor,
             COALESCE(SUM(${HH}) FILTER (WHERE ${c.pendiente}), 0)::float8 AS horas_hombre_pendientes,
@@ -111,7 +114,7 @@ async function otsResumenMensual(query, vendedorId) {
        SELECT to_char(fecha_programada, 'YYYY-MM') AS mes, 1 AS prog_cant, valor AS prog_valor, 0 AS ejec_cant, 0 AS ejec_valor, 0 AS horas_hombre
        FROM base WHERE ${c.progOK}
        UNION ALL
-       SELECT to_char(fecha_ejecucion, 'YYYY-MM'), 0, 0, 1, valor, ${HH}
+       SELECT to_char(fecha_ejecucion, 'YYYY-MM'), 0, 0, 1, valor, ${HHE}
        FROM base WHERE ${c.ejecOK}
      ) x GROUP BY mes ORDER BY mes`,
     c.params
@@ -127,7 +130,8 @@ async function otsPorTipo(query, vendedorId) {
             COALESCE(SUM(valor) FILTER (WHERE ${c.progOK}), 0)::float8 AS programadas_valor,
             COUNT(*) FILTER (WHERE ${c.ejecOK})::int AS ejecutadas_cantidad,
             COALESCE(SUM(valor) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS ejecutadas_valor,
-            COALESCE(SUM(${HH}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_ejecutadas,
+            COALESCE(SUM(${HHE}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_ejecutadas,
+            COALESCE(SUM(${HH}) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_hombre_programadas_de_ejecutadas,
             ROUND(AVG(${BRECHA}) FILTER (WHERE ${c.conBrecha}), 1)::float8 AS brecha_promedio_dias,
             ROUND(100.0 * COUNT(*) FILTER (WHERE ${c.conBrecha} AND ${BRECHA} <= 0) / NULLIF(COUNT(*) FILTER (WHERE ${c.conBrecha}), 0))::float8 AS a_tiempo_pct
      FROM base GROUP BY 1
@@ -145,7 +149,8 @@ async function otsPorTecnico(query, vendedorId) {
      SELECT u.id AS tecnico_id, u.nombre AS tecnico_nombre,
             COUNT(*) FILTER (WHERE ${c.progOK})::int AS programadas_cantidad,
             COUNT(*) FILTER (WHERE ${c.ejecOK})::int AS ejecutadas_cantidad,
-            COALESCE(SUM(COALESCE(b.horas_programadas, 0)) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_ejecutadas,
+            COALESCE(SUM(COALESCE(b.horas_ejecutadas, b.horas_programadas, 0)) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_ejecutadas,
+            COALESCE(SUM(COALESCE(b.horas_programadas, 0)) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS horas_programadas_de_ejecutadas,
             COALESCE(SUM(b.valor / NULLIF(b.n_tecnicos, 0)) FILTER (WHERE ${c.ejecOK}), 0)::float8 AS ejecutadas_valor_prorrateado,
             COUNT(*) FILTER (WHERE ${c.pendiente})::int AS pendientes_cantidad,
             COUNT(*) FILTER (WHERE ${c.atrasada})::int AS atrasadas_cantidad,
@@ -186,7 +191,9 @@ async function otsDetalle(query, vendedorId) {
     `${c.cte}
      SELECT negocio_id, 'OT-' || negocio_id AS ot, cliente, titulo, COALESCE(tipo_trabajo, 'sin_tipo') AS tipo_trabajo,
             etapa_actual, ${TECNICOS_TEXTO} AS tecnicos, horas_programadas::float8 AS horas_programadas,
-            (${HH})::float8 AS horas_hombre,
+            horas_ejecutadas::float8 AS horas_ejecutadas,
+            CASE WHEN fecha_ejecucion IS NULL THEN (${HH}) ELSE (${HHE}) END::float8 AS horas_hombre,
+            CASE WHEN fecha_ejecucion IS NOT NULL AND horas_ejecutadas IS NULL THEN 'estimadas con las programadas' END AS horas_origen,
             to_char(fecha_programada, 'DD-MM-YYYY') AS fecha_programada, to_char(fecha_ejecucion, 'DD-MM-YYYY') AS fecha_ejecucion,
             CASE WHEN fecha_programada IS NOT NULL AND fecha_ejecucion IS NOT NULL THEN ${BRECHA} END AS brecha_dias,
             valor::float8 AS valor, CASE WHEN sin_cotizacion THEN 'monto del negocio' ELSE 'cotización' END AS origen_valor,

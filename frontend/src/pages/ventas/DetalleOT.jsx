@@ -74,6 +74,7 @@ export default function DetalleOT() {
   const [tecnicoIds, setTecnicoIds] = useState([]);
   const [fechaProgramada, setFechaProgramada] = useState('');
   const [fechaEjecucion, setFechaEjecucion] = useState('');
+  const [horasEjecutadas, setHorasEjecutadas] = useState('');
   const [idFracttal, setIdFracttal] = useState('');
   const [guardandoProg, setGuardandoProg] = useState(false);
 
@@ -91,6 +92,7 @@ export default function DetalleOT() {
       setTecnicoIds((data.tecnicos || []).map(t => t.id));
       setFechaProgramada(data.fecha_programada || '');
       setFechaEjecucion(data.fecha_ejecucion || '');
+      setHorasEjecutadas(data.horas_ejecutadas ? String(Number(data.horas_ejecutadas)) : '');
       setIdFracttal(data.id_fracttal || '');
     } catch (err) { setError(err.response?.data?.error || 'No se pudo cargar la Orden de Trabajo.'); }
   };
@@ -109,6 +111,7 @@ export default function DetalleOT() {
     try {
       await api.put(`/ordenes-trabajo/${ot.id}/programacion`, {
         horas_programadas: horas === '' ? null : Number(horas), tecnico_ids: tecnicoIds,
+        horas_ejecutadas: horasEjecutadas === '' ? null : Number(horasEjecutadas),
         fecha_programada: fechaProgramada || null, fecha_ejecucion: fechaEjecucion || null, id_fracttal: idFracttal,
       });
       setMsg('Programación guardada.'); cargar();
@@ -186,7 +189,7 @@ export default function DetalleOT() {
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
         <h2 className="font-semibold text-ht-navy mb-1">Programación y ejecución</h2>
         <p className="text-xs text-gray-500 mb-3">
-          Se piden al pasar el negocio a "Programado" (fecha programada, horas y técnicos) y a "Ejecutado" (fecha de ejecución real); todo se puede corregir después.
+          Se piden al pasar el negocio a "Programado" (fecha programada, horas y técnicos) y a "Ejecutado" (fecha de ejecución real y horas ejecutadas); todo se puede corregir después.
         </p>
         <div className="grid sm:grid-cols-2 gap-4 text-sm">
           <div>
@@ -209,6 +212,17 @@ export default function DetalleOT() {
               className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
             {tecnicoIds.length > 1 && Number(horas) > 0 && (
               <p className="text-xs text-gray-500 mt-1">{tecnicoIds.length} técnicos × {horas} h = {tecnicoIds.length * Number(horas)} horas-hombre.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Horas ejecutadas (por técnico)</label>
+            <input type="number" min="0" step="0.5" disabled={!ot.puede_editar} value={horasEjecutadas} onChange={e => setHorasEjecutadas(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+            {Number(horasEjecutadas) > 0 && tecnicoIds.length > 0 && (
+              <p className="text-xs text-gray-500 mt-1">
+                {tecnicoIds.length} técnico(s) × {horasEjecutadas} h = {tecnicoIds.length * Number(horasEjecutadas)} horas-hombre
+                {Number(horas) > 0 && ` (programadas: ${tecnicoIds.length * Number(horas)})`}.
+              </p>
             )}
           </div>
           <div>

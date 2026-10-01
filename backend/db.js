@@ -2232,6 +2232,10 @@ async function initDb() {
   // Fecha en que se programó ejecutar el trabajo (distinta de la de ejecución
   // real: la diferencia entre ambas es la brecha que muestra el reporte OT's).
   await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS fecha_programada DATE`);
+  // Horas realmente trabajadas, por técnico (igual que horas_programadas):
+  // 3 técnicos con 7 horas cada uno = 21 horas-hombre. Se pide al pasar a
+  // Ejecutado, en blanco por defecto.
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS horas_ejecutadas NUMERIC(6,2)`);
   await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS id_fracttal TEXT`);
   // exige_programacion: las reglas de entrada a "Programado"/"Ejecutado"
   // solo rigen para OT nuevas (decisión de Luis Devoto, 01-10-2026). Las OT

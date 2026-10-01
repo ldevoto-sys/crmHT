@@ -12,6 +12,7 @@ de "Arranque de Trabajos" (OT), que sigue sin promover a `main`.
 | Fecha programada para ejecutar | Al entrar a **Programado** | Es la fecha comprometida; se mantiene separada de la fecha real. |
 | Horas de trabajo programadas | Al entrar a **Programado** | Por técnico, mayor a 0. |
 | Técnicos que ejecutan la tarea | Al entrar a **Programado** | Uno o más, solo usuarios activos con rol `tecnico`. Editables después. |
+| Horas ejecutadas | Al entrar a **Ejecutado** | Por técnico, mayor a 0, **en blanco por defecto** (no se prellena con las programadas). |
 | Fecha de ejecución (real) | Al entrar a **Ejecutado** | Se pide al marcar la tarea como ejecutada. La diferencia con la programada es la **brecha**. |
 | ID Fracttal | Opcional | Texto libre, hasta 100 caracteres. |
 
@@ -36,15 +37,18 @@ de "Arranque de Trabajos" (OT), que sigue sin promover a `main`.
 ### Horas-hombre
 
 Todos los técnicos de la OT acumulan las horas completas: 3 técnicos en una OT de
-6 horas son **18 horas-hombre**. No existe una hora "real": se usan las
-programadas.
+6 horas son **18 horas-hombre**. Lo mismo vale para las horas ejecutadas (3
+técnicos × 7 horas = 21 horas-hombre reales). En los reportes, las OT ejecutadas
+usan las horas ejecutadas registradas; las anteriores a esta versión, que no las
+tienen, se estiman con las programadas y el detalle lo marca ("estimadas con las
+programadas").
 
 ### Importador de oportunidades (`/pipeline` → Importar)
 
 Columnas nuevas: `horas_programadas`, `tecnicos` (email o nombre de usuarios con
-perfil técnico, separados por `;`), `fecha_programada` y `fecha_ejecucion`
-(DD-MM-AAAA) e `id_fracttal`. Una fila en Programado exige fecha programada,
-horas y técnicos; en Ejecutado, además la fecha de ejecución. Las filas que entran a Programado o Ejecutado exigen
+perfil técnico, separados por `;`), `fecha_programada`, `fecha_ejecucion`
+(DD-MM-AAAA), `horas_ejecutadas` e `id_fracttal`. Una fila en Programado exige fecha programada,
+horas y técnicos; en Ejecutado, además la fecha de ejecución y las horas ejecutadas. Las filas que entran a Programado o Ejecutado exigen
 `tipo_trabajo` y crean la OT con sus datos. Un técnico que no existe o no tiene
 perfil técnico rechaza la fila. El `monto` sigue siendo el valor de venta de las
 oportunidades sin cotización.
@@ -118,7 +122,7 @@ Frontend: `ReporteriaOTs.jsx` y `ModalProgramacionOT.jsx` (nuevos), `Pipeline.js
 
 ### Migración de schema
 
-`ordenes_trabajo`: columnas `horas_programadas`, `fecha_programada`, `fecha_ejecucion`, `id_fracttal`
+`ordenes_trabajo`: columnas `horas_programadas`, `horas_ejecutadas`, `fecha_programada`, `fecha_ejecucion`, `id_fracttal`
 y `exige_programacion`; tabla `ot_tecnicos`. Todo con `IF NOT EXISTS`, en `db.js`.
 Para la promoción a `main` (lección del 23-09): `cargarOTCompleta()` ahora
 consulta `ot_tecnicos`, y la usa también el informe de Postventa

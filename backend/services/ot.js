@@ -119,7 +119,8 @@ async function cargarOTCompleta(where, param) {
 // - "Programado": fecha programada para ejecutar, horas de trabajo
 //   programadas (> 0) y al menos un técnico.
 // - "Ejecutado": lo anterior más la fecha de ejecución (la real; la brecha
-//   contra la programada es lo que mide el reporte OT's).
+//   contra la programada es lo que mide el reporte OT's) y las horas
+//   ejecutadas (por técnico, en blanco por defecto).
 // Solo rigen para OT nuevas (ordenes_trabajo.exige_programacion). Los datos
 // pueden venir en la misma petición que mueve la etapa o ya estar guardados
 // en la OT. Los técnicos se pueden editar después (PUT /ordenes-trabajo/:id/programacion).
@@ -141,13 +142,12 @@ async function esPipelineOperaciones(pipelineId, client = db) {
 // (undefined = no tocar). Devuelve { datos } o lanza error 400.
 function normalizarDatosProgramacion(datos = {}) {
   const out = {};
-  if (datos.horas_programadas !== undefined) {
-    if (datos.horas_programadas === null || datos.horas_programadas === '') out.horas_programadas = null;
-    else {
-      const h = Number(datos.horas_programadas);
-      if (!Number.isFinite(h) || h <= 0 || h > 9999) throw errorValidacion('Las horas de trabajo programadas deben ser un número mayor a 0');
-      out.horas_programadas = Math.round(h * 100) / 100;
-    }
+  for (const [campo, nombre] of [['horas_programadas', 'de trabajo programadas'], ['horas_ejecutadas', 'ejecutadas']]) {
+    if (datos[campo] === undefined) continue;
+    if (datos[campo] === null || datos[campo] === '') { out[campo] = null; continue; }
+    const h = Number(datos[campo]);
+    if (!Number.isFinite(h) || h <= 0 || h > 9999) throw errorValidacion(`Las horas ${nombre} deben ser un número mayor a 0`);
+    out[campo] = Math.round(h * 100) / 100;
   }
   for (const [campo, nombre] of [['fecha_ejecucion', 'de ejecución'], ['fecha_programada', 'programada']]) {
     if (datos[campo] === undefined) continue;
@@ -179,7 +179,7 @@ async function validarTecnicos(ids, client = db) {
 
 // Mensajes de lo que falta para estar en la etapa `nombreEtapa`, dado el
 // estado resultante (datos nuevos encima de lo ya guardado). Vacío = cumple.
-function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion, fechaProgramada }) {
+function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion, fechaProgramada, horasEjecutadas }) {
   const clave = claveEtapa(nombreEtapa);
   const faltan = [];
   if (clave === 'programado' || clave === 'ejecutado') {
@@ -188,6 +188,7 @@ function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion, fe
     if (!tecnicoIds.length) faltan.push('al menos un técnico');
   }
   if (clave === 'ejecutado' && !fechaEjecucion) faltan.push('fecha de ejecución');
+  if (clave === 'ejecutado' && !(Number(horasEjecutadas) > 0)) faltan.push('horas ejecutadas');
   return faltan;
 }
 
@@ -219,6 +220,7 @@ async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo },
       tecnicoIds,
       fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : existente?.fecha_ejecucion,
       fechaProgramada: normalizados.fecha_programada !== undefined ? normalizados.fecha_programada : existente?.fecha_programada,
+      horasEjecutadas: normalizados.horas_ejecutadas !== undefined ? normalizados.horas_ejecutadas : existente?.horas_ejecutadas,
     });
     if (faltan.length) throw errorValidacion(`Para pasar a "${etapa.nombre}" falta: ${faltan.join(', ')}`);
   }
@@ -235,7 +237,7 @@ async function aplicarEntradaAEtapa(negocioId, pre, client = db, usuarioId = nul
 
 async function guardarProgramacion(otId, normalizados, client = db) {
   const sets = []; const params = [];
-  for (const campo of ['horas_programadas', 'fecha_programada', 'fecha_ejecucion', 'id_fracttal']) {
+  for (const campo of ['horas_programadas', 'horas_ejecutadas', 'fecha_programada', 'fecha_ejecucion', 'id_fracttal']) {
     if (normalizados[campo] !== undefined) { params.push(normalizados[campo]); sets.push(`${campo} = $${params.length}`); }
   }
   if (sets.length) {
