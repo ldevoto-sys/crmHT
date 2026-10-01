@@ -90,7 +90,8 @@ avise lo contrario otra vez.
 
 **Promoción a `main` del 01-10-2026 (en horario laboral, con el OK explícito
 de Luis Devoto) — Operaciones: Arranque de Trabajos completo + programación
-de la OT (v1.34 y v1.40).** Instrucción de Luis: pasar solo lo de Operaciones;
+de la OT (v1.34 y v1.40). EN PRODUCCIÓN Y CONFIRMADO POR LUIS.** Commits en
+`main`: `ee000f3` (la promoción) y `60cd435` (fix del build, ver abajo). Instrucción de Luis: pasar solo lo de Operaciones;
 **Cobranza sigue en `staging`, excluida**. La rama `staging` no se pudo fusionar
 (390 commits "por delante" que en buena parte ya están en `main` con otro SHA),
 así que se armó una rama desde `main` tomando de `staging` solo los archivos de
@@ -123,6 +124,25 @@ Operaciones y, en los archivos compartidos (`db.js`, `users.js`, `server.js`,
   importador, reportes, PDF, permisos del técnico; frontend compilado y revisado
   en navegador. Búsqueda de referencias a objetos de Cobranza en el código
   promovido: ninguna. Tras el push hay que verificar producción.
+- **Incidente del primer despliegue**: `ee000f3` falló en Railway ("cannot
+  replace to directory .../backend/node_modules with file"): el commit llevaba
+  por error dos **enlaces simbólicos** `backend/node_modules` y
+  `frontend/node_modules`, creados solo para probar en una carpeta temporal.
+  `.gitignore` ignora `node_modules/` (carpetas), no enlaces, y `git add -A` los
+  incluyó. Producción no se cayó (Railway conserva el despliegue anterior si el
+  build falla), pero la verificación con el conector leyó la versión **vieja** y
+  se informó "estable" antes de tiempo. Corregido con `60cd435` (borra solo esos
+  dos archivos), probado antes con un clon limpio y el comando de build de
+  `railway.json`.
+- **Lecciones para la próxima promoción** (Cobranza): revisar la lista de
+  archivos del commit antes del push (`git diff --stat origin/main HEAD` y
+  `git ls-files -s | grep ^120000`); no usar `git add -A` en carpetas de prueba
+  con enlaces; reproducir el build desde un clon limpio; y dar por buena la
+  promoción solo con el estado **Success** del despliegue en Railway, no con una
+  consulta al conector. Procedimiento completo en el consolidado, §17.
+- **Pendiente al desplegar**: los 31 negocios en Programado y 24 en Ejecutado
+  que ya existían no tienen OT (al moverlos se piden los datos); hacen falta
+  usuarios con rol `tecnico` para asignar técnicos.
 - **Cobranza**: sigue en `staging` sin promover (módulo con desarrollo pendiente).
   `staging` conserva su propio historial; al promover Cobranza hay que repetir
   este procedimiento por archivo, no fusionar la rama.
