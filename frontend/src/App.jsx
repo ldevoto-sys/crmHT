@@ -124,7 +124,7 @@ export default function App() {
               <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleNegocio /></ProtectedRoute>
             } />
             <Route path="negocios/:negocioId/ot" element={
-              <ProtectedRoute roles={ROLES_SIN_TECNICO}><DetalleOT /></ProtectedRoute>
+              <ProtectedRoute roles={[...ROLES_SIN_TECNICO, 'tecnico']}><DetalleOT /></ProtectedRoute>
             } />
             <Route path="negocios/:negocioId/cotizar" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'callcenter']}><NuevaCotizacion /></ProtectedRoute>
@@ -144,7 +144,7 @@ export default function App() {
 
             {/* Etapa 3 — Tareas y reportes */}
             <Route path="tareas" element={
-              <ProtectedRoute roles={ROLES_SIN_TECNICO}><MisTareas /></ProtectedRoute>
+              <ProtectedRoute roles={[...ROLES_SIN_TECNICO, 'tecnico']}><MisTareas /></ProtectedRoute>
             } />
             <Route path="reportes" element={
               <ProtectedRoute roles={['administrador', 'jefe_comercial', 'vendedor', 'gerencia', 'callcenter']}><ReportesHub vistaInicial="softland" /></ProtectedRoute>

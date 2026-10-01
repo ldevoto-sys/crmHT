@@ -98,6 +98,26 @@ También disponibles para Cowork vía `GET /api/v1/reportes/:tipo` con `ots_kpis
 Las tarjetas de negocios que ya tienen OT muestran el botón "Ver OT", que abre la
 ficha de la OT (`GET /api/negocios` suma `tiene_ot`).
 
+### Técnico en Tareas: sus OT asignadas (solo lectura, sin precios)
+
+El rol `tecnico` ahora ve **Mis Tareas** en el menú. Arriba de las tareas aparece
+"Mis órdenes de trabajo":
+
+- **Programadas**: OT donde está asignado, hoy en la etapa Programado y sin fecha de
+  ejecución; las atrasadas marcadas. Muestra cliente, dirección, tipo de trabajo,
+  fecha y horas programadas, otros técnicos e ID Fracttal.
+- **Ejecutadas**: histórico de las OT con fecha de ejecución (incluye las que
+  después pasaron a Facturado), con selector por mes/año o todo el histórico, horas
+  ejecutadas y brecha contra lo programado.
+- **Gerencia, administrador y jefe comercial** ven la misma sección con las OT de
+  **todos los técnicos**, con selector para revisar a uno puntual.
+- Cada tarjeta abre la ficha de la OT (materiales, herramientas, observaciones y
+  PDF) en **solo lectura**. El técnico solo abre las OT donde está asignado (otra
+  da 403) y **no ve precios** ni valor de venta, ni en pantalla ni en el PDF.
+- No ve negocios, contactos ni empresas; no puede editar ni mover etapas.
+- API: `GET /api/ordenes-trabajo/mis-ots?estado=programadas|ejecutadas&mes=AAAA-MM|todos&tecnico_id=`;
+  `GET /negocio/:id` y `GET /:id/pdf` aceptan al técnico asignado.
+
 ### Alerta si cambian los nombres de las etapas
 
 El código reconoce **Aceptado**, **Programado** y **Ejecutado** del pipeline
@@ -116,7 +136,7 @@ Backend: `db.js`, `services/ot.js`, `services/reportesOT.js` (nuevo),
 `services/import_negocios.js`, `services/secuencias.js`, `services/pdf.js`,
 `routes/negocios.js`, `routes/ordenes_trabajo.js`, `routes/reportes.js`,
 `routes/config.js`, `routes/users.js`, `routes/postventa.js`.
-Frontend: `ReporteriaOTs.jsx` y `ModalProgramacionOT.jsx` (nuevos), `Pipeline.jsx`,
+Frontend: `ReporteriaOTs.jsx`, `ModalProgramacionOT.jsx` y `MisOTs.jsx` (nuevos), `MisTareas.jsx`, `Layout.jsx`, `Pipeline.jsx`,
 `DetalleNegocio.jsx`, `DetalleOT.jsx`, `ReportesHub.jsx`, `ImportarNegocios.jsx`,
 `ConfigPipeline.jsx`, `App.jsx`.
 

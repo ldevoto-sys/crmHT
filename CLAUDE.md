@@ -95,7 +95,7 @@ ejecución real y horas ejecutadas (la brecha entre fechas y entre horas se ve e
 reporte) e ID Fracttal; las reglas de entrada a Programado y Ejecutado aplican solo a OT
 nuevas, el importador de oportunidades las respeta y Config → Pipeline alerta
 si cambian los nombres de las etapas del flujo. Ver
-`docs/HT-AP-03-nota-cambio-v1.40.md`. El Pipeline suma el botón "Ver OT". Sigue sin promover a `main`, igual que el
+`docs/HT-AP-03-nota-cambio-v1.40.md`. El Pipeline suma el botón "Ver OT". El técnico ve sus OT asignadas en Tareas (solo lectura, sin precios) y gerencia las de todos. Sigue sin promover a `main`, igual que el
 resto de "Arranque de Trabajos" (necesita el OK de Luis Devoto).
 
 ## Pendientes (actualizado 30-09-2026)

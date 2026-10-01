@@ -95,6 +95,7 @@ const menuByRole = {
   ],
   // Rol dedicado: solo ve Servicio Técnico, nada más (HT-AP-03).
   tecnico: [
+    { label: 'Mis Tareas', to: '/tareas' },
     { label: 'Servicio Técnico', to: '/servicio-tecnico' },
   ],
 };

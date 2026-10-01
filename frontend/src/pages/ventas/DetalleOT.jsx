@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useParams, Link } from 'react-router-dom';
 import api from '../../api';
+import { useAuth } from '../../contexts/AuthContext';
 
 const TIPOS_TRABAJO_LABEL = {
   mantenimiento_preventivo: 'Mantenimiento preventivo',
@@ -63,6 +64,8 @@ function BuscadorProducto({ value, onChange, onElegir }) {
 
 export default function DetalleOT() {
   const { negocioId } = useParams();
+  const { user } = useAuth();
+  const esTecnico = user?.rol === 'tecnico'; // solo lectura y sin precios
   const [ot, setOt] = useState(null);
   const [items, setItems] = useState([]);
   const [observaciones, setObservaciones] = useState('');
@@ -166,7 +169,7 @@ export default function DetalleOT() {
 
   return (
     <div>
-      <Link to={`/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">← Volver al negocio</Link>
+      <Link to={esTecnico ? '/tareas' : `/negocios/${negocioId}`} className="text-sm text-ht-accent hover:underline">{esTecnico ? '← Volver a Tareas' : '← Volver al negocio'}</Link>
       <div className="flex items-center justify-between mt-2 mb-6">
         <h1 className="text-2xl font-bold text-ht-navy">OT-{ot.negocio_id}</h1>
         <button onClick={descargarPDF} className="text-sm border border-ht-navy text-ht-navy px-3 py-1.5 rounded hover:bg-ht-navy/5">
@@ -253,7 +256,7 @@ export default function DetalleOT() {
 
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
         <h2 className="font-semibold text-ht-navy mb-3">Materiales y herramientas</h2>
-        {!ot.puede_editar && <p className="text-sm text-gray-400 mb-3">Solo el vendedor dueño puede editar.</p>}
+        {!ot.puede_editar && <p className="text-sm text-gray-400 mb-3">{esTecnico ? 'Vista de solo lectura.' : 'Solo el vendedor dueño puede editar.'}</p>}
         <div className="overflow-x-auto">
           <table className="w-full text-sm mb-3 min-w-[720px]">
             <thead className="text-gray-500">
@@ -262,7 +265,7 @@ export default function DetalleOT() {
                 <th className="text-left font-medium pb-2 w-28">Código</th>
                 <th className="text-left font-medium pb-2">Descripción</th>
                 <th className="text-right font-medium pb-2 w-24">Cantidad</th>
-                <th className="text-right font-medium pb-2 w-32">Precio unitario</th>
+                {!esTecnico && <th className="text-right font-medium pb-2 w-32">Precio unitario</th>}
                 {ot.puede_editar && <th className="w-16"></th>}
               </tr>
             </thead>
@@ -294,11 +297,13 @@ export default function DetalleOT() {
                     <input type="number" min="0" disabled={!ot.puede_editar} value={it.cantidad} onChange={e => setItem(i, 'cantidad', e.target.value)}
                       className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right disabled:opacity-60" />
                   </td>
-                  <td className="py-2 pr-2">
-                    <input type="number" min="0" placeholder="—" disabled={!ot.puede_editar} value={it.precio_unitario}
-                      onChange={e => setItem(i, 'precio_unitario', e.target.value)}
-                      className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right disabled:opacity-60" />
-                  </td>
+                  {!esTecnico && (
+                    <td className="py-2 pr-2">
+                      <input type="number" min="0" placeholder="—" disabled={!ot.puede_editar} value={it.precio_unitario}
+                        onChange={e => setItem(i, 'precio_unitario', e.target.value)}
+                        className="w-full border border-gray-200 rounded px-2 py-1 text-sm text-right disabled:opacity-60" />
+                    </td>
+                  )}
                   {ot.puede_editar && (
                     <td className="py-2 text-right">
                       <button type="button" onClick={() => quitarItem(i)} className="text-red-500 hover:underline text-xs">Quitar</button>

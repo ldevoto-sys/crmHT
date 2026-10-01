@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../../api';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatFechaHora } from '../../utils/fecha';
+import MisOTs from '../../components/MisOTs';
 
 const fecha = formatFechaHora;
 const PUEDE_VER_TODAS = ['administrador', 'jefe_comercial'];
@@ -73,6 +74,12 @@ export default function MisTareas() {
       <h1 className="text-2xl font-bold text-ht-navy mb-6">Mis tareas</h1>
       {error && <div className="mb-4 text-sm text-red-600">{error}</div>}
 
+      {/* Órdenes de trabajo asignadas (técnico) o de todos los técnicos (administrador, jefe comercial, gerencia) */}
+      <MisOTs />
+      {['tecnico', 'administrador', 'jefe_comercial', 'gerencia'].includes(user?.rol) && (
+        <h2 className="text-lg font-bold text-ht-navy mb-3">Tareas</h2>
+      )}
+
       <div className="flex items-center gap-3 mb-4">
         <select value={estado} onChange={e => setEstado(e.target.value)}
           className="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent">
@@ -103,7 +110,7 @@ export default function MisTareas() {
           </thead>
           <tbody>
             {tareas.map(t => {
-              const link = destino(t);
+              const link = user?.rol === 'tecnico' ? null : destino(t); // el técnico no tiene acceso a negocios/contactos/empresas
               const vencida = t.estado === 'pendiente' && t.fecha_vencimiento && new Date(t.fecha_vencimiento) < new Date();
               const enEdicion = editId === t.id;
               return (
