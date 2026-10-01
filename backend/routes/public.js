@@ -339,6 +339,16 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
 
   const lead = ultimoLead && ['esperando_categoria', 'recontactando'].includes(ultimoLead.bot_estado) ? ultimoLead : null;
 
+  // Lead abierto que el bot nunca manejó (bot_estado vacío): lo dejan así la rama
+  // de "fuera de horario", la de "categorización desactivada" y las asignaciones
+  // manuales desde la Bandeja. Antes solo se reutilizaban los leads con
+  // bot_estado 'esperando_categoria'/'recontactando', así que CADA mensaje de un
+  // contacto con un lead así creaba otro lead nuevo (30-09-2026: 2.914 leads para
+  // ~450 contactos, 77% creados a menos de 60 minutos del anterior). Un lead
+  // cerrado ('convertido'/'descartado') no cuenta: un cliente que vuelve abre un
+  // lead nuevo (decisión de Luis Devoto, 30-09-2026).
+  const leadAbierto = ultimoLead && !ultimoLead.bot_estado && ['nuevo', 'asignado'].includes(ultimoLead.estado) ? ultimoLead : null;
+
   // ¿Es la respuesta a la lista de categorización?
   const idOpcion = m.interactive?.list_reply?.id ?? m.interactive?.button_reply?.id;
   if (lead && idOpcion !== undefined) {
@@ -376,7 +386,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
 
   const enHorario = await esHorarioHabil();
   if (!enHorario) {
-    let leadId = lead?.id;
+    let leadId = lead?.id ?? leadAbierto?.id;
     if (!leadId) {
       const r = await db.run(`INSERT INTO leads (contacto_id, origen, creado_por, estado) VALUES ($1,'whatsapp','bot','nuevo') RETURNING id`, [contacto.id]);
       leadId = r.rows[0].id;
@@ -396,6 +406,28 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   await mensajes.limpiarAvisoFueraHorario(contacto.id);
 
   if (!lead) {
+    // Hay un lead abierto que el bot no manejó: se sigue usando ese lead.
+    // - Ya tiene vendedor, o la categorización está desactivada: solo se
+    //   registra el mensaje (no se crea otro lead ni se reinicia nada).
+    // - Está 'nuevo' (sin vendedor) y la categorización está activa: es el lead
+    //   creado fuera de horario; se usa ese mismo para iniciar la categorización,
+    //   en vez de dejarlo huérfano y abrir otro.
+    if (leadAbierto && (leadAbierto.estado === 'asignado' || !cfg.activo_categorizacion)) {
+      await registrarEntrante({ contacto, leadId: leadAbierto.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
+      return;
+    }
+    if (leadAbierto) {
+      const pasosLead = await db.all('SELECT * FROM whatsapp_recontacto_pasos ORDER BY orden');
+      const primerPasoLead = pasosLead[0];
+      await db.run(
+        `UPDATE leads SET bot_estado='esperando_categoria', bot_proxima_accion=$1 WHERE id=$2`,
+        [primerPasoLead ? new Date(Date.now() + primerPasoLead.tiempo_espera_horas * 3600000) : null, leadAbierto.id]
+      );
+      await whatsapp.enviarLista(telefono_e164, cfg.mensaje_categorizacion, cfg.opciones_categorizacion);
+      await registrarEntrante({ contacto, leadId: leadAbierto.id, tipoMedia, mediaId, textoEntrante, waMessageId: m.id, respondidoAId, waTimestamp: m.timestamp });
+      await mensajes.registrar({ contacto_id: contacto.id, lead_id: leadAbierto.id, direccion: 'saliente', texto: cfg.mensaje_categorizacion });
+      return;
+    }
     if (!cfg.activo_categorizacion) {
       // Categorización desactivada: se registra un lead 'nuevo' normal, sin
       // pregunta ni bot_estado — queda para asignación manual desde la Cola
