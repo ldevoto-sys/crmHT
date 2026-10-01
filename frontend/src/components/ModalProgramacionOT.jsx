@@ -25,6 +25,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
   const [ot, setOt] = useState(undefined); // undefined = cargando, null = sin OT todavía
   const [horas, setHoras] = useState('');
   const [tecnicoIds, setTecnicoIds] = useState([]);
+  const [fechaProgramada, setFechaProgramada] = useState('');
   const [fechaEjecucion, setFechaEjecucion] = useState('');
   const [idFracttal, setIdFracttal] = useState('');
   const [tipoTrabajo, setTipoTrabajo] = useState('');
@@ -38,6 +39,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         setOt(data);
         setHoras(data.horas_programadas ? String(Number(data.horas_programadas)) : '');
         setTecnicoIds((data.tecnicos || []).map(t => t.id));
+        setFechaProgramada(data.fecha_programada || '');
         setFechaEjecucion(data.fecha_ejecucion || '');
         setIdFracttal(data.id_fracttal || '');
       })
@@ -49,6 +51,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
   const necesitaTipo = ot === null && !negocio.tipo_trabajo;
   const faltan = [];
   if (necesitaTipo && !tipoTrabajo) faltan.push('tipo de trabajo');
+  if (exige && !fechaProgramada) faltan.push('fecha programada');
   if (exige && !(Number(horas) > 0)) faltan.push('horas de trabajo');
   if (exige && tecnicoIds.length === 0) faltan.push('al menos un técnico');
   if (exige && esEjecutado && !fechaEjecucion) faltan.push('fecha de ejecución');
@@ -62,6 +65,7 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
       tecnico_ids: tecnicoIds,
       id_fracttal: idFracttal,
     };
+    if (fechaProgramada) extra.fecha_programada = fechaProgramada;
     if (esEjecutado && fechaEjecucion) extra.fecha_ejecucion = fechaEjecucion;
     if (necesitaTipo) extra.tipo_trabajo = tipoTrabajo;
     const msg = await onConfirmar(extra);
@@ -77,8 +81,8 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         <h2 className="font-semibold text-ht-navy text-lg mb-1">Pasar a "{etapa.nombre}"</h2>
         <p className="text-sm text-gray-500 mb-4">
           {esEjecutado
-            ? 'Obligatorio: horas de trabajo, técnicos y fecha de ejecución.'
-            : 'Obligatorio: horas de trabajo programadas y los técnicos que ejecutan la tarea.'}
+            ? 'Obligatorio: fecha de ejecución (la real), fecha programada, horas de trabajo y técnicos.'
+            : 'Obligatorio: fecha programada para ejecutar, horas de trabajo programadas y los técnicos que ejecutan la tarea.'}
           {!exige && ' Esta OT es anterior a esta regla: los datos son opcionales.'}
         </p>
 
@@ -94,6 +98,10 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
                 <p className="text-xs text-gray-500 mt-1">Este negocio todavía no tiene Orden de Trabajo: se crea al confirmar.</p>
               </div>
             )}
+            <div>
+              <label className={label}>Fecha programada para ejecutar</label>
+              <input type="date" value={fechaProgramada} onChange={e => setFechaProgramada(e.target.value)} className={campo} />
+            </div>
             <div>
               <label className={label}>Horas de trabajo programadas (por técnico)</label>
               <input type="number" min="0" step="0.5" value={horas} onChange={e => setHoras(e.target.value)} className={campo} />
@@ -118,8 +126,13 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
             </div>
             {esEjecutado && (
               <div>
-                <label className={label}>Fecha de ejecución</label>
+                <label className={label}>Fecha de ejecución (real)</label>
                 <input type="date" value={fechaEjecucion} onChange={e => setFechaEjecucion(e.target.value)} className={campo} />
+                {fechaProgramada && fechaEjecucion && fechaProgramada !== fechaEjecucion && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    {(() => { const d = Math.round((new Date(fechaEjecucion) - new Date(fechaProgramada)) / 86400000); return d > 0 ? `${d} día(s) después de lo programado.` : `${-d} día(s) antes de lo programado.`; })()}
+                  </p>
+                )}
               </div>
             )}
             <div>

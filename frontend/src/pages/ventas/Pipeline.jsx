@@ -293,6 +293,12 @@ export default function Pipeline() {
                         <span className={`text-[11px] px-1.5 py-0.5 rounded ${n.dias_sin_actividad > 7 ? 'bg-red-100 text-red-700' : 'text-gray-400'}`}>{n.dias_sin_actividad}d</span>
                       )}
                     </div>
+                    {n.tiene_ot && (
+                      <Link to={`/negocios/${n.id}/ot`} draggable={false}
+                        className="inline-block mt-2 text-xs font-medium text-ht-navy border border-ht-navy/30 rounded px-2 py-1 hover:bg-ht-navy/5">
+                        Ver OT
+                      </Link>
+                    )}
                     {n.fecha_compromiso && (
                       <div className={`text-[11px] mt-1 ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'Compromiso '}{fecha(n.fecha_compromiso)}</div>
                     )}

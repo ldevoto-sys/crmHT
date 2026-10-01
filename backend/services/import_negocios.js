@@ -2,7 +2,7 @@
 // del pipeline "Operaciones" (por defecto "Aceptado" si la fila no indica
 // otra), sin cotización asociada (O/C de Cencosud, Sodimac, etc. contra un
 // contrato ya firmado).
-// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, estado, tipo_trabajo, n_oc, monto, fecha_cierre, vendedor, horas_programadas, tecnicos, fecha_ejecucion, id_fracttal
+// Plantilla: empresa, rut_empresa, contacto_nombre, contacto_apellido, contacto_email, contacto_telefono, titulo, estado, tipo_trabajo, n_oc, monto, fecha_cierre, vendedor, horas_programadas, tecnicos, fecha_programada, fecha_ejecucion, id_fracttal
 const { normalizarTelefono } = require('./dedup');
 const { validarRut, normalizarRut, validarEmail } = require('../utils/validaciones');
 const { ETAPAS_OT, faltantesParaEtapa } = require('./ot');
@@ -28,6 +28,7 @@ const MAPA = {
   // Programación de la OT (v1.40)
   'horas_programadas': 'horas_programadas', 'horas programadas': 'horas_programadas', 'horas': 'horas_programadas',
   'tecnicos': 'tecnicos', 'técnicos': 'tecnicos', 'tecnico': 'tecnicos', 'técnico': 'tecnicos',
+  'fecha_programada': 'fecha_programada', 'fecha programada': 'fecha_programada',
   'fecha_ejecucion': 'fecha_ejecucion', 'fecha ejecucion': 'fecha_ejecucion', 'fecha ejecución': 'fecha_ejecucion',
   'fecha_ejecución': 'fecha_ejecucion',
   'id_fracttal': 'id_fracttal', 'id fracttal': 'id_fracttal', 'fracttal': 'id_fracttal',
@@ -36,7 +37,7 @@ const MAPA = {
 const PLANTILLA_HEADERS = [
   'empresa', 'rut_empresa', 'contacto_nombre', 'contacto_apellido', 'contacto_email',
   'contacto_telefono', 'titulo', 'estado', 'tipo_trabajo', 'n_oc', 'monto', 'fecha_cierre', 'vendedor',
-  'horas_programadas', 'tecnicos', 'fecha_ejecucion', 'id_fracttal',
+  'horas_programadas', 'tecnicos', 'fecha_programada', 'fecha_ejecucion', 'id_fracttal',
 ];
 
 // Mismos 5 valores que el CHECK de negocios.tipo_trabajo en db.js. Exportado
@@ -119,11 +120,13 @@ function mapearFila(row) {
     n.horas_programadas = null;
   }
   n.tecnicos_lista = (n.tecnicos || '').split(';').map(t => t.trim()).filter(Boolean);
-  if (n.fecha_ejecucion) {
-    const m = FECHA_RE.exec(n.fecha_ejecucion);
-    n.fecha_ejecucion = m ? `${m[3]}-${m[2]}-${m[1]}` : NaN;
-  } else {
-    n.fecha_ejecucion = null;
+  for (const campo of ['fecha_programada', 'fecha_ejecucion']) {
+    if (n[campo]) {
+      const m = FECHA_RE.exec(n[campo]);
+      n[campo] = m ? `${m[3]}-${m[2]}-${m[1]}` : NaN;
+    } else {
+      n[campo] = null;
+    }
   }
   n.id_fracttal = n.id_fracttal || null;
 
@@ -144,12 +147,13 @@ function mapearFila(row) {
   if (!n.vendedor) errores.push('falta vendedor responsable');
   if (entraAAceptado && !n.tipo_trabajo) errores.push('falta tipo_trabajo (obligatorio para filas que entran a "Aceptado", "Programado" o "Ejecutado")');
   if (Number.isNaN(n.horas_programadas)) errores.push('horas_programadas no es un número mayor a 0');
+  if (Number.isNaN(n.fecha_programada)) errores.push('fecha_programada no tiene formato DD-MM-AAAA');
   if (Number.isNaN(n.fecha_ejecucion)) errores.push('fecha_ejecucion no tiene formato DD-MM-AAAA');
   // Mismas reglas que el kanban (services/ot.js#faltantesParaEtapa): una
   // fila que entra directo a Programado/Ejecutado no puede esquivarlas.
   if (ETAPAS_OT.includes(etapaClave)) {
     const faltan = faltantesParaEtapa(n.estado, {
-      horas: n.horas_programadas, tecnicoIds: n.tecnicos_lista, fechaEjecucion: n.fecha_ejecucion,
+      horas: n.horas_programadas, tecnicoIds: n.tecnicos_lista, fechaEjecucion: n.fecha_ejecucion, fechaProgramada: n.fecha_programada,
     });
     if (faltan.length) errores.push(`para la etapa "${n.estado}" falta: ${faltan.join(', ')}`);
   }

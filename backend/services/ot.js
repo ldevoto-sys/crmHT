@@ -90,7 +90,7 @@ async function crearOTSiNoExiste(negocio, client = db, creadoPorId = null) {
 // lo consume directo como middleware de Express).
 async function cargarOTCompleta(where, param) {
   const ot = await db.get(
-    `SELECT o.*, o.fecha_ejecucion::text AS fecha_ejecucion, n.titulo AS negocio_titulo, n.tipo_trabajo, n.vendedor_id,
+    `SELECT o.*, o.fecha_ejecucion::text AS fecha_ejecucion, o.fecha_programada::text AS fecha_programada, n.titulo AS negocio_titulo, n.tipo_trabajo, n.vendedor_id,
             ct.nombre AS contacto_nombre, ct.apellido AS contacto_apellido, ct.email AS contacto_email, ct.telefono_e164 AS contacto_telefono,
             e.razon_social AS empresa_nombre, e.rut AS empresa_rut, e.direccion AS empresa_direccion, e.comuna AS empresa_comuna
      FROM ordenes_trabajo o
@@ -116,8 +116,10 @@ async function cargarOTCompleta(where, param) {
 // === Programación y ejecución (v1.40, 01-10-2026) ===
 // Reglas por etapa del pipeline "Operaciones" (se identifican por nombre,
 // igual que "Aceptado"; Config → Pipeline avisa si alguna deja de existir):
-// - "Programado": horas de trabajo programadas (> 0) y al menos un técnico.
-// - "Ejecutado": lo anterior más la fecha de ejecución.
+// - "Programado": fecha programada para ejecutar, horas de trabajo
+//   programadas (> 0) y al menos un técnico.
+// - "Ejecutado": lo anterior más la fecha de ejecución (la real; la brecha
+//   contra la programada es lo que mide el reporte OT's).
 // Solo rigen para OT nuevas (ordenes_trabajo.exige_programacion). Los datos
 // pueden venir en la misma petición que mueve la etapa o ya estar guardados
 // en la OT. Los técnicos se pueden editar después (PUT /ordenes-trabajo/:id/programacion).
@@ -147,13 +149,12 @@ function normalizarDatosProgramacion(datos = {}) {
       out.horas_programadas = Math.round(h * 100) / 100;
     }
   }
-  if (datos.fecha_ejecucion !== undefined) {
-    if (datos.fecha_ejecucion === null || datos.fecha_ejecucion === '') out.fecha_ejecucion = null;
-    else {
-      const f = String(datos.fecha_ejecucion).slice(0, 10);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || Number.isNaN(Date.parse(f))) throw errorValidacion('La fecha de ejecución no es válida (AAAA-MM-DD)');
-      out.fecha_ejecucion = f;
-    }
+  for (const [campo, nombre] of [['fecha_ejecucion', 'de ejecución'], ['fecha_programada', 'programada']]) {
+    if (datos[campo] === undefined) continue;
+    if (datos[campo] === null || datos[campo] === '') { out[campo] = null; continue; }
+    const f = String(datos[campo]).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || Number.isNaN(Date.parse(f))) throw errorValidacion(`La fecha ${nombre} no es válida (AAAA-MM-DD)`);
+    out[campo] = f;
   }
   if (datos.id_fracttal !== undefined) {
     const v = datos.id_fracttal === null ? '' : String(datos.id_fracttal).trim();
@@ -178,10 +179,11 @@ async function validarTecnicos(ids, client = db) {
 
 // Mensajes de lo que falta para estar en la etapa `nombreEtapa`, dado el
 // estado resultante (datos nuevos encima de lo ya guardado). Vacío = cumple.
-function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion }) {
+function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion, fechaProgramada }) {
   const clave = claveEtapa(nombreEtapa);
   const faltan = [];
   if (clave === 'programado' || clave === 'ejecutado') {
+    if (!fechaProgramada) faltan.push('fecha programada para ejecutar');
     if (!(Number(horas) > 0)) faltan.push('horas de trabajo programadas');
     if (!tecnicoIds.length) faltan.push('al menos un técnico');
   }
@@ -216,6 +218,7 @@ async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo },
       horas: normalizados.horas_programadas !== undefined ? normalizados.horas_programadas : existente?.horas_programadas,
       tecnicoIds,
       fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : existente?.fecha_ejecucion,
+      fechaProgramada: normalizados.fecha_programada !== undefined ? normalizados.fecha_programada : existente?.fecha_programada,
     });
     if (faltan.length) throw errorValidacion(`Para pasar a "${etapa.nombre}" falta: ${faltan.join(', ')}`);
   }
@@ -232,7 +235,7 @@ async function aplicarEntradaAEtapa(negocioId, pre, client = db, usuarioId = nul
 
 async function guardarProgramacion(otId, normalizados, client = db) {
   const sets = []; const params = [];
-  for (const campo of ['horas_programadas', 'fecha_ejecucion', 'id_fracttal']) {
+  for (const campo of ['horas_programadas', 'fecha_programada', 'fecha_ejecucion', 'id_fracttal']) {
     if (normalizados[campo] !== undefined) { params.push(normalizados[campo]); sets.push(`${campo} = $${params.length}`); }
   }
   if (sets.length) {

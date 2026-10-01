@@ -360,12 +360,12 @@ const REPORTES = {
   whatsapp_resumen_mensual: { fn: whatsappResumenMensual, headers: ['mes', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles'] },
   whatsapp_por_vendedor: { fn: whatsappPorVendedor, headers: ['vendedor_nombre', 'tramos', 'promedio_minutos_habiles', 'mediana_minutos_habiles', 'peor_minutos_habiles'] },
   whatsapp_abiertas_ahora: { fn: whatsappAbiertasAhora, headers: ['contacto_nombre', 'empresa_nombre', 'vendedor_nombre', 'pendiente_desde', 'minutos_habiles_transcurridos'] },
-  ots_kpis: { fn: ots(reportesOT.otsKpis), headers: ['programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas', 'pendientes_cantidad', 'pendientes_valor', 'horas_hombre_pendientes', 'sin_cotizacion_cantidad'] },
+  ots_kpis: { fn: ots(reportesOT.otsKpis), headers: ['programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas', 'pendientes_cantidad', 'pendientes_valor', 'horas_hombre_pendientes', 'atrasadas_cantidad', 'atrasadas_valor', 'con_brecha_cantidad', 'a_tiempo_cantidad', 'brecha_promedio_dias', 'sin_cotizacion_cantidad'] },
   ots_resumen_mensual: { fn: ots(reportesOT.otsResumenMensual), headers: ['mes', 'programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas'] },
-  ots_por_tipo: { fn: ots(reportesOT.otsPorTipo), headers: ['tipo_trabajo', 'programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas'] },
-  ots_por_tecnico: { fn: ots(reportesOT.otsPorTecnico), headers: ['tecnico_nombre', 'programadas_cantidad', 'ejecutadas_cantidad', 'horas_ejecutadas', 'ejecutadas_valor_prorrateado', 'pendientes_cantidad', 'horas_pendientes'] },
-  ots_pendientes: { fn: ots(reportesOT.otsPendientes), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'tecnicos', 'horas_programadas', 'horas_hombre', 'valor', 'programada_el', 'dias_en_programado'] },
-  ots_detalle: { fn: ots(reportesOT.otsDetalle), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'etapa_actual', 'tecnicos', 'horas_programadas', 'horas_hombre', 'programada_el', 'fecha_ejecucion', 'valor', 'origen_valor', 'id_fracttal'] },
+  ots_por_tipo: { fn: ots(reportesOT.otsPorTipo), headers: ['tipo_trabajo', 'programadas_cantidad', 'programadas_valor', 'ejecutadas_cantidad', 'ejecutadas_valor', 'horas_hombre_ejecutadas', 'brecha_promedio_dias', 'a_tiempo_pct'] },
+  ots_por_tecnico: { fn: ots(reportesOT.otsPorTecnico), headers: ['tecnico_nombre', 'programadas_cantidad', 'ejecutadas_cantidad', 'horas_ejecutadas', 'ejecutadas_valor_prorrateado', 'pendientes_cantidad', 'atrasadas_cantidad', 'horas_pendientes', 'brecha_promedio_dias', 'a_tiempo_pct'] },
+  ots_pendientes: { fn: ots(reportesOT.otsPendientes), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'tecnicos', 'horas_programadas', 'horas_hombre', 'valor', 'fecha_programada', 'dias_atraso'] },
+  ots_detalle: { fn: ots(reportesOT.otsDetalle), headers: ['ot', 'cliente', 'titulo', 'tipo_trabajo', 'etapa_actual', 'tecnicos', 'horas_programadas', 'horas_hombre', 'fecha_programada', 'fecha_ejecucion', 'brecha_dias', 'valor', 'origen_valor', 'id_fracttal'] },
 };
 
 router.get('/embudo', async (req, res) => {

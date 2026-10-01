@@ -89,7 +89,7 @@ export default function ImportarNegocios() {
         (mantenimiento preventivo, lavado, impermeabilizado, mantenimiento correctivo u otro) — con eso se genera la
         Orden de Trabajo automáticamente. Las fechas van en formato <strong>DD-MM-AAAA</strong>.
         Para las filas en <strong>Programado</strong> o <strong>Ejecutado</strong> también son obligatorias{' '}
-        <strong>horas_programadas</strong> (por técnico) y <strong>tecnicos</strong> (email o nombre de usuarios con perfil
+        <strong>fecha_programada</strong>, <strong>horas_programadas</strong> (por técnico) y <strong>tecnicos</strong> (email o nombre de usuarios con perfil
         técnico, separados por punto y coma: <code>ana@hidrotecnica.cl;Juan Pérez</code>); en <strong>Ejecutado</strong>,
         además <strong>fecha_ejecucion</strong>. <strong>id_fracttal</strong> es opcional. El <strong>monto</strong>{' '}
         es el valor de venta (neto) de las oportunidades sin cotización.
@@ -145,6 +145,7 @@ export default function ImportarNegocios() {
                   <th className="text-left px-4 py-1 font-medium">Tipo de trabajo</th>
                   <th className="text-left px-4 py-1 font-medium">Horas</th>
                   <th className="text-left px-4 py-1 font-medium">Técnicos</th>
+                  <th className="text-left px-4 py-1 font-medium">Fecha programada</th>
                   <th className="text-left px-4 py-1 font-medium">Fecha ejecución</th>
                   <th className="text-left px-4 py-1 font-medium">N° O/C</th>
                   <th className="text-left px-4 py-1 font-medium">Monto</th>
@@ -162,6 +163,7 @@ export default function ImportarNegocios() {
                       <td className="px-4 py-1 text-gray-600">{m.tipo_trabajo || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.horas_programadas || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.tecnicos || '—'}</td>
+                      <td className="px-4 py-1 text-gray-600">{m.fecha_programada || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.fecha_ejecucion || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.n_oc || '—'}</td>
                       <td className="px-4 py-1 text-gray-600">{m.monto ?? '—'}</td>

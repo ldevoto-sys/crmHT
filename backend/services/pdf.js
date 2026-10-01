@@ -304,6 +304,7 @@ async function generarOTPDF(data, stream) {
   // Programación (v1.40): solo se listan los datos que la OT ya tiene.
   if (ot.horas_programadas !== null && ot.horas_programadas !== undefined) info.push(['Horas programadas', `${Number(ot.horas_programadas)} h`]);
   if (tecnicos.length) info.push([tecnicos.length > 1 ? 'Técnicos' : 'Técnico', tecnicos.map(t => t.nombre).join(', ')]);
+  if (ot.fecha_programada) info.push(['Fecha programada', String(ot.fecha_programada).slice(0, 10).split('-').reverse().join('-')]);
   if (ot.fecha_ejecucion) info.push(['Fecha de ejecución', String(ot.fecha_ejecucion).slice(0, 10).split('-').reverse().join('-')]);
   if (ot.id_fracttal) info.push(['ID Fracttal', ot.id_fracttal]);
   let yi = y + 16;

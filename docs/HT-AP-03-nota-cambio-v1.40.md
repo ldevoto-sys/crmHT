@@ -9,9 +9,10 @@ de "Arranque de Trabajos" (OT), que sigue sin promover a `main`.
 
 | Campo | Cuándo se exige | Notas |
 |---|---|---|
+| Fecha programada para ejecutar | Al entrar a **Programado** | Es la fecha comprometida; se mantiene separada de la fecha real. |
 | Horas de trabajo programadas | Al entrar a **Programado** | Por técnico, mayor a 0. |
 | Técnicos que ejecutan la tarea | Al entrar a **Programado** | Uno o más, solo usuarios activos con rol `tecnico`. Editables después. |
-| Fecha de ejecución | Al entrar a **Ejecutado** | |
+| Fecha de ejecución (real) | Al entrar a **Ejecutado** | Se pide al marcar la tarea como ejecutada. La diferencia con la programada es la **brecha**. |
 | ID Fracttal | Opcional | Texto libre, hasta 100 caracteres. |
 
 - Las reglas viven en `cambiarEtapaNegocio()` (`routes/negocios.js`), así que
@@ -19,6 +20,7 @@ de "Arranque de Trabajos" (OT), que sigue sin promover a `main`.
   secuencias automáticas y la confirmación de sugerencias de facturación.
   Pipeline y ficha del negocio abren un cuadro que pide los datos; el backend
   valida igual.
+- Ejecutado también exige que la OT tenga fecha programada, horas y técnicos (si no pasó antes por Programado).
 - Un negocio que llega a Programado o Ejecutado sin OT (no pasó por Aceptado)
   exige también el tipo de trabajo; la OT se crea ahí mismo.
 - **Solo OT nuevas** (decisión de Luis): la columna `ordenes_trabajo.exige_programacion`
@@ -40,9 +42,9 @@ programadas.
 ### Importador de oportunidades (`/pipeline` → Importar)
 
 Columnas nuevas: `horas_programadas`, `tecnicos` (email o nombre de usuarios con
-perfil técnico, separados por `;`), `fecha_ejecucion` (DD-MM-AAAA) e
-`id_fracttal`. Una fila en Programado exige horas y técnicos; en Ejecutado,
-además la fecha. Las filas que entran a Programado o Ejecutado exigen
+perfil técnico, separados por `;`), `fecha_programada` y `fecha_ejecucion`
+(DD-MM-AAAA) e `id_fracttal`. Una fila en Programado exige fecha programada,
+horas y técnicos; en Ejecutado, además la fecha de ejecución. Las filas que entran a Programado o Ejecutado exigen
 `tipo_trabajo` y crean la OT con sus datos. Un técnico que no existe o no tiene
 perfil técnico rechaza la fila. El `monto` sigue siendo el valor de venta de las
 oportunidades sin cotización.
@@ -56,8 +58,8 @@ puede mover un negocio a Programado o Ejecutado si su OT aún no los tiene
 Junto a Comercial, Pipeline y WhatsApp. Filtros: fechas, técnico, tipo de
 trabajo y (roles que ven todo) vendedor. Contenido: tarjetas (ejecutadas,
 programadas, pendientes hoy, sin cotización), OT por mes en cantidad y en valor,
-tabla por técnico, tabla por tipo de trabajo, programadas pendientes (con días en
-Programado), detalle OT por OT y exportación CSV.
+tabla por técnico, tabla por tipo de trabajo (ambas con brecha promedio y % a
+tiempo), programadas pendientes (con fecha programada y días de atraso), detalle OT por OT y exportación CSV.
 
 Definiciones:
 
@@ -66,10 +68,16 @@ Definiciones:
   `monto_estimado` del negocio.
 - **Ejecutada**: tiene fecha de ejecución; cuenta en el período de esa fecha
   aunque el negocio ya esté en Facturado.
-- **Programada**: entró a la etapa Programado (o trae horas programadas); cuenta
-  en el período en que entró. No existe una "fecha programada para ejecutar":
-  hoy la OT no la guarda.
+- **Programada**: la OT tiene fecha programada; cuenta en el período de esa
+  fecha. Sin respaldo para OT antiguas: una OT sin fecha programada no cuenta
+  como programada.
 - **Pendiente**: hoy en Programado y sin fecha de ejecución. No depende del rango.
+  **Atrasada**: pendiente con fecha programada anterior a hoy (hora de Chile).
+- **Brecha** = fecha de ejecución − fecha programada, en días: positiva = se
+  ejecutó después de lo programado; 0 o negativa = "a tiempo". Se muestra
+  promedio y % a tiempo en las tarjetas, por técnico y por tipo de trabajo, y
+  la brecha de cada OT en el detalle y el CSV. Solo existe para OT ejecutadas
+  con fecha programada.
 - **Por técnico**: cada técnico suma las horas completas de la OT; el valor de
   venta se reparte en partes iguales entre los técnicos de la OT, para que la
   suma coincida con el total.
@@ -80,6 +88,11 @@ Definiciones:
 También disponibles para Cowork vía `GET /api/v1/reportes/:tipo` con `ots_kpis`,
 `ots_resumen_mensual`, `ots_por_tipo`, `ots_por_tecnico`, `ots_pendientes` y
 `ots_detalle`.
+
+### Botón "Ver OT" en el Pipeline
+
+Las tarjetas de negocios que ya tienen OT muestran el botón "Ver OT", que abre la
+ficha de la OT (`GET /api/negocios` suma `tiene_ot`).
 
 ### Alerta si cambian los nombres de las etapas
 
@@ -105,7 +118,7 @@ Frontend: `ReporteriaOTs.jsx` y `ModalProgramacionOT.jsx` (nuevos), `Pipeline.js
 
 ### Migración de schema
 
-`ordenes_trabajo`: columnas `horas_programadas`, `fecha_ejecucion`, `id_fracttal`
+`ordenes_trabajo`: columnas `horas_programadas`, `fecha_programada`, `fecha_ejecucion`, `id_fracttal`
 y `exige_programacion`; tabla `ot_tecnicos`. Todo con `IF NOT EXISTS`, en `db.js`.
 Para la promoción a `main` (lección del 23-09): `cargarOTCompleta()` ahora
 consulta `ot_tecnicos`, y la usa también el informe de Postventa

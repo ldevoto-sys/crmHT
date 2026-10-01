@@ -56,7 +56,8 @@ router.get('/', async (req, res) => {
               pe.nombre AS etapa_nombre, pe.tipo AS etapa_tipo, pe.orden AS etapa_orden,
               u.nombre AS vendedor_nombre, c.nombre AS contacto_nombre, c.apellido AS contacto_apellido,
               e.razon_social AS empresa_nombre,
-              EXTRACT(DAY FROM now() - n.ultima_actividad)::int AS dias_sin_actividad
+              EXTRACT(DAY FROM now() - n.ultima_actividad)::int AS dias_sin_actividad,
+              EXISTS (SELECT 1 FROM ordenes_trabajo ot WHERE ot.negocio_id = n.id) AS tiene_ot
        FROM negocios n
        JOIN contactos c ON c.id = n.contacto_id
        LEFT JOIN pipeline_etapas pe ON pe.id = n.etapa_id
@@ -266,7 +267,7 @@ router.put('/:id', async (req, res) => {
 // para que confirmar una sugerencia dispare exactamente lo mismo que mover
 // la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
 // `.status` para que el caller los traduzca a la respuesta HTTP.
-async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, tipo_trabajo, permitirPerdidaSinCausa, horas_programadas, tecnico_ids, fecha_ejecucion, id_fracttal } = {}, usuarioId) {
+async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, tipo_trabajo, permitirPerdidaSinCausa, horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal } = {}, usuarioId) {
   const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
   if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
 
@@ -306,7 +307,7 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   }
   const preOT = await ot.validarEntradaAEtapa({
     negocio, etapa, tipoTrabajo: tipoTrabajoFinal,
-    datos: { horas_programadas, tecnico_ids, fecha_ejecucion, id_fracttal },
+    datos: { horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, id_fracttal },
   });
 
   const cierra = etapa.tipo === 'ganada' || etapa.tipo === 'perdida';
@@ -848,6 +849,7 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
         estado: v.etapaNombre,
         tipo_trabajo: v.negocio.tipo_trabajo || '',
         horas_programadas: v.negocio.horas_programadas || '',
+        fecha_programada: v.negocio.fecha_programada || '',
         tecnicos: (v.negocio.tecnicos_lista || []).join('; '),
         fecha_ejecucion: v.negocio.fecha_ejecucion || '',
         n_oc: v.negocio.n_oc || '',
@@ -924,11 +926,11 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       // Programado/Ejecutado: la OT nace acá con sus datos de programación
       // (mapearFila ya exigió horas, técnicos y —en Ejecutado— fecha). Aceptado
       // también guarda lo que venga en las columnas opcionales.
-      if (ot.ETAPAS_OT.includes(etapa.nombre.toLowerCase()) || n.horas_programadas || tecnicos.ids.length || n.fecha_ejecucion || n.id_fracttal) {
+      if (ot.ETAPAS_OT.includes(etapa.nombre.toLowerCase()) || n.horas_programadas || tecnicos.ids.length || n.fecha_programada || n.fecha_ejecucion || n.id_fracttal) {
         if (n.tipo_trabajo) {
           const otId = await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
           await ot.guardarProgramacion(otId, {
-            horas_programadas: n.horas_programadas, fecha_ejecucion: n.fecha_ejecucion, id_fracttal: n.id_fracttal,
+            horas_programadas: n.horas_programadas, fecha_programada: n.fecha_programada, fecha_ejecucion: n.fecha_ejecucion, id_fracttal: n.id_fracttal,
             tecnico_ids: tecnicos.ids,
           }, client);
         }
@@ -1025,7 +1027,7 @@ async function cargarContextoActualizacion(client, ids) {
   // trae horas/técnicos/fecha, así que solo puede mover a Programado/Ejecutado
   // una OT que ya tenga esos datos (ver services/ot.js).
   const otsDb = ids.length ? (await client.query(
-    `SELECT o.negocio_id, o.id, o.exige_programacion, o.horas_programadas, o.fecha_ejecucion,
+    `SELECT o.negocio_id, o.id, o.exige_programacion, o.horas_programadas, o.fecha_programada, o.fecha_ejecucion,
             (SELECT count(*)::int FROM ot_tecnicos t WHERE t.ot_id = o.id) AS n_tecnicos
      FROM ordenes_trabajo o WHERE o.negocio_id = ANY($1)`, [ids]
   )).rows : [];
@@ -1087,7 +1089,7 @@ function resolverFilaActualizacion(contexto, row, fila) {
     }
     if (otInfo.exige_programacion) {
       const faltan = ot.faltantesParaEtapa(etapaNueva.nombre, {
-        horas: otInfo.horas_programadas, tecnicoIds: Array.from({ length: otInfo.n_tecnicos }, () => 0), fechaEjecucion: otInfo.fecha_ejecucion,
+        horas: otInfo.horas_programadas, tecnicoIds: Array.from({ length: otInfo.n_tecnicos }, () => 0), fechaEjecucion: otInfo.fecha_ejecucion, fechaProgramada: otInfo.fecha_programada,
       });
       if (faltan.length) {
         return { error: { fila, motivo: `para pasar a "${etapaNueva.nombre}" a la OT le falta: ${faltan.join(', ')} (cárgalo en la ficha de la OT o desde el Pipeline)` } };

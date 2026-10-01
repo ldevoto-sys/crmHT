@@ -72,6 +72,7 @@ export default function DetalleOT() {
   const [tecnicosDisponibles, setTecnicosDisponibles] = useState([]);
   const [horas, setHoras] = useState('');
   const [tecnicoIds, setTecnicoIds] = useState([]);
+  const [fechaProgramada, setFechaProgramada] = useState('');
   const [fechaEjecucion, setFechaEjecucion] = useState('');
   const [idFracttal, setIdFracttal] = useState('');
   const [guardandoProg, setGuardandoProg] = useState(false);
@@ -88,6 +89,7 @@ export default function DetalleOT() {
       setObservaciones(data.observaciones || '');
       setHoras(data.horas_programadas ? String(Number(data.horas_programadas)) : '');
       setTecnicoIds((data.tecnicos || []).map(t => t.id));
+      setFechaProgramada(data.fecha_programada || '');
       setFechaEjecucion(data.fecha_ejecucion || '');
       setIdFracttal(data.id_fracttal || '');
     } catch (err) { setError(err.response?.data?.error || 'No se pudo cargar la Orden de Trabajo.'); }
@@ -107,7 +109,7 @@ export default function DetalleOT() {
     try {
       await api.put(`/ordenes-trabajo/${ot.id}/programacion`, {
         horas_programadas: horas === '' ? null : Number(horas), tecnico_ids: tecnicoIds,
-        fecha_ejecucion: fechaEjecucion || null, id_fracttal: idFracttal,
+        fecha_programada: fechaProgramada || null, fecha_ejecucion: fechaEjecucion || null, id_fracttal: idFracttal,
       });
       setMsg('Programación guardada.'); cargar();
     } catch (err) { setError(err.response?.data?.error || 'No se pudo guardar la programación.'); }
@@ -184,9 +186,23 @@ export default function DetalleOT() {
       <div className="bg-white border border-gray-200 rounded-lg p-5 mb-6">
         <h2 className="font-semibold text-ht-navy mb-1">Programación y ejecución</h2>
         <p className="text-xs text-gray-500 mb-3">
-          Se piden al pasar el negocio a "Programado" (horas y técnicos) y a "Ejecutado" (fecha de ejecución); los técnicos se pueden cambiar después.
+          Se piden al pasar el negocio a "Programado" (fecha programada, horas y técnicos) y a "Ejecutado" (fecha de ejecución real); todo se puede corregir después.
         </p>
         <div className="grid sm:grid-cols-2 gap-4 text-sm">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Fecha programada para ejecutar</label>
+            <input type="date" disabled={!ot.puede_editar} value={fechaProgramada} onChange={e => setFechaProgramada(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Fecha de ejecución (real)</label>
+            <input type="date" disabled={!ot.puede_editar} value={fechaEjecucion} onChange={e => setFechaEjecucion(e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
+            {fechaProgramada && fechaEjecucion && (() => {
+              const d = Math.round((new Date(fechaEjecucion) - new Date(fechaProgramada)) / 86400000);
+              return <p className="text-xs text-gray-500 mt-1">{d === 0 ? 'Ejecutada el día programado.' : d > 0 ? `${d} día(s) después de lo programado.` : `${-d} día(s) antes de lo programado.`}</p>;
+            })()}
+          </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Horas de trabajo programadas (por técnico)</label>
             <input type="number" min="0" step="0.5" disabled={!ot.puede_editar} value={horas} onChange={e => setHoras(e.target.value)}
@@ -194,11 +210,6 @@ export default function DetalleOT() {
             {tecnicoIds.length > 1 && Number(horas) > 0 && (
               <p className="text-xs text-gray-500 mt-1">{tecnicoIds.length} técnicos × {horas} h = {tecnicoIds.length * Number(horas)} horas-hombre.</p>
             )}
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Fecha de ejecución</label>
-            <input type="date" disabled={!ot.puede_editar} value={fechaEjecucion} onChange={e => setFechaEjecucion(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-2 disabled:opacity-60" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Técnicos que ejecutan la tarea</label>
