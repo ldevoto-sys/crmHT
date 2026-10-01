@@ -1,7 +1,7 @@
 # HT-AP-03 — CRM Comercial HidroTecnica — Documento Consolidado
 
 **Documento:** CRM Comercial HidroTecnica (HT-AP-03)
-**Fecha de consolidación:** 2026-08-07 (última actualización: 2026-09-14)
+**Fecha de consolidación:** 2026-10-01 (última actualización: 2026-10-01)
 **Responsable:** Gerencia General — Luis Devoto (ldevoto@hidrotecnica.cl)
 **Naturaleza de este documento:** reemplaza la lectura dispersa de las notas de
 cambio v1.2 a v1.25 (que quedan archivadas en `docs/` como historial de
@@ -88,12 +88,19 @@ real del módulo **Cobranza** (§19, en construcción en `staging`). Este
 documento es el que debe subirse a SharePoint reemplazando la versión
 anterior del documento base.
 
-**Actualización v1.40 (01-10-2026):** Operaciones pasó a producción completa
-(Arranque de Trabajos + programación y ejecución de la Orden de Trabajo, botón
-"Ver OT" en el Pipeline, pestaña "OT's" en Reportes y las OT del técnico en
-Tareas — §1, §3, §9, §13) y se documentó el procedimiento de promoción parcial
-con el incidente del primer despliegue (§17). Cobranza (§19) sigue en
-`staging`.
+**Actualización v1.36 a v1.40 (01-10-2026):** se incorpora lo que estaba en
+producción sin documentar acá. Postventa (folio, aviso, cierre con comentario,
+informe PDF; §5), Alertas de respuesta de WhatsApp y reporte de tiempo de
+respuesta por vendedor (§9, §11), plantilla desde la ficha del contacto y
+sincronización de vendedor entre contacto, lead y negocios (v1.37; §11),
+Despacho con vista de hoy y atrasados (§6), un lead por conversación (v1.39;
+§11), API v1 de solo lectura para análisis y conector MCP de Cowork (v1.38;
+§18), la auditoría de seguridad del 23-09-2026 (v1.36; subsección al final de
+§1) y Operaciones completo (v1.34 y v1.40: Arranque de Trabajos, programación
+y ejecución de la OT, "Ver OT", pestaña "OT's" y OT del técnico en Tareas; §1,
+§3, §9, §13), con el procedimiento de promoción parcial y el incidente del
+primer despliegue (§17). Los pendientes vigentes están en §16. Cobranza (§19)
+sigue solo en `staging`.
 
 ---
 
@@ -160,7 +167,7 @@ necesita el historial de por qué se definió así):
 | Duplicados | ✅ | ✅ | — | ✅ | — | — |
 | Import/Export de maestros | ✅ | ✅ | — | — | — | — |
 | Productos (consulta) | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Reportes | ✅ | ✅ | sus números | — | ✅ | — |
+| Reportes | ✅ | ✅ | sus números | sus números (§) | ✅ | — |
 | Configurar secuencias/flujos | ✅ | ✅ | — | — | — | — |
 | Gatillar/pausar una secuencia | ✅ | ✅ | propios | — | — | — |
 | ⚙️ Config pipeline(s) | ✅ | ✅ | — | — | — | — |
@@ -187,6 +194,16 @@ los permisos de esta tabla siguen vigentes tal cual y las rutas
 (`/bandeja`, `/cola`) siguen funcionando por URL directa; solo se sacó el
 acceso visible.
 
+(§) Desde el 28-09-2026 (en producción), `callcenter` ve Reportes (pestañas
+Comercial (Softland) y WhatsApp) con el mismo alcance que `vendedor`: solo sus
+propios números, sin el selector de todos los vendedores ni la exportación de
+detalle. En el mismo cambio se agregó la **edición de tareas** (título y fecha
+de vencimiento) en Mis Tareas y en las fichas de negocio, contacto y empresa,
+para quien ya podía gestionar la tarea en el backend (dueño de la tarea,
+administrador o jefe comercial); antes esa función no existía en ninguna
+pantalla aunque el endpoint ya estaba. Origen: commit `fc0b893`, sin nota de
+cambio propia.
+
 (‡) `tecnico` es un rol nuevo, acotado exclusivamente a esta función (ver
 §1, arriba) — no es un rol preexistente que sumó el acceso, como pasó con los
 otros cinco. Para el resto de las filas de esta tabla `tecnico` no tiene
@@ -205,6 +222,61 @@ comportamiento para ninguno de ellos.
   lectura sobre la misma base (§9).
 - Mapa y optimización de ruta de Despacho (§6): diferido a una siguiente
   etapa, requiere antes una cuenta de proveedor de mapas.
+
+### Seguridad — auditoría del 23-09-2026 (v1.36)
+
+Auditoría de solo lectura sobre `main` y `staging`, seguida de la corrección de
+los hallazgos que Luis Devoto marcó como "corregir". Detalle completo en la
+nota de cambio v1.36. En producción desde la segunda promoción del 23-09-2026
+(la primera falló y se revirtió, ver §17); las correcciones propias de Cobranza
+de esa nota **no** están en producción (§19). Qué cambió:
+
+- **Caída del servidor por errores no capturados:** un error no capturado en
+  `PUT /cotizaciones/:id` y en `PUT /ordenes-trabajo/:id/items` podía tumbar el
+  proceso completo (Express 4 no captura promesas rechazadas fuera de un
+  `try/catch`). Se corrigieron ambos puntos y se agregó un manejador global
+  (`unhandledRejection` y `uncaughtException`) como red de seguridad; no
+  reemplaza el `try/catch` de cada ruta.
+- **Adjuntos ejecutables:** un HTML o SVG subido a Postventa, Servicio Técnico
+  o Despacho se servía con el tipo declarado por quien lo subía y permitía robar
+  el token de sesión de quien lo abría. Ahora solo se aceptan imagen, video,
+  audio y PDF, con tipo y extensión coherentes (`utils/archivosSeguros.js`), y
+  al servir cualquier adjunto, incluidos los anteriores, se fuerza un tipo seguro
+  (descarga si no es imagen, video, audio o PDF).
+- **Rol de BI (`bi_readonly`):** tenía acceso completo a `users`, incluido el
+  token de restablecimiento de contraseña en texto plano. Ahora ese token se
+  guarda con hash (SHA-256) y el rol solo ve columnas no sensibles de `users`
+  (sin `password_hash`, token de reset, RUT, teléfono ni datos del token de
+  Microsoft Graph).
+- **Sesiones y permisos:** el estado real del usuario (activo, rol, atribuciones)
+  se consulta en cada solicitud con un caché de 60 segundos, así que desactivar
+  a alguien o cambiarle el rol surte efecto sin esperar a que expire el token
+  (8 horas); la contraseña temporal (`must_change_password`) se exige también en
+  el backend; un vendedor ya no puede quedarse con un lead de otro ni
+  descartarlo; los roles `tecnico` e `integrador` ya no tienen acceso de más a
+  la Bandeja de WhatsApp; se cerraron los huecos por los que un vendedor veía
+  secuencias, encuestas, notas, tareas o negocios de otro vendedor; y
+  `GET /api/users` (RUT, email, teléfono) quedó solo para administrador y jefe
+  comercial.
+- **Entradas externas:** los datos que llegan por WhatsApp se escapan antes de
+  ir en correos internos; las exportaciones CSV neutralizan celdas que empiezan
+  con `=`, `+`, `-` o `@` (inyección de fórmulas); la descarga de imágenes para
+  PDF acota el destino (SSRF); los mensajes de WhatsApp reenviados por Meta se
+  deduplican por su identificador, para no repetir la respuesta del bot ni la
+  asignación.
+- **Webhook de WhatsApp:** si falta `WHATSAPP_APP_SECRET`, el CRM rechaza todo el
+  webhook (antes aceptaba cualquier POST sin firma) y lo deja registrado en el
+  log. El reenvío entre entornos (§11) solo lo acepta el entorno que tenga
+  `WHATSAPP_REENVIO_ACEPTAR=true`; antes cualquier entorno con el mismo
+  `WHATSAPP_REENVIO_SECRETO` podía saltarse la firma de Meta.
+- **Claves y firmas:** comparación de tiempo constante para la clave de la API de
+  Cowork (§18), del canal web de leads y de la firma del webhook.
+
+Pendientes de esta auditoría (también en §16): rotar `BI_READONLY_PASSWORD`,
+definir `WHATSAPP_REENVIO_ACEPTAR=true` en `staging`, `npm audit fix` de
+dependencias, separar la API key de Cowork en lectura y escritura, y la
+pregunta de Gerencia/DPO sobre el hilo de WhatsApp al anonimizar (Ley 21.719,
+§11).
 
 ## 2. Maestros — Empresas, Contactos, Productos
 
@@ -640,6 +712,36 @@ mouse), mismo patrón que Contactos.
   §1) — quien la tiene (o es administrador/jefe comercial) gestiona el
   tablero completo; un vendedor sin el atributo crea casos y ve los que él
   creó, sin gestionar el resto.
+- **Folio de cara al cliente (15 al 16-09-2026):** cada caso nuevo recibe un
+  folio `PV-000001` (correlativo atómico, tabla `postventa_correlativo_global`,
+  columna `casos_postventa.folio`, mismo patrón que el correlativo de
+  Cotizaciones). Se muestra en la tarjeta y en el detalle del caso.
+- **Aviso por correo al crear un caso (16-09-2026):** al crearlo se envía un
+  correo con folio, título, prioridad y cliente. Destinatarios: usuarios
+  activos con correo, con `es_encargado_postventa` o rol administrador, jefe
+  comercial o gerencia (mismos del aviso de casos vencidos; se excluyen el rol
+  `integrador` y la cuenta `admin@hidrotecnica.cl`). El envío no bloquea la
+  creación del caso: si el correo falla, el caso igual queda creado.
+- **Cliente con link a su ficha:** en el detalle del caso, el nombre del
+  contacto lleva a su ficha (`/contactos/{id}`).
+- **Cierre con comentario obligatorio:** mover un caso a una etapa terminal
+  (**Resuelto** o **Rechazado**) exige un comentario (qué se hizo o por qué se
+  rechaza); sin comentario el backend responde 400. Se guarda en
+  `casos_postventa.comentario_cierre`, se muestra en el detalle y se limpia si
+  el caso se reabre.
+- **Edición ampliada del caso:** quien gestiona Postventa puede editar título,
+  descripción, producto, detalle del equipo, prioridad, fecha límite, técnico,
+  el **negocio de origen** (al cambiarlo, el contacto y la empresa del caso se
+  recalculan desde el negocio nuevo) y una **referencia libre a una cotización
+  o venta** (`referencia_cotizacion_venta`), pensada para ventas antiguas no
+  registradas en el CRM; no reemplaza al vínculo real de `negocio_id`.
+- **Botón "Generar informe" (`GET /api/postventa/{id}/informe-pdf`):** genera un
+  PDF único con la portada y datos del caso, las fotos incrustadas, una tabla
+  con los demás adjuntos (un video no se puede incrustar en un PDF), la
+  cotización vigente del negocio de origen (la versión más alta) y, desde la
+  promoción de Operaciones del 01-10-2026, la **Orden de Trabajo** del negocio
+  si existe (§3); los adjuntos que ya son PDF se anexan al final. Las páginas se
+  fusionan con `pdf-lib`. Lo puede generar quien puede abrir el caso.
 
 ## 6. Despacho (v1.14-v1.16, v1.23)
 
@@ -708,6 +810,31 @@ mouse), mismo patrón que Contactos.
   como lista, no en un mapa.
 - **Permisos:** mismo patrón que Postventa — atribución adicional
   `users.es_encargado_despacho` (ver §1).
+- **Vista por defecto "hoy y atrasados" (30-09-2026):** la lista abre en
+  **Activos (hoy y atrasados)**: los despachos con alguna parada de hoy (en
+  cualquier estado) más los programados o en ruta con alguna parada de una
+  fecha anterior. Los programados a futuro no aparecen hasta su día. "Hoy" se
+  calcula en hora de Chile, no en la del servidor. Las otras vistas son
+  **Todos** e **Historial (completados/cancelados)** (`GET /api/despachos?vista=`).
+  Al usar los filtros de fecha o estado, la lista pasa sola a **Todos** para que
+  el filtro no quede restringido por la vista por defecto. El listado devuelve
+  hasta 300 despachos.
+- **Orden por columna (30-09-2026):** se puede ordenar la tabla por Título,
+  Fecha, Paradas, Origen, Estado y Creado por, ascendente o descendente.
+- **Agrupar por dirección (30-09-2026):** un interruptor (activo por defecto)
+  junta en un solo bloque los despachos cuya primera parada coincide en lugar
+  y fecha (mismo lugar frecuente, o misma dirección y comuna normalizadas), con
+  el título "dirección, comuna · fecha — N despachos". Cada grupo queda en el
+  lugar de su primera fila según el orden elegido. Cambio solo de pantalla y
+  consulta: sin migración de schema.
+- **Mapa embebido (corrección 01-10-2026):** el código incluye un mapa de
+  Google Maps embebido con las paradas del despacho (sin ruta optimizada), que
+  solo se muestra si está definida la variable `VITE_GOOGLE_MAPS_EMBED_KEY` del
+  frontend (una key distinta de `GOOGLE_MAPS_API_KEY`, restringida por
+  dominio). Las notas de cambio no lo documentan, no consta si esa variable
+  está cargada en producción y el punto "diferido a una siguiente etapa" de
+  más arriba quedó desactualizado respecto del código: por confirmar con
+  Gerencia.
 
 ## 7. Cotizador Operaciones (v1.17-v1.18)
 
@@ -871,6 +998,20 @@ mismo criterio que Secuencias (§8).
 - **Notas y tareas** ligadas a contacto/empresa/negocio, visibles en el
   timeline unificado. Asignar una tarea a otro usuario: solo administrador o
   jefe comercial (un vendedor/call center solo se asigna a sí mismo).
+- **Edición de tareas (28-09-2026):** en Mis Tareas y en las fichas de negocio,
+  contacto y empresa se puede editar el título y la fecha de vencimiento de una
+  tarea. Puede hacerlo el dueño de la tarea (a quien está asignada),
+  administrador o jefe comercial; es el mismo criterio que ya aplicaba el
+  backend (`PUT /api/tareas/{id}`), que hasta entonces no tenía pantalla.
+- **Envíos automáticos de WhatsApp en la Bandeja (fix de septiembre de 2026):**
+  los mensajes que una secuencia enviaba solos por WhatsApp (§8, canal
+  "whatsapp") no aparecían en la Bandeja; se corrigió en el commit `274fe52`
+  (sin nota de cambio propia).
+- **Registro del seguimiento para análisis (v1.38):** el seguimiento
+  automático (pasos de secuencia, plantilla "Seguimiento de cotización" y
+  encuesta de causa de no cierre) se puede consultar desde la API de lectura
+  (`GET /api/v1/seguimientos`, ver §18); distingue `enviado_automatico`,
+  `tarea_generada` y `cambio_etapa`.
 
 ## 9. Reportería
 
@@ -895,12 +1036,19 @@ mismo criterio que Secuencias (§8).
   versión** de cada cotización (ver §4) — antes duplicaba/triplicaba
   cotizaciones re-versionadas.
 - Vendedor ve solo sus números; administrador/jefe comercial/gerencia ven
-  todos o filtran por vendedor; call center no tiene acceso a reportería.
+  todos o filtran por vendedor; call center no tenía acceso a reportería —
+  **actualización 28-09-2026:** ahora ve las pestañas Comercial (Softland) y
+  WhatsApp con el mismo alcance que un vendedor (solo sus números, ver §1).
 - **Acceso de solo lectura para BI externo:** rol de PostgreSQL
   (`bi_readonly`) aprovisionado automáticamente si está definida la variable
   `BI_READONLY_PASSWORD`, con `SELECT` sobre todas las tablas actuales y
   futuras. Pensado para Power BI / Looker Studio combinando esta fuente con
-  Softland. La contraseña se resincroniza en cada arranque.
+  Softland. La contraseña se resincroniza en cada arranque. **Desde la
+  auditoría del 23-09-2026 (v1.36)** la tabla `users` es la excepción: el rol
+  solo puede leer `id`, `nombre`, `email`, `rol`, `activo`, `area`,
+  `es_encargado_postventa`, `es_encargado_despacho`, `pipeline_default_id`,
+  `codigo_softland`, `recibe_round_robin` y `created_at` (ver §1). Pendiente:
+  rotar la clave (§16).
 - **Informe diario por correo (v1.20):**
   alternativa al acceso de BI externo cuando la conexión al proxy público de
   Railway no es viable (ej. firewall corporativo bloqueando el puerto no
@@ -981,6 +1129,37 @@ pendientes pero no para facturas) para que el cruce deje de depender de
 elegir entre varios candidatos idénticos. Ver detalle completo en la nota
 de cambio v1.33.
 
+- **Pestaña "WhatsApp" en Reportes — tiempo de respuesta (23-09-2026):** pedido
+  de Luis Devoto; junto a Comercial, Pipeline y OT's. Mide cuánto tarda alguien
+  del equipo en responder a un cliente por WhatsApp.
+  - **Qué es un tramo:** el cliente escribió (una o varias veces seguidas) y
+    después hubo un mensaje saliente. El tramo cuenta desde el **primer**
+    mensaje sin responder de la racha, no desde el último ni como promedio. Se
+    guarda en horario hábil (con los feriados y horarios especiales de Config →
+    Bot de WhatsApp, §11) y también en minutos corridos. Se atribuye al
+    vendedor del lead más reciente del contacto.
+  - **Hora real de Meta:** cada mensaje guarda ahora `wa_timestamp`, la hora
+    que informa Meta; si falta, se usa la hora de registro. Antes solo se
+    aproximaba con el mensaje más reciente de toda la Bandeja. Existe desde el
+    23-09-2026: los mensajes anteriores no la tienen.
+  - **Cálculo:** un job nocturno lo calcula una vez por día entre las 23:45 y
+    las 23:59 hora de Chile (referido como "~23:50"; corre en producción y en
+    `staging`, cada uno sobre sus mensajes) y lo guarda en
+    `whatsapp_tiempos_respuesta`; el reporte no recalcula al vuelo. Sin
+    historial anterior al 23-09-2026: solo hacia adelante. El botón
+    **Actualizar** (`POST /api/reportes/whatsapp/actualizar-ahora`; administrador,
+    jefe comercial y gerencia) corre el cálculo al momento.
+  - **Pantalla "Tiempo de respuesta WhatsApp":** filtro por mes (y por vendedor
+    para los roles que ven todo); tarjetas Abiertas ahora, Promedio del mes,
+    Mediana del mes y Peor caso del mes; gráfico del promedio por mes; tabla por
+    vendedor (conversaciones respondidas, promedio, mediana, peor caso); y la
+    lista **Conversaciones abiertas ahora**, calculada en vivo (cliente sin
+    respuesta y conversación no cerrada a mano) con link directo a la Bandeja en
+    una pestaña nueva.
+  - **API:** `GET /api/reportes/whatsapp/resumen-mensual`, `/por-vendedor` y
+    `/abiertas-ahora`; para Cowork, como reportes `whatsapp_resumen_mensual`,
+    `whatsapp_por_vendedor` y `whatsapp_abiertas_ahora` en
+    `GET /api/v1/reportes/{tipo}` (§18).
 - **Pestaña "OT's" en Reportes (v1.40):** junto a Comercial, Pipeline y
   WhatsApp. Filtros por fechas, técnico, tipo de trabajo y vendedor. Tarjetas
   (ejecutadas, programadas, pendientes hoy con las atrasadas, cumplimiento de
@@ -1029,6 +1208,15 @@ desde un celular real, sin cruce entre ambientes. Nota interna: el objeto
 herencia del código aunque ahora corresponde al 8106-2974, no al
 8109-8161 — es solo una etiqueta de log, no afecta nada funcional.
 
+**Reenvío entre entornos — cambio de seguridad (23-09-2026, v1.36):** el
+entorno que **recibe** un reenvío debe tener `WHATSAPP_REENVIO_ACEPTAR=true`
+(solo `staging`); sin esa variable el webhook rechaza el encabezado de reenvío
+y exige la firma de Meta como siempre. Antes, cualquier entorno con el mismo
+`WHATSAPP_REENVIO_SECRETO` (hoy es el mismo valor en `staging` y producción)
+podía saltarse la firma. Consecuencia: mientras la variable no esté definida
+en `staging`, el reenvío de producción a `staging` no funciona; no consta en
+las notas que ya se haya definido (pendiente de Luis, §16).
+
 **Plantillas de mensaje aprobadas — confirmado contra el Administrador de
 WhatsApp de Meta el 14-09-2026** (reemplaza el listado desactualizado de
 versiones anteriores de este documento): `envio_cotizacion_v2`,
@@ -1048,6 +1236,11 @@ de plantilla correcto y los 3 parámetros completos. `retomar_conversacion`
 y `permiso_llamada` están aprobadas pero no están disponibles como opción
 en ningún paso de secuencia ni botón del CRM todavía. Ver nota de cambio
 v1.35 (bug original) y este mismo documento para la corrección.
+**Corrección 01-10-2026:** en el código de producción `retomar_conversacion`
+sí se usa: es la plantilla del botón "Reabrir con plantilla" de la Bandeja y de
+"Enviar plantilla WhatsApp" desde la ficha del contacto (ver más abajo).
+`permiso_llamada` sigue sin uso. (Las notas de CLAUDE.md llaman a esa acción
+"plantilla de seguimiento"; el código usa `retomar_conversacion`.)
 
 **Historia — cuenta bloqueada y su resolución (v1.31, 23-08-2026 al
 06-09-2026):** la cuenta de WhatsApp Business quedó desactivada
@@ -1102,6 +1295,121 @@ WhatsApp (Meta), en producción desde la migración de arriba.
   viendo el total. Antes dependía del mismo toggle de acceso general, lo
   que hacía que un vendedor viera no leídos de conversaciones ajenas. Ver
   detalle en la nota de cambio v1.32.
+- **Vendedor sincronizado entre contacto, chat y negocios (v1.37, 23-09-2026):**
+  existían tres campos de vendedor independientes —`contactos.vendedor_id`
+  ("Vendedor asignado" en la ficha), `leads.vendedor_id` ("Asignado a" en la
+  Bandeja) y `negocios.vendedor_id` (dueño en el Pipeline)— y se desincronizaban:
+  caso real de un contacto con vendedora en la ficha y chat "Sin asignar" en la
+  Bandeja, que además no se podía corregir desde ahí. Ahora, al cambiar el
+  vendedor desde la ficha del contacto o desde "Asignado a" en la Bandeja
+  (`services/sincronizarVendedor.js`), se actualizan el lead más reciente del
+  contacto (se crea uno si no hay ninguno, por ejemplo un contacto que nunca
+  escribió por WhatsApp) y **todos los negocios abiertos** del contacto. **Los
+  negocios cerrados (ganados o perdidos) nunca se tocan**, decisión de Luis
+  Devoto: no reasignar retroactivamente algo ya definido. Otros cambios del
+  mismo pedido: `POST /api/leads/{id}/asignar` ya no fuerza el estado a
+  `asignado` si el lead está `convertido` o `descartado` (por eso reasignar en
+  una conversación cerrada "no hacía nada visible"); nuevo
+  `POST /api/leads/asignar-por-contacto/{contactoId}` para asignar cuando no hay
+  lead al que apuntar (la Bandeja ahora usa siempre este); y
+  `sugerirVendedor()` (`services/asignacion.js`) mira primero si el contacto ya
+  tiene vendedor propio, antes de la regla de vendedor de cuenta por empresa:
+  un cliente con contacto y vendedor asignados que vuelve a escribir se asigna
+  a ese vendedor, sin pasar por categoría ni round-robin.
+- **Plantilla de WhatsApp desde la ficha del contacto (23-09-2026):** la ficha
+  del contacto ("Enviar plantilla WhatsApp") y el listado de Contactos (botón
+  "WhatsApp") permiten reabrir contacto con la plantilla aprobada
+  `retomar_conversacion` (`POST /api/whatsapp/conversaciones/{contactoId}/reabrir-plantilla`)
+  sin necesitar un lead o conversación previa, por ejemplo para alguien que dejó
+  su teléfono por correo. Disponible para el vendedor dueño del contacto, aunque
+  aún no tenga lead. No reabre la ventana de 24 horas por sí sola: eso ocurre
+  cuando el cliente responde.
+- **Cerrar o marcar como atendida una conversación pasadas las 24 horas
+  (septiembre de 2026):** la Bandeja lo permite aunque la ventana de Meta ya
+  haya vencido (commit `136f5d7`, sin nota de cambio propia).
+
+**Un lead por conversación (v1.39, 30-09-2026):** hasta esa fecha, por cada
+mensaje de un cliente el bot creaba **otro lead** cuando el último lead del
+contacto no tenía estado del bot (`bot_estado` vacío), que es como lo dejan la
+rama de fuera de horario, la de categorización desactivada y las asignaciones
+manuales. Datos de producción antes del arreglo (diagnóstico de solo lectura,
+30-09-2026): 2.914 leads de WhatsApp para unos 450 a 600 contactos; 2.255 (77%)
+creados a menos de 60 minutos de otro lead del mismo contacto, en 475 contactos;
+2.484 leads "nuevo" sin vendedor; 88% de los leads sin estado del bot creados en
+horario laboral (clasificación aproximada). La categorización del bot está
+**desactivada** en producción (confirmado por Luis en Config → Bot de WhatsApp).
+Cambio solo en `backend/routes/public.js`, sin migración de schema:
+- Un **lead abierto** (`nuevo` o `asignado`) que el bot nunca manejó se
+  **reutiliza**: fuera de horario, en horario con la categorización desactivada,
+  o si ya tiene vendedor, el mensaje se registra en ese lead. Con la
+  categorización activa en horario, el lead "nuevo" creado de noche se usa para
+  iniciar la categorización.
+- Si el último lead está **cerrado** (`convertido` o `descartado`), el cliente
+  que vuelve abre un **lead nuevo** (decisión de Luis Devoto) y los mensajes
+  siguientes reutilizan ese nuevo lead.
+- **No cambia:** los leads ya derivados por el bot (`bot_estado = 'derivado'`),
+  aunque estén cerrados; los leads que ya existían, incluidos los 2.484 sin
+  asignar; el flujo del bot con categorización activa en horario; y las cuentas
+  distintas de Ventas.
+- **Efecto a vigilar:** el lead nuevo de un cliente que vuelve no hereda el
+  vendedor del anterior; con la categorización desactivada queda en la cola de
+  asignación y la Bandeja puede mostrar la conversación "sin asignar".
+- **Cómo se probó:** servidor real, Postgres con el schema real y mensajes de
+  WhatsApp firmados como los de Meta; 10 verificaciones sobre 9 escenarios (antes
+  del cambio fallaban 6, después pasan las 10). No se probó contra datos reales
+  de producción.
+- **Para analizar:** desde el 30-09-2026 (21:12 hora de Chile, commit `f8ccfb7`)
+  los leads nuevos equivalen a conversaciones; para fechas anteriores hay que
+  contar **contactos**, no leads.
+
+**Horario hábil: feriados y excepciones (15 al 16-09-2026):** además del
+horario de atención semanal, Config → Bot de WhatsApp tiene la sección
+**Excepciones de horario** (tabla `config_horario_excepciones`): fechas de tipo
+`feriado` (no laborable) u `horario_especial` (laborable con otra hora de
+inicio y fin, por ejemplo hasta las 13:00). No existe una fuente automática de
+feriados de Chile (la API oficial del Estado dejó de existir, investigado
+15-09-2026): se editan a mano y se precargaron los 15 feriados legales de 2026
+(no incluye feriados regionales ni horarios especiales de la empresa). Las usan
+todas las funciones que dependen del horario hábil: el bot, las secuencias con
+"respetar horario", las alertas de respuesta y el reporte de tiempo de
+respuesta (§9). Las horas se ingresan en formato 24 h.
+
+**Alertas de respuesta de WhatsApp (15 al 16-09-2026):** cuando un cliente
+escribe y nadie responde, el CRM avisa por correo y por Microsoft Teams,
+escalando en cuatro niveles **acumulativos** (cada nivel nuevo incluye a los
+destinatarios de los anteriores; diseño validado con Luis Devoto el
+15-09-2026). Se configura en Config → Alertas de respuesta WhatsApp
+(administrador y jefe comercial).
+- **Niveles y umbrales:** 1 vendedor asignado, 2 + callcenter, 3 + jefe
+  comercial, 4 + gerencia (los usuarios activos con ese rol). Los umbrales son
+  minutos de **horario hábil acumulado** (se pausan fuera de horario y en
+  feriados) y vienen por defecto en 15, 60, 120 y 240 minutos; cada umbral debe
+  ser entero, mayor a 0 y mayor que el anterior. Hay un interruptor para activar
+  o apagar toda la función.
+- **Tres situaciones:** (1) cliente ya derivado a un vendedor cuyo último
+  mensaje es del cliente y sin respuesta, escala desde el vendedor; el tiempo
+  cuenta desde el primer mensaje sin responder de la racha (no se reinicia si
+  el cliente insiste) y "Cerrar conversación" en la Bandeja apaga la alerta;
+  (2) cliente categorizado por el bot pero sin vendedor (queda en la Cola de
+  asignación): escala directo desde callcenter, contando desde `leads.derivado_en`;
+  (3) lead que el bot cerró solo porque el cliente nunca respondió la
+  categorización: aviso único a callcenter y jefe comercial, no es una escalada
+  por tiempo.
+- **Funcionamiento:** el chequeo corre cada 15 minutos en el servidor y no repite
+  un nivel ya avisado para la misma racha (tabla `whatsapp_alertas_respuesta`).
+  La pantalla muestra cuándo corrió por última vez el chequeo automático
+  (`ultima_revision_automatica`).
+- **Botones de diagnóstico:** "Probar ahora" corre la revisión fuera de su ciclo
+  y devuelve el detalle por conversación evaluada (minutos hábiles, nivel y por
+  qué avisó o no); "Probar conexión con Teams" envía un mensaje fijo al
+  Workflow para revisar la URL y el formato, sin depender de un caso real.
+- **Teams:** se envía por un Workflow de Teams ("Publicar en un canal cuando se
+  reciba una solicitud webhook") con una Adaptive Card simple, vía la variable
+  `TEAMS_WEBHOOK_URL`. Sin esa variable no falla: el sistema sigue funcionando
+  solo por correo. Al 16-09-2026 faltaba cargarla en Railway producción.
+- **Buscador de Config:** reconoce alias por palabra clave, no solo el título de
+  cada ítem (por ejemplo, "feriados" lleva a Bot de WhatsApp y "escalamiento" a
+  Alertas de respuesta).
 
 **Almacenamiento de adjuntos (Cloudflare R2):** bucket privado
 `crm-ht-adjuntos` (no público, distinto del bucket de catálogo de productos
@@ -1297,6 +1605,32 @@ solo en acentos puntuales, celeste como color de interacción principal.
   sugerencia, nunca automático).
 - **Ley 21.719 (v1.35, ver §11):** tablas `config_privacidad`,
   `solicitudes_eliminacion_datos`, `privacidad_purga_ejecuciones`.
+- **Postventa — folio, cierre y referencia (15 al 16-09-2026, ver §5):**
+  `casos_postventa` suma `folio` (texto único, `PV-000001`), `comentario_cierre`
+  y `referencia_cotizacion_venta`; tabla `postventa_correlativo_global` (fila
+  única con el último número usado).
+- **Alertas de respuesta y horario hábil (15 al 16-09-2026, ver §11):** tabla
+  `config_alertas_respuesta` (fila única: `activo`, `minutos_vendedor`,
+  `minutos_callcenter`, `minutos_jefe_comercial`, `minutos_gerencia`,
+  `ultima_revision_automatica`); tabla `whatsapp_alertas_respuesta` (por
+  contacto: `pendiente_desde`, `nivel_alertado`, evita repetir un nivel ya
+  avisado); `leads.derivado_en` (desde cuándo un lead quedó derivado por el
+  bot; los leads derivados antes de la columna no la tienen); tabla
+  `config_horario_excepciones` (`fecha`, `tipo` feriado/horario_especial,
+  `nombre`, `hora_inicio`, `hora_fin`).
+- **Tiempo de respuesta de WhatsApp (23-09-2026, ver §9):**
+  `whatsapp_mensajes.wa_timestamp` (hora real de Meta; vacía en los mensajes
+  anteriores al 23-09-2026); tabla `whatsapp_tiempos_respuesta` (un tramo
+  resuelto por fila: `contacto_id`, `vendedor_id`, `respondido_por_id`,
+  `pendiente_desde`, `respondido_en`, `minutos_habiles`, `minutos_corridos`;
+  único por contacto y `pendiente_desde`); tabla
+  `whatsapp_tiempos_respuesta_ejecuciones` (una fila por día del job nocturno,
+  con `ok`, `tramos_nuevos` y `error`).
+- **Sin cambios de schema en v1.36 a v1.39:** la sincronización de vendedor
+  (v1.37), la API de lectura (v1.38) y el lead por conversación (v1.39) no
+  agregan tablas ni columnas. En v1.36 cambió el contenido de
+  `users.reset_token`, que ahora guarda el hash del token, y los permisos del
+  rol `bi_readonly` sobre `users` (§1, §9).
 - **Cobranza (v1.35, en construcción — detalle completo en §19):**
   `users.es_encargado_cobranza`; tablas de configuración
   (`cobranza_config`, cuentas contables, `cuentas_bancarias`), de
@@ -1341,6 +1675,25 @@ solo en acentos puntuales, celeste como color de interacción principal.
 - **PostgreSQL (`bi_readonly`):** acceso de solo lectura para herramientas
   de BI externas.
 - **API `/api/v1` para Cowork (v1.28):** ver detalle completo en §18.
+- **Microsoft Teams (alertas de respuesta de WhatsApp, 16-09-2026):** aviso a un
+  canal de Teams mediante un Workflow ("Publicar en un canal cuando se reciba
+  una solicitud webhook"), que reemplaza a los "Incoming Webhooks" clásicos
+  retirados por Microsoft. El CRM solo hace un POST a la URL del Workflow
+  (variable `TEAMS_WEBHOOK_URL`); no usa registro de aplicación en Azure AD. Sin
+  la variable, no falla ni envía nada. Ver §11.
+- **Conector MCP de Cowork (30-09-2026):** servicio aparte del CRM (repositorio
+  `ldevoto-sys/crm-mcp-hidrotecnica`, Railway, proyecto CRM-MCP) que entrega al
+  agente Cowork herramientas de consulta y escritura sobre el CRM (§18). Tiene dos
+  ambientes con despliegue automático al hacer push: Production (servicio
+  `adequate-grace`) y Staging (`crm-mcp-hidrotecnica`). Son 14 herramientas: 10
+  de consulta, marcadas `readOnlyHint`, y 4 que escriben, **sin** esa marca a
+  propósito (no se debe aflojar su aprobación). Desde el 30-09-2026 ambos
+  ambientes despliegan desde la rama provisional `claude/fervent-carson-dgwu65`
+  (commit `1e38354`, confirmado en Railway), porque `main` del repo solo tiene 7
+  herramientas. Verificado por Luis en producción con datos reales: 3 de las 4
+  herramientas nuevas; `crm_softland_documentos` devolvió 0 filas para
+  agosto-septiembre, lo esperado, y falta probarla con un rango que tenga datos.
+  Pendientes en §16.
 - **Microsoft 365 / SMTP AUTH (en evaluación, no confirmado):** soporte
   activó SMTP AUTH sobre la cuenta `ventas@hidrotecnica.cl`
   (`smtp.office365.com:587`, STARTTLS) como posible alternativa a Brevo para
@@ -1423,8 +1776,10 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    `seguimiento_coti`, `vencimiento_cotizacion`, `permiso_llamada`,
    `hello_world`, ver §11). ~~Bug detectado y corregido el 14-09-2026:~~ el
    motor de secuencias (§8) ofrecía la plantilla vieja `envio_cotizacion`
-   (sin `_v2`) y fallaba en silencio — corregido, ver §11. `retomar_conversacion`
-   y `permiso_llamada` siguen aprobadas sin ningún uso todavía en el CRM.
+   (sin `_v2`) y fallaba en silencio — corregido, ver §11. `permiso_llamada`
+   sigue aprobada sin uso en el CRM; `retomar_conversacion` sí se usa desde el
+   botón "Reabrir con plantilla" de la Bandeja y desde la ficha del contacto
+   (corrección 01-10-2026, §11).
 6. **Correo del vendedor como remitente real** de las cotizaciones: en
    evaluación entre autenticar el dominio en Brevo, envío nativo vía
    Microsoft Graph, o el SMTP directo de Microsoft 365 recién habilitado
@@ -1439,6 +1794,10 @@ como backlog post-lanzamiento, en el siguiente orden de prioridad
    esa variable, la API responde 503 a cualquier solicitud. Confirmar
    también que `APP_URL` de `staging` quedó apuntando a su propio dominio
    (durante las pruebas apuntaba al de producción, se corrigió a mano).
+   **Actualización 01-10-2026:** la API y el conector MCP (§14, §18) ya se usan
+   en producción: el 30-09-2026 Luis verificó con datos reales 3 de las 4
+   herramientas nuevas. No consta en las notas si `COWORK_API_KEY` se cargó
+   antes; los pendientes del conector están en la lista de abajo.
 
 **Cotizador Operaciones (§7) — decisión pendiente de Gerencia:** ¿el
 pipeline Operaciones reemplaza por completo la herramienta HTML standalone
@@ -1470,6 +1829,75 @@ Sin prioridad asignada (no comerciales / no bloquean nada):
   con upsert probado contra una base de prueba, pero **sin validar contra
   la réplica real de Softland en producción** — este entorno de
   desarrollo no tiene salida de red hacia ella.
+
+**Pendientes vigentes al 01-10-2026 (de `CLAUDE.md`, secciones del 16-09 al
+01-10-2026):**
+
+- **Conector MCP (§14):** fusionar la rama de despliegue a `main` del repo del
+  conector y apuntar ambos ambientes a `main`; hoy despliegan desde una rama con
+  nombre provisional y cada push a esa rama redespliega el ambiente.
+- **Costos:** el ambiente Staging del conector MCP tiene un servicio Postgres con
+  volumen que el código del conector no usa. Por revisar.
+- **Verificar la API de lectura (§18):** Softland con un rango que tenga datos
+  (cotizaciones de julio; notas de venta y facturas de agosto-septiembre), y
+  desde qué fecha hay datos en cotizaciones, mensajes y seguimientos (usar
+  `limit=1` y leer `total`, sin leer datos de clientes).
+- **Mensajes de WhatsApp en la API:** la primera página de agosto-septiembre
+  partía el 31-08 y no aparecían los ids 1 a 7. El diagnóstico de solo lectura
+  del 30-09-2026 muestra que esos 7 mensajes son del 26 y 27 de julio (contacto
+  1, probablemente pruebas), que en agosto hay 26 mensajes (todos del 31-08) y
+  10.881 en septiembre, consistente con la migración del número oficial del
+  06-09. La hora real de Meta (`wa_timestamp`) existe solo desde el 23-09.
+  Hay un contacto anonimizado, con 9 mensajes.
+- **Softland:** la historia anterior a 2023-01-01 no está replicada; falta
+  decidir si hace falta.
+- **Fase 2 de la API, sin iniciar:** causa de pérdida "Otro" con comentario
+  obligatorio, análisis de las pérdidas sin respuesta, y un endpoint para enviar
+  informes por correo (destinatarios solo `@hidrotecnica.cl`, tope de envíos y
+  registro de cada envío). Sin ese endpoint el agente no puede entregar
+  informes periódicos por sí solo; los informes periódicos mismos están por
+  definir.
+- **Decisión pendiente (privacidad):** `GET /api/v1/whatsapp/conversaciones/{id}/mensajes`
+  sigue devolviendo el hilo de un contacto anonimizado si se conoce su id (la
+  anonimización no toca los mensajes: alcance acotado validado con Gerencia, ver
+  `services/privacidad.js`). El listado masivo nuevo sí los excluye. Si eso
+  cumple la Ley 21.719 para el hilo es una pregunta para Gerencia/DPO, no de
+  código.
+- **Dato técnico:** `initDb()` pasa a mayúsculas los nombres de contactos en cada
+  arranque, así que un contacto anonimizado queda como `(ELIMINADO)`, no
+  `(Eliminado)`. Cualquier filtro o consulta SQL debe comparar sin distinguir
+  mayúsculas.
+- **Seguridad (§1):** rotar `BI_READONLY_PASSWORD` (en Railway y en la skill de
+  consultas SQL) y la clave del rol `reportes_solo_lectura`, que quedó escrita
+  en una conversación con Claude el 30-09-2026; definir
+  `WHATSAPP_REENVIO_ACEPTAR=true` en `staging`; decidir sobre las dependencias
+  con `npm audit fix` disponible (backend: xmldom, ip-address,
+  express/qs/body-parser; frontend: react-router); separar la API key de Cowork
+  en lectura y escritura (hoy es una sola; requiere reconfigurar el conector
+  MCP); y, cosmético, enmascarar teléfonos y correos en los logs.
+- **Alertas de respuesta (§11):** falta cargar `TEAMS_WEBHOOK_URL` en Railway
+  producción si se quiere el canal Teams (al 16-09-2026); sin ella funcionan
+  solo por correo.
+- **Leads de WhatsApp, verificar con tráfico real (v1.39):** comparar los leads
+  creados desde el 30-09-2026 21:12 contra las conversaciones (debería haber uno
+  por conversación) y revisar que la cola de asignación no crezca por
+  duplicados.
+- **Vínculo conversación a negocio:** exponer los negocios por contacto
+  (`negocios.contacto_id`) en los endpoints de lectura de WhatsApp, porque el
+  vínculo por lead está vacío: `leads.negocio_id` solo se llena con el botón
+  manual "convertir lead". De 607 contactos con mensajes desde agosto, 0 tienen
+  el negocio ligado por el lead y 248 (41%) lo tienen por `negocios.contacto_id`;
+  eso mide contactos con algún negocio, no una tasa de conversión.
+- **Conversaciones cerradas sin vendedor:** 212 de 558 (159 porque su último lead
+  es uno "nuevo" sin asignar, 53 sin ningún lead). Las 53 sin lead no se han
+  explicado.
+- **Leads, ajustes opcionales (no pedidos):** que los leads ya derivados y
+  cerrados también abran lead nuevo cuando el cliente vuelve; que el lead nuevo
+  herede el vendedor del anterior; limpiar los leads duplicados que ya existen
+  (2.484 sin asignar), siempre con respaldo previo.
+- **Operaciones, al desplegar (§3):** los 31 negocios en Programado y 24 en
+  Ejecutado que ya existían no tienen OT (al moverlos se piden los datos), y
+  hacen falta usuarios con rol `tecnico` para asignar técnicos.
 
 ## 17. Proceso de despliegue a producción
 
@@ -1515,6 +1943,39 @@ fuera de horario de atención. `main` y `staging` quedaron con el mismo
 preservando el historial de cada uno). La regla del 10-08 sigue vigente
 para promociones futuras — esta fue una excepción puntual, no un cambio de
 la regla.
+
+### Promociones del 16-09, 23-09 y 30-09-2026
+
+Todas por instrucción explícita de Luis Devoto y sin Cobranza ni Operaciones
+(que llegó recién el 01-10-2026, ver abajo):
+
+- **16-09-2026:** todo lo acumulado en `staging` salvo Cobranza y Operaciones:
+  Postventa (§5), alertas de respuesta de WhatsApp y buscador de Config (§11).
+  Commits `ff15bf8` a `b090ddc`.
+- **23-09-2026 (fuera de horario), primer intento fallido:** tras el push,
+  Dashboard, Cotizaciones y Reportería dejaron de cargar ("Error interno") y la
+  producción quedó caída unos 15 minutos; se revirtió de inmediato (PR #1).
+  **Causa raíz:** al armar la promoción se excluyó la columna
+  `users.es_encargado_cobranza` de la migración, pero `backend/middleware/auth.js`
+  —copiado tal cual desde `staging` por considerarlo "limpio"— la consultaba en
+  **cada** solicitud autenticada (caché de 60 s del estado del usuario), y sin la
+  columna toda la API devolvía 500. **Lección:** clasificar un archivo como
+  "limpio" por no tener cambios de Cobranza en su diff no basta; hay que revisar
+  si **depende en tiempo de ejecución** de algo que agrega otro archivo. La
+  prueba previa (`initDb()` contra Postgres) solo validó que la migración
+  corriera, no que cada endpoint autenticado respondiera.
+- **23-09-2026, segunda promoción:** mismo contenido con la causa corregida
+  (commit `d472d27`), probada con servidor real, Postgres real y token real
+  contra `/api/negocios`, `/api/cotizaciones`,
+  `/api/reportes/actividad-mes` y `/api/reportes/whatsapp/resumen-mensual`.
+  Incluyó la auditoría de seguridad (v1.36), el tiempo de respuesta de WhatsApp
+  (§9), la plantilla desde la ficha del contacto y la sincronización de vendedor
+  (v1.37; §11).
+- **30-09-2026 (≈17:45, fuera de horario):** cambios de Despacho (§6) y la API
+  de lectura para análisis (v1.38; §18). Commits `c9e59d2`, `64da76c` y
+  `82a10d5`; sin migración de schema. Verificado en producción con el conector.
+- **30-09-2026 (21:12, fuera de horario):** WhatsApp, un lead por conversación
+  (v1.39; §11). Commit `f8ccfb7`; solo toca `backend/routes/public.js`.
 
 ### Promoción parcial del 01-10-2026 (Operaciones, sin Cobranza)
 
@@ -1568,14 +2029,18 @@ SharePoint, ver §16 punto 9).
 |---|---|---|
 | GET | `/api/v1/clientes?rut=&nombre=` | Buscar cliente |
 | POST | `/api/v1/clientes` | Alta de cliente, idempotente por RUT |
-| GET | `/api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=` | Listado con filtros (agregado en v1.29) |
+| GET | `/api/v1/negocios?desde=&hasta=&estado=&vendedor_id=&cliente_id=&origen=&limit=&offset=` | Listado con filtros (agregado en v1.29); desde v1.38 con `offset`, tope de 500 por página y más campos (ver abajo) |
 | POST | `/api/v1/negocios` | Crear negocio, idempotente por `referencia_externa` |
 | GET | `/api/v1/negocios/{id}` | Detalle: etapa, historial de etapas, cotizaciones |
 | POST | `/api/v1/negocios/{id}/cotizaciones` | Registrar cotización (numeración real del CRM, avanza etapa a "Cotizado") |
-| GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros; desde v1.40 también `ots_kpis`, `ots_resumen_mensual`, `ots_por_tipo`, `ots_por_tecnico`, `ots_pendientes` y `ots_detalle` (pestaña OT's, §9) |
+| GET | `/api/v1/reportes/{tipo}` | Reportes comerciales existentes (§9), mismos filtros; desde el 23-09-2026 también `whatsapp_resumen_mensual`, `whatsapp_por_vendedor` y `whatsapp_abiertas_ahora` (pestaña WhatsApp, §9); desde v1.40 también `ots_kpis`, `ots_resumen_mensual`, `ots_por_tipo`, `ots_por_tecnico`, `ots_pendientes` y `ots_detalle` (pestaña OT's, §9) |
 | GET | `/api/v1/whatsapp/conversaciones?abierta=true\|false` | Lista conversaciones de la Bandeja (v1.35, todas, sin distinción de vendedor) |
 | GET | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` | Hilo completo de mensajes, orden ascendente (v1.35) |
 | POST | `/api/v1/whatsapp/conversaciones/{contactoId}/mensajes` `{texto}` | Envío real vía Meta (v1.35) — respeta la ventana de 24h de Meta (`409` si está cerrada); a diferencia de un vendedor logueado, no antepone firma con nombre de persona |
+| GET | `/api/v1/cotizaciones` | Cotizaciones del CRM para análisis (v1.38) |
+| GET | `/api/v1/whatsapp/mensajes?desde=&hasta=` | Mensajes por rango de fechas (v1.38) |
+| GET | `/api/v1/softland/cotizaciones`, `/notas-venta`, `/facturas` | Documentos de Softland replicados en el CRM (v1.38) |
+| GET | `/api/v1/seguimientos` | Registro del seguimiento automático (v1.38) |
 
 Los 3 endpoints de WhatsApp usan el mismo token y límite de 60
 solicitudes/minuto que el resto de la API — sin diferencia de
@@ -1610,6 +2075,78 @@ sigue estando `GET /negocios/{id}`.
 
 Ver notas de cambio v1.28 y v1.29 para el detalle completo, incluida la
 verificación extremo a extremo contra Postgres real.
+
+**Endpoints de solo lectura para análisis (v1.38, 30-09-2026):** pedido de Luis
+Devoto para analizar las oportunidades que llegan de clientes sin depender de
+consultas manuales; un agente (Cowork) correrá después los análisis e informes
+periódicos. Alcance: **solo lectura**, no modifica datos ni envía nada. Datos
+cubiertos: el CRM desde agosto de 2026 y la historia de Softland que el CRM ya
+replica (desde 2023-01-01). Mismo token y mismo límite de 60 solicitudes por
+minuto. En producción desde el 30-09-2026 (commit `82a10d5`), sin migración de
+schema.
+
+- **Convención de los listados nuevos:** `?limit=&offset=` y respuesta
+  `{ total, limit, offset, siguiente_offset, datos }`; `siguiente_offset` es
+  `null` cuando no quedan más filas. Por defecto 200 filas por página (500 en
+  mensajes de WhatsApp) y máximo 1.000. Fechas `YYYY-MM-DD`, extremos incluidos.
+- **`GET /negocios` (ampliado):** suma `offset` y sube el tope de 200 a 500; el
+  orden ahora desempata por `id` (antes, filas con la misma fecha podían
+  repetirse o saltarse entre páginas). La respuesta suma `monto_estimado`
+  (**neto**, sin IVA), `causa_no_cierre`, `causa_no_cierre_detalle`,
+  `fecha_cierre`, `ultima_actividad`, `contacto_id` y `pipeline_id`. Sigue
+  devolviendo una lista simple, compatible con lo anterior.
+- **`GET /cotizaciones` (nuevo):** filtros `desde`, `hasta`, `estado`, `origen`
+  (`venta_directa` u `operaciones`), `negocio_id`, `vendedor_id` y
+  `solo_ultima_version=true`. No expone `token_publico` ni la ruta del PDF. El
+  `total` incluye IVA, mientras que el `monto_estimado` del negocio es neto.
+- **`GET /whatsapp/mensajes` (nuevo):** `desde` y `hasta` obligatorios; filtros
+  `contacto_id`, `negocio_id`, `direccion` (`entrante` o `saliente`). Cada
+  mensaje trae `lead_id`, `negocio_id` y la hora de Meta (`fecha_meta`).
+  **Incluye las conversaciones archivadas y excluye los contactos anonimizados**
+  (decisión de Luis Devoto). Sin archivos adjuntos: solo nombre y tipo. Como el
+  filtro `negocio_id` usa el vínculo del lead, que casi no se llena (§16),
+  conviene no depender de él.
+- **`GET /whatsapp/conversaciones/{id}/mensajes` (ampliado):** suma `lead_id` y
+  `negocio_id` a cada mensaje.
+- **`GET /softland/cotizaciones`, `/notas-venta` y `/facturas` (nuevo):** tablas
+  `reporte_softland_*`, con filtros `desde`, `hasta`, `vencod` y `cod_cliente`;
+  `meta` informa la cobertura real y la última sincronización. Las cotizaciones
+  de Softland llegan solo hasta jul-2026 (diseño de la sincronización); desde
+  ago-2026 las cotizaciones son las del CRM. Las notas de venta y facturas
+  llegan hasta la última sincronización nocturna (23:00). **Lo anterior a 2023
+  no está replicado.**
+- **`GET /seguimientos` (nuevo):** registro del seguimiento automático, con
+  filtros `desde`, `hasta`, `negocio_id`, `fuente` (`secuencia` o
+  `plantilla_whatsapp`) y `ventana_dias` (1 a 30, por defecto 7).
+  `resultado` puede ser `enviado_automatico`, `tarea_generada` o
+  `cambio_etapa`.
+  - **"Si el cliente respondió":** el CRM no tiene un detector de respuesta
+    general (para correo no existe). Se entregan dos datos de distinto valor:
+    `pausada_por_respuesta_cliente` es un **dato real** (la secuencia se pausó
+    porque el cliente respondió; solo aplica a `fuente=secuencia`) y
+    `respuesta_whatsapp_inferida` es un **dato inferido**, no una prueba: indica
+    si hubo *algún* mensaje entrante del contacto dentro de `ventana_dias`
+    después del envío.
+- **Anonimizados:** `anonimizarContacto()` guarda el nombre como `(Eliminado)`,
+  pero `initDb()` pasa a mayúsculas todos los nombres de contactos en cada
+  arranque, así que tras un reinicio queda `(ELIMINADO)`. El filtro compara sin
+  distinguir mayúsculas; quien consulte por otro camino (por ejemplo SQL
+  directo) debe hacer lo mismo.
+- **Pruebas:** Postgres local con el schema real (`initDb()`), servidor real y
+  token real, con datos ficticios (autenticación, paginación, validaciones de
+  parámetros, filtros, exclusión de anonimizados, ausencia de `token_publico` y
+  cálculo de la respuesta inferida); la prueba detectó y se corrigió el problema
+  de mayúsculas de los anonimizados. La nota v1.38 aclara que no se probó contra
+  datos reales de producción antes del despliegue; después del push se verificó
+  producción con el conector (los campos nuevos ya aparecen).
+- **Fuera de esta versión** (decisión de Luis Devoto, 30-09-2026): causa de
+  pérdida "Otro" con comentario obligatorio y su análisis fino (incluidos los
+  perdidos sin respuesta), y el envío de informes por correo (§16).
+
+**Conector MCP:** las herramientas que usa el agente Cowork están descritas en
+§14. Las 4 que escriben (crear cliente, crear negocio, registrar cotización y
+enviar mensaje de WhatsApp) no se marcan de solo lectura a propósito, para que
+su aprobación no se afloje.
 
 ## 19. Cobranza (v1.35 — en construcción, solo en `staging`)
 
