@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { db } = require('../db');
 const { authenticate, authorize } = require('../middleware/auth');
-const { actualizarDocumentosPendientes } = require('../services/cobranzaSoftland');
+const { actualizarDocumentosPendientes, buscarFacturasSoftland } = require('../services/cobranzaSoftland');
 const { detectarYParsear } = require('../services/cobranzaCartolas');
 const cobranzaTransbank = require('../services/cobranzaTransbank');
 const { fechaChileHoy } = require('../services/informeDiario');
@@ -574,6 +574,24 @@ router.post('/documentos/actualizar', requiereGestionCobranza, async (req, res) 
   } catch (err) {
     console.error('[cobranza/documentos/actualizar POST]', err);
     res.status(502).json({ error: `No se pudo actualizar desde Softland: ${err.message || 'error desconocido'}` });
+  }
+});
+
+// GET /api/cobranza/softland/facturas?folio=&cliente=&desde=&hasta=
+// Búsqueda ad-hoc EN VIVO contra Softland (no contra cobranza_documentos) —
+// encuentra cualquier factura, pagada o no, para poder reenviarla. Exige al
+// menos un filtro para no escanear todo el historial.
+router.get('/softland/facturas', requiereGestionCobranza, async (req, res) => {
+  const { folio, cliente, desde, hasta } = req.query;
+  if (!folio && !cliente && !desde && !hasta) {
+    return res.status(400).json({ error: 'Indica al menos un filtro (folio, cliente o rango de fechas).' });
+  }
+  try {
+    const facturas = await buscarFacturasSoftland({ folio, cliente, desde, hasta });
+    res.json(facturas);
+  } catch (err) {
+    console.error('[cobranza/softland/facturas GET]', err);
+    res.status(502).json({ error: `No se pudo consultar Softland: ${err.message || 'error desconocido'}` });
   }
 });
 

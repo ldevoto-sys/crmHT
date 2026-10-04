@@ -150,4 +150,52 @@ async function sincronizarDocumentosSiCorresponde() {
   }
 }
 
-module.exports = { actualizarDocumentosPendientes, sincronizarDocumentosSiCorresponde };
+// Búsqueda ad-hoc de facturas directamente contra Softland (no contra la
+// tabla local cobranza_documentos, que solo guarda las que tienen saldo
+// pendiente). Misma consulta base del skill HT-IN-01 §4.7, pero SIN el
+// filtro `Total > 0` — acá interesa encontrar cualquier factura (pagada o
+// no) para poder reenviarla, no solo las por cobrar. Exige al menos un
+// filtro (folio, rut o rango de fechas) para no traer todo el historial —
+// la réplica no tiene índice pensado para un table-scan completo desde el
+// CRM.
+async function buscarFacturasSoftland({ folio, cliente, desde, hasta }) {
+  const condiciones = [`c.TtdCod IN ('21','51')`];
+  const params = {};
+  if (folio) { condiciones.push('c.NumDoc = @folio'); params.folio = String(folio).trim(); }
+  if (cliente) {
+    condiciones.push(`(a.NomAux LIKE @cliente OR a.RutAux LIKE @cliente OR c.RutAux LIKE @cliente OR c.CodAux LIKE @cliente)`);
+    params.cliente = `%${String(cliente).trim()}%`;
+  }
+  if (desde) { condiciones.push('c.Fecha >= @desde'); params.desde = desde; }
+  if (hasta) { condiciones.push('c.Fecha <= @hasta'); params.hasta = hasta; }
+
+  const filas = await softland.query(
+    `SELECT TOP 200
+        c.NumDoc                              AS Folio,
+        ISNULL(a.CodAux, c.CodAux)            AS CodigoCliente,
+        ISNULL(a.RutAux, c.RutAux)            AS RutCliente,
+        ISNULL(a.NomAux,'Sin Cliente')        AS NombreCliente,
+        c.Monto                               AS MontoTotalFactura,
+        c.Total                               AS SaldoPendiente,
+        c.Fecha                               AS FechaEmision,
+        c.Vencimiento                         AS FechaVencimiento,
+        ISNULL(cv.CodVendedor,'')             AS VenCod,
+        ISNULL(v.VenDes,'Sin Vendedor')       AS NombreVendedor
+     FROM softland.WG_vsnpCartolaCliente c
+     LEFT JOIN softland.cwtauxi a
+            ON c.CodAux = a.CodAux
+     LEFT JOIN (
+         SELECT Folio, MAX(CodVendedor) AS CodVendedor
+         FROM softland.WG_vsnpCuboVentas
+         GROUP BY Folio
+     ) cv ON cv.Folio = c.NumDoc
+     LEFT JOIN softland.cwtvend v
+            ON cv.CodVendedor = v.VenCod
+     WHERE ${condiciones.join(' AND ')}
+     ORDER BY c.Fecha DESC`,
+    params
+  );
+  return filas;
+}
+
+module.exports = { actualizarDocumentosPendientes, sincronizarDocumentosSiCorresponde, buscarFacturasSoftland };

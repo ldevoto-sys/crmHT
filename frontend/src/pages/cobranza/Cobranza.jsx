@@ -65,7 +65,7 @@ export default function Cobranza() {
     <div>
       <h1 className="text-2xl font-bold text-ht-navy mb-4">Cobranza</h1>
       <div className="flex gap-1 mb-5 border-b border-gray-200">
-        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios'], ['cuentas', 'Cuentas de cliente'], ['contactos', 'Contactos'], ['reportes', 'Reportes']].map(([k, label]) => (
+        {[['documentos', 'Documentos'], ['movimientos', 'Movimientos bancarios'], ['cuentas', 'Cuentas de cliente'], ['contactos', 'Contactos'], ['reportes', 'Reportes'], ['buscarSoftland', 'Buscar en Softland']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === k ? 'border-ht-accent text-ht-navy' : 'border-transparent text-gray-500 hover:text-ht-navy'}`}>
             {label}
@@ -77,6 +77,7 @@ export default function Cobranza() {
       {tab === 'cuentas' && <TabCuentasCliente />}
       {tab === 'contactos' && <TabContactos />}
       {tab === 'reportes' && <TabReportes />}
+      {tab === 'buscarSoftland' && <TabBuscarSoftland />}
     </div>
   );
 }
@@ -1024,6 +1025,114 @@ function TabReportes() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+// Búsqueda ad-hoc EN VIVO contra Softland (no contra cobranza_documentos,
+// que solo guarda las facturas con saldo pendiente) — para encontrar
+// cualquier factura, pagada o no, y poder reenviarla. Exige al menos un
+// filtro; consulta directa a la réplica, puede demorar unos segundos.
+function TabBuscarSoftland() {
+  const [folio, setFolio] = useState('');
+  const [cliente, setCliente] = useState('');
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [resultados, setResultados] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+  const [error, setError] = useState('');
+
+  const hayFiltro = folio.trim() || cliente.trim() || desde || hasta;
+
+  const buscar = async (e) => {
+    e.preventDefault();
+    if (!hayFiltro) return;
+    setError(''); setBuscando(true); setResultados(null);
+    try {
+      const params = {};
+      if (folio.trim()) params.folio = folio.trim();
+      if (cliente.trim()) params.cliente = cliente.trim();
+      if (desde) params.desde = desde;
+      if (hasta) params.hasta = hasta;
+      const { data } = await api.get('/cobranza/softland/facturas', { params });
+      setResultados(data);
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo consultar Softland.'); }
+    finally { setBuscando(false); }
+  };
+
+  return (
+    <div>
+      <p className="text-xs text-gray-400 mb-3">
+        Busca directamente en Softland — incluye facturas ya pagadas, no solo las pendientes de cobro.
+        Indica al menos un filtro.
+      </p>
+      <form onSubmit={buscar} className="bg-white border border-gray-200 rounded-lg p-4 mb-4 flex flex-wrap gap-3 items-end">
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Folio</label>
+          <input value={folio} onChange={e => setFolio(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Cliente (RUT, código o nombre)</label>
+          <input value={cliente} onChange={e => setCliente(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Emitidas desde</label>
+          <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <div>
+          <label className="block text-xs text-gray-600 mb-1">Hasta</label>
+          <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
+            className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ht-accent" />
+        </div>
+        <button type="submit" disabled={!hayFiltro || buscando}
+          className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
+          {buscando ? 'Buscando…' : 'Buscar'}
+        </button>
+      </form>
+
+      {error && <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+
+      {resultados && (
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-gray-600">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium">Folio</th>
+                <th className="text-left px-4 py-2 font-medium">Cliente</th>
+                <th className="text-left px-4 py-2 font-medium">Emisión</th>
+                <th className="text-left px-4 py-2 font-medium">Vencimiento</th>
+                <th className="text-right px-4 py-2 font-medium">Monto</th>
+                <th className="text-right px-4 py-2 font-medium">Saldo pendiente</th>
+                <th className="text-left px-4 py-2 font-medium">Vendedor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resultados.map(f => (
+                <tr key={f.Folio} className="border-t border-gray-100 hover:bg-gray-50">
+                  <td className="px-4 py-2 text-ht-navy">#{f.Folio}</td>
+                  <td className="px-4 py-2 text-gray-600">
+                    {f.NombreCliente}
+                    <div className="text-xs text-gray-400">{f.RutCliente}</div>
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">{fmtFecha(f.FechaEmision)}</td>
+                  <td className="px-4 py-2 text-gray-600">{fmtFecha(f.FechaVencimiento)}</td>
+                  <td className="px-4 py-2 text-right text-gray-600">{fmtMoney(f.MontoTotalFactura)}</td>
+                  <td className={`px-4 py-2 text-right font-medium ${Number(f.SaldoPendiente) > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                    {fmtMoney(f.SaldoPendiente)}
+                  </td>
+                  <td className="px-4 py-2 text-gray-600">{f.NombreVendedor}</td>
+                </tr>
+              ))}
+              {resultados.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Sin resultados para esos filtros.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
