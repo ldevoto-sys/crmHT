@@ -1970,6 +1970,12 @@ async function initDb() {
       CONSTRAINT cobranza_config_unica CHECK (id = 1)
     )
   `);
+  // dias_bloqueo_softland: espejo de softland.xwparam.parBloqCantDias (el
+  // umbral real configurado en Softland para bloquear por deuda vencida,
+  // confirmado 05-10-2026 en "Ficha de Auxiliares > Parámetros de Bloqueo"
+  // = 30 días) -- se sincroniza solo, no se edita a mano acá: si Softland
+  // cambia el número, el CRM lo sigue sin tocar código.
+  await db.run(`ALTER TABLE cobranza_config ADD COLUMN IF NOT EXISTS dias_bloqueo_softland INTEGER`);
   const cobranzaCfgExiste = await db.get('SELECT id FROM cobranza_config WHERE id = 1');
   if (!cobranzaCfgExiste) await db.run('INSERT INTO cobranza_config (id) VALUES (1)');
   // El tope de redondeo nace en 500 desde el CREATE TABLE original; se pide

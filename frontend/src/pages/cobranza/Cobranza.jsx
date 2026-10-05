@@ -566,7 +566,7 @@ const EXTRACTORES_CUENTAS = {
   saldo_softland: c => Number(c.saldo_softland) || 0,
   diferencia: c => Number(c.diferencia) || 0,
   estado: c => (c.es_cuenta_paso ? 'De paso' : c.concuerdan ? 'OK' : 'Revisar diferencia'),
-  bloqueado_softland: c => (c.bloqueado_softland ? 'Bloqueado' : 'Al día'),
+  bloqueado_softland: c => (c.revisar_bloqueo ? 'Revisar bloqueo' : c.bloqueado_softland ? 'Bloqueado' : 'Al día'),
 };
 
 function TabCuentasCliente() {
@@ -597,6 +597,10 @@ function TabCuentasCliente() {
       <p className="text-xs text-gray-400 mb-3">
         saldo_app: monto de las facturas vigentes menos lo conciliado en el CRM. saldo_softland: lo que informó la
         última "Actualizar desde Softland". Si no concuerdan, hay que revisarlo antes de mandar un recordatorio.
+        Bloqueado: estado real que informa Softland. "Revisar bloqueo" significa que, según las facturas
+        sincronizadas, el cliente debería estar en un estado distinto al que informa Softland (puede deberse a una
+        excepción manual en Softland, un sobregiro, u otro documento que no se sincroniza acá) — no mandar
+        recordatorios de bloqueo a ese cliente hasta aclararlo.
       </p>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por código, nombre o RUT…"
@@ -642,10 +646,18 @@ function TabCuentasCliente() {
                     )}
                   </td>
                   <td className="px-4 py-2">
-                    {c.bloqueado_softland ? (
+                    {c.revisar_bloqueo ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700"
+                        title={`Softland dice "${c.bloqueado_softland ? 'bloqueado' : 'no bloqueado'}", pero según los documentos sincronizados debería estar "${c.bloqueado_estimado ? 'bloqueado' : 'no bloqueado'}"`}>
+                        Revisar bloqueo
+                      </span>
+                    ) : c.bloqueado_softland ? (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Bloqueado</span>
                     ) : (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Al día</span>
+                    )}
+                    {!c.bloqueado_softland && !c.revisar_bloqueo && c.dias_para_bloqueo > 0 && (
+                      <div className="text-xs text-amber-600 mt-0.5">Bloqueo en {c.dias_para_bloqueo} día(s)</div>
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">

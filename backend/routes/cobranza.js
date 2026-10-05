@@ -413,36 +413,64 @@ router.post('/contactos/importar/confirmar', requiereGestionCobranza, uploadCSV.
 // saldo_app y saldo_softland agregados sobre todas sus facturas vigentes.
 router.get('/cuentas-cliente', requiereGestionCobranza, async (req, res) => {
   try {
-    const cuentas = await db.all(`
-      WITH conciliado AS (
-        SELECT factura_folio, SUM(monto_aplicado) AS aplicado
-        FROM cobranza_conciliaciones
-        WHERE estado IN ('aprobada', 'modificada')
-        GROUP BY factura_folio
-      ),
-      saldo_por_factura AS (
-        SELECT d.codigo_cliente, d.saldo_pendiente AS saldo_softland,
-               d.monto_total - COALESCE(c.aplicado, 0) AS saldo_app
-        FROM cobranza_documentos d
-        LEFT JOIN conciliado c ON c.factura_folio = d.folio
-      )
-      SELECT cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso,
-             cc.bloqueado_softland,
-             COALESCE(SUM(s.saldo_app), 0) AS saldo_app,
-             COALESCE(SUM(s.saldo_softland), 0) AS saldo_softland,
-             COUNT(s.saldo_softland) AS facturas_vigentes
-      FROM cobranza_cuentas_cliente cc
-      LEFT JOIN saldo_por_factura s ON s.codigo_cliente = cc.codigo_cliente
-      GROUP BY cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso, cc.bloqueado_softland
-      ORDER BY cc.nombre_cliente NULLS LAST
-    `);
-    res.json(cuentas.map(c => ({
-      ...c,
-      saldo_app: Number(c.saldo_app),
-      saldo_softland: Number(c.saldo_softland),
-      diferencia: Number(c.saldo_app) - Number(c.saldo_softland),
-      concuerdan: (Number(c.saldo_app) > 0) === (Number(c.saldo_softland) > 0),
-    })));
+    const hoy = fechaChileHoy();
+    const [cuentas, config] = await Promise.all([
+      db.all(`
+        WITH conciliado AS (
+          SELECT factura_folio, SUM(monto_aplicado) AS aplicado
+          FROM cobranza_conciliaciones
+          WHERE estado IN ('aprobada', 'modificada')
+          GROUP BY factura_folio
+        ),
+        saldo_por_factura AS (
+          SELECT d.codigo_cliente, d.saldo_pendiente AS saldo_softland,
+                 d.monto_total - COALESCE(c.aplicado, 0) AS saldo_app
+          FROM cobranza_documentos d
+          LEFT JOIN conciliado c ON c.factura_folio = d.folio
+        ),
+        atraso_por_cliente AS (
+          SELECT codigo_cliente, MAX($1::date - fecha_vencimiento) AS dias_atraso_max
+          FROM cobranza_documentos
+          WHERE saldo_pendiente > 0
+          GROUP BY codigo_cliente
+        )
+        SELECT cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso,
+               cc.bloqueado_softland, at.dias_atraso_max,
+               COALESCE(SUM(s.saldo_app), 0) AS saldo_app,
+               COALESCE(SUM(s.saldo_softland), 0) AS saldo_softland,
+               COUNT(s.saldo_softland) AS facturas_vigentes
+        FROM cobranza_cuentas_cliente cc
+        LEFT JOIN saldo_por_factura s ON s.codigo_cliente = cc.codigo_cliente
+        LEFT JOIN atraso_por_cliente at ON at.codigo_cliente = cc.codigo_cliente
+        GROUP BY cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso,
+                 cc.bloqueado_softland, at.dias_atraso_max
+        ORDER BY cc.nombre_cliente NULLS LAST
+      `, [hoy]),
+      db.get('SELECT dias_bloqueo_softland FROM cobranza_config WHERE id = 1'),
+    ]);
+    const umbral = config?.dias_bloqueo_softland ?? null;
+
+    res.json(cuentas.map(c => {
+      const diasAtrasoMax = c.dias_atraso_max === null ? null : Number(c.dias_atraso_max);
+      // bloqueado_estimado: nuestra propia lectura de la regla de Softland
+      // (deuda vencida >= umbral), a partir de los documentos que
+      // replicamos -- NO reemplaza a bloqueado_softland (el campo real),
+      // solo sirve para detectar diferencias (ver revisar_bloqueo) y para
+      // avisar con anticipación a quien todavía no llega al umbral.
+      const diasParaBloqueo = umbral === null || diasAtrasoMax === null ? null : umbral - diasAtrasoMax;
+      const bloqueadoEstimado = diasParaBloqueo === null ? null : diasParaBloqueo <= 0;
+      return {
+        ...c,
+        saldo_app: Number(c.saldo_app),
+        saldo_softland: Number(c.saldo_softland),
+        diferencia: Number(c.saldo_app) - Number(c.saldo_softland),
+        concuerdan: (Number(c.saldo_app) > 0) === (Number(c.saldo_softland) > 0),
+        dias_atraso_max: diasAtrasoMax,
+        dias_para_bloqueo: diasParaBloqueo,
+        bloqueado_estimado: bloqueadoEstimado,
+        revisar_bloqueo: bloqueadoEstimado !== null && bloqueadoEstimado !== c.bloqueado_softland,
+      };
+    }));
   } catch (err) {
     console.error('[cobranza/cuentas-cliente GET]', err);
     res.status(500).json({ error: 'Error interno' });

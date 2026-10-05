@@ -37,10 +37,32 @@ WHERE c.TtdCod IN ('21','51')   -- Factura de venta afecta / exenta electrónica
 ORDER BY c.Vencimiento
 `;
 
+// Umbral real de días de deuda vencida que Softland usa para bloquear
+// clientes (Ficha de Auxiliares > Parámetros de Bloqueo, confirmado
+// 05-10-2026 = 30 días). Se lee en vivo en vez de dejarlo fijo en el
+// código: si cambia en Softland, el CRM lo sigue sin que haya que tocar
+// nada acá. Falla aislada a propósito (try/catch afuera, en el llamador) —
+// que no se pueda leer este parámetro puntual no debe tumbar la
+// sincronización completa de documentos, que ya funcionaba antes de esto.
+async function obtenerUmbralBloqueoSoftland() {
+  const filas = await softland.query('SELECT TOP 1 parBloqCantDias FROM softland.xwparam');
+  const valor = filas[0]?.parBloqCantDias;
+  return Number.isFinite(Number(valor)) ? Number(valor) : null;
+}
+
 // Reemplaza la tabla completa: un folio que ya no aparece (porque se pagó
 // entero) simplemente deja de estar en cobranza_documentos tras esta corrida.
 async function actualizarDocumentosPendientes() {
   const filas = await softland.query(SQL_DOCUMENTOS_PENDIENTES);
+
+  try {
+    const umbral = await obtenerUmbralBloqueoSoftland();
+    if (umbral !== null) {
+      await db.run('UPDATE cobranza_config SET dias_bloqueo_softland = $1 WHERE id = 1', [umbral]);
+    }
+  } catch (err) {
+    console.error('[cobranzaSoftland] No se pudo leer el umbral de bloqueo (xwparam.parBloqCantDias):', err.message);
+  }
   const client = await db.pool.connect();
   try {
     await client.query('BEGIN');
@@ -203,4 +225,7 @@ async function buscarFacturasSoftland({ folio, cliente, desde, hasta }) {
   return filas;
 }
 
-module.exports = { actualizarDocumentosPendientes, sincronizarDocumentosSiCorresponde, buscarFacturasSoftland };
+module.exports = {
+  actualizarDocumentosPendientes, sincronizarDocumentosSiCorresponde, buscarFacturasSoftland,
+  obtenerUmbralBloqueoSoftland,
+};
