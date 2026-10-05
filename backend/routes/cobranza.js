@@ -427,12 +427,13 @@ router.get('/cuentas-cliente', requiereGestionCobranza, async (req, res) => {
         LEFT JOIN conciliado c ON c.factura_folio = d.folio
       )
       SELECT cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso,
+             cc.bloqueado_softland,
              COALESCE(SUM(s.saldo_app), 0) AS saldo_app,
              COALESCE(SUM(s.saldo_softland), 0) AS saldo_softland,
              COUNT(s.saldo_softland) AS facturas_vigentes
       FROM cobranza_cuentas_cliente cc
       LEFT JOIN saldo_por_factura s ON s.codigo_cliente = cc.codigo_cliente
-      GROUP BY cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso
+      GROUP BY cc.codigo_cliente, cc.nombre_cliente, cc.rut_cliente, cc.empresa_id, cc.es_cuenta_paso, cc.bloqueado_softland
       ORDER BY cc.nombre_cliente NULLS LAST
     `);
     res.json(cuentas.map(c => ({

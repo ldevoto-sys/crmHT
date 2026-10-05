@@ -566,6 +566,7 @@ const EXTRACTORES_CUENTAS = {
   saldo_softland: c => Number(c.saldo_softland) || 0,
   diferencia: c => Number(c.diferencia) || 0,
   estado: c => (c.es_cuenta_paso ? 'De paso' : c.concuerdan ? 'OK' : 'Revisar diferencia'),
+  bloqueado_softland: c => (c.bloqueado_softland ? 'Bloqueado' : 'Al día'),
 };
 
 function TabCuentasCliente() {
@@ -615,6 +616,7 @@ function TabCuentasCliente() {
               <ThOrdenable campo="saldo_softland" orden={orden} onOrdenar={toggleOrden} align="right">Saldo Softland</ThOrdenable>
               <ThOrdenable campo="diferencia" orden={orden} onOrdenar={toggleOrden} align="right">Diferencia</ThOrdenable>
               <ThOrdenable campo="estado" orden={orden} onOrdenar={toggleOrden}>Estado</ThOrdenable>
+              <ThOrdenable campo="bloqueado_softland" orden={orden} onOrdenar={toggleOrden}>Bloqueado</ThOrdenable>
               <th className="px-4 py-2"></th>
             </tr>
           </thead>
@@ -639,6 +641,13 @@ function TabCuentasCliente() {
                       <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Revisar diferencia</span>
                     )}
                   </td>
+                  <td className="px-4 py-2">
+                    {c.bloqueado_softland ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Bloqueado</span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Al día</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right">
                     <button onClick={() => setExpandido(expandido === c.codigo_cliente ? null : c.codigo_cliente)}
                       className="text-ht-accent hover:underline text-xs">
@@ -648,7 +657,7 @@ function TabCuentasCliente() {
                 </tr>
                 {expandido === c.codigo_cliente && (
                   <tr className="border-t border-gray-100 bg-slate-50">
-                    <td colSpan={7} className="px-4 py-3">
+                    <td colSpan={8} className="px-4 py-3">
                       <DetalleFacturasCliente codigoCliente={c.codigo_cliente} />
                     </td>
                   </tr>
@@ -656,7 +665,7 @@ function TabCuentasCliente() {
               </Fragment>
             ))}
             {filtradas.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-400">Sin cuentas de cliente.</td></tr>
+              <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">Sin cuentas de cliente.</td></tr>
             )}
           </tbody>
         </table>

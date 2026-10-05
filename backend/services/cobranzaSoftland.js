@@ -15,6 +15,7 @@ SELECT
     ISNULL(a.CodAux, c.CodAux)            AS CodigoCliente,
     ISNULL(a.RutAux, c.RutAux)            AS RutCliente,
     ISNULL(a.NomAux,'Sin Cliente')        AS NombreCliente,
+    a.Bloqueado                           AS Bloqueado,
     c.Monto                               AS MontoTotalFactura,
     c.Total                               AS SaldoPendiente,
     c.Fecha                               AS FechaEmision,
@@ -78,7 +79,11 @@ async function sincronizarCuentasCliente(filas) {
   for (const r of filas) {
     if (!r.CodigoCliente) continue; // sin código de cliente no hay cómo agrupar la cuenta
     if (!clientes.has(r.CodigoCliente)) {
-      clientes.set(r.CodigoCliente, { rut: r.RutCliente || null, nombre: r.NombreCliente || null });
+      clientes.set(r.CodigoCliente, {
+        rut: r.RutCliente || null,
+        nombre: r.NombreCliente || null,
+        bloqueado: r.Bloqueado === 'S',
+      });
     }
   }
   if (clientes.size === 0) return { creadas: 0 };
@@ -93,21 +98,21 @@ async function sincronizarCuentasCliente(filas) {
   }
 
   let creadas = 0;
-  for (const [codigoCliente, { rut, nombre }] of clientes) {
+  for (const [codigoCliente, { rut, nombre, bloqueado }] of clientes) {
     const existe = await db.get('SELECT codigo_cliente FROM cobranza_cuentas_cliente WHERE codigo_cliente = $1', [codigoCliente]);
     if (existe) {
       await db.run(
-        'UPDATE cobranza_cuentas_cliente SET rut_cliente = $2, nombre_cliente = $3, actualizado_en = now() WHERE codigo_cliente = $1',
-        [codigoCliente, rut, nombre]
+        'UPDATE cobranza_cuentas_cliente SET rut_cliente = $2, nombre_cliente = $3, bloqueado_softland = $4, actualizado_en = now() WHERE codigo_cliente = $1',
+        [codigoCliente, rut, nombre, bloqueado]
       );
       continue;
     }
     const empresaId = rut && validarRut(rut) ? empresaPorRut.get(normalizarRut(rut)) || null : null;
     await db.run(
-      `INSERT INTO cobranza_cuentas_cliente (codigo_cliente, rut_cliente, nombre_cliente, empresa_id, es_cuenta_paso)
-       VALUES ($1,$2,$3,$4,$5)
+      `INSERT INTO cobranza_cuentas_cliente (codigo_cliente, rut_cliente, nombre_cliente, empresa_id, es_cuenta_paso, bloqueado_softland)
+       VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (codigo_cliente) DO NOTHING`,
-      [codigoCliente, rut, nombre, empresaId, !empresaId]
+      [codigoCliente, rut, nombre, empresaId, !empresaId, bloqueado]
     );
     creadas++;
   }

@@ -2062,6 +2062,15 @@ async function initDb() {
     )
   `);
 
+  // bloqueado_softland: espejo de softland.cwtauxi.Bloqueado ('S'/'N') para
+  // el codigo_cliente exacto de esta cuenta (no por RUT — un mismo RUT
+  // puede tener más de un CodAux, cada uno con su propio valor; confirmado
+  // con evidencia real el 05-10-2026, caso Condominio Altos de San
+  // Francisco II: 2 códigos para el mismo RUT, uno bloqueado y otro no).
+  // Validado contra 16 casos reales (13 bloqueados, 3 de control) antes de
+  // usarlo — ver cobranzaSoftland.js.
+  await db.run(`ALTER TABLE cobranza_cuentas_cliente ADD COLUMN IF NOT EXISTS bloqueado_softland BOOLEAN NOT NULL DEFAULT false`);
+
   // Control de la sincronización automática diaria de facturas pendientes
   // (mismo patrón que reporte_softland_sync, para el botón/cron de
   // "Actualizar desde Softland" de Cobranza).
