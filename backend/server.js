@@ -85,6 +85,11 @@ app.use('/api/postventa', require('./routes/postventa'));
 app.use('/api/despachos', require('./routes/despacho'));
 app.use('/api/servicio-tecnico', require('./routes/servicio_tecnico'));
 app.use('/api/novedades', require('./routes/novedades'));
+// /api/v1/mantenimiento va ANTES que /api/v1: Express matchea por prefijo en
+// orden de registro, y el router de /api/v1 (Cowork) no tiene un path propio
+// que lo acote — si quedara primero, interceptaría también estas rutas y les
+// exigiría COWORK_API_KEY en vez de la suya.
+app.use('/api/v1/mantenimiento', require('./routes/api_mantenimiento')); // integración app Mantenimiento (HT-DO-XX v2) — API key propia
 app.use('/api/v1', require('./routes/api_v1')); // integración Cowork (HT-DO-XX) — API key propia, sin JWT
 app.use('/api/softland', require('./routes/softland')); // Reportería Comercial + Softland
 app.use('/api/cobranza', require('./routes/cobranza')); // Módulo Cobranzas (HT-DO-XX, en construcción por fases)
