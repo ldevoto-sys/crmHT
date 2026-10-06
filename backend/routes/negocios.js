@@ -7,6 +7,7 @@ const timeline = require('../services/timeline');
 const secuencias = require('../services/secuencias');
 const ot = require('../services/ot');
 const { requiereDatosOT } = ot;
+const mantenimientoOT = require('../services/mantenimientoOT');
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
@@ -16,6 +17,17 @@ const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
 const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
 
 router.use(authenticate);
+
+// Sucursales de un cliente en Mantenimiento, por RUT (consulta en vivo — el
+// CRM no mantiene su propia copia, ver nota en db.js sobre
+// negocios.mantenimiento_sucursal_id). Para que el vendedor elija una al
+// crear/editar el negocio.
+router.get('/sucursales-sugeridas', async (req, res) => {
+  const rut = (req.query.rut || '').trim();
+  if (!rut) return res.json([]);
+  const sucursales = await mantenimientoOT.buscarSucursalesEnMantenimiento(rut);
+  res.json(sucursales);
+});
 
 function puedeEditar(negocio, user) {
   return user.rol === 'administrador' || user.rol === 'jefe_comercial' || negocio.vendedor_id === user.id;
@@ -210,6 +222,7 @@ router.post('/', authorize('administrador', 'jefe_comercial', 'vendedor', 'callc
     }
     if (entraAAceptado) {
       await ot.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo }, db, req.user.id);
+      mantenimientoOT.notificarOTCreada(negocio.id);
     }
     await timeline.registrar({
       contacto_id, empresa_id: emp, negocio_id: negocio.id, tipo: 'cambio_etapa',
@@ -323,10 +336,19 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
      tipo_trabajo ? tipoTrabajoFinal : negocio.tipo_trabajo,
      negocioId]
   );
+  // Mantenimiento se entera de una OT nueva por esta vía, sin importar si
+  // entró por "Aceptado" o directo a Programado/Ejecutado (aplicarEntradaAEtapa
+  // también puede crearla) — se compara antes/después en vez de tocar el
+  // valor de retorno de crearOTSiNoExiste, que usan otros 4 lugares del código.
+  const teniaOTAntes = !!(await db.get('SELECT 1 FROM ordenes_trabajo WHERE negocio_id = $1', [negocioId]));
   if (entraAAceptado) {
     await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: tipoTrabajoFinal }, db, usuarioId);
   }
   await ot.aplicarEntradaAEtapa(negocioId, preOT, db, usuarioId);
+  if (!teniaOTAntes) {
+    const tieneOTAhora = !!(await db.get('SELECT 1 FROM ordenes_trabajo WHERE negocio_id = $1', [negocioId]));
+    if (tieneOTAhora) mantenimientoOT.notificarOTCreada(negocioId);
+  }
   if (etapa.id !== negocio.etapa_id) {
     await db.run(
       'UPDATE negocio_etapa_historial SET salio_en = now() WHERE negocio_id = $1 AND salio_en IS NULL',
@@ -889,6 +911,11 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
 
     let creados = 0;
     const omitidos = [];
+    // negocios que recibieron OT en este import, para avisarle a Mantenimiento
+    // recién después del COMMIT (ver mismo patrón en cambiarEtapaNegocio) —
+    // acá no hace falta comparar antes/después: el negocio es nuevo, así que
+    // cualquier OT que se cree en el loop es necesariamente nueva.
+    const negociosConOTNueva = [];
     for (const v of validos) {
       const n = v.negocio;
       const vendedorId = resolverVendedor(n.vendedor);
@@ -923,6 +950,7 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       // mismo — mismo comportamiento que el kanban manual, para no divergir.
       if (etapa.nombre.toLowerCase() === 'aceptado') {
         await ot.crearOTSiNoExiste({ id: negocioId, tipo_trabajo: n.tipo_trabajo }, client, req.user.id);
+        negociosConOTNueva.push(negocioId);
       }
       // Programado/Ejecutado: la OT nace acá con sus datos de programación
       // (mapearFila ya exigió horas, técnicos y —en Ejecutado— fecha). Aceptado
@@ -934,12 +962,14 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
             horas_programadas: n.horas_programadas, horas_ejecutadas: n.horas_ejecutadas, fecha_programada: n.fecha_programada, fecha_ejecucion: n.fecha_ejecucion, id_fracttal: n.id_fracttal,
             tecnico_ids: tecnicos.ids,
           }, client);
+          if (!negociosConOTNueva.includes(negocioId)) negociosConOTNueva.push(negocioId);
         }
       }
       creados++;
     }
 
     await client.query('COMMIT');
+    for (const negocioId of negociosConOTNueva) mantenimientoOT.notificarOTCreada(negocioId);
     res.json({ message: 'Importación completada', creados, omitidos });
   } catch (err) {
     await client.query('ROLLBACK');

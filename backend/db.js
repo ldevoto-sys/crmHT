@@ -1533,6 +1533,19 @@ async function initDb() {
     console.log('[DB] Usuario "Cowork" (integrador API) creado.');
   }
 
+  // Seed: actor "Mantenimiento" — mismo patrón que "Cowork" de arriba, para
+  // la integración con la app de Mantenimiento (ver services/mantenimientoOT.js).
+  const mantenimientoExiste = await db.get(`SELECT id FROM users WHERE email = 'mantenimiento@integracion.hidrotecnica.cl'`);
+  if (!mantenimientoExiste) {
+    const hash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);
+    await db.run(
+      `INSERT INTO users (nombre, email, password_hash, rol, activo, must_change_password, recibe_round_robin)
+       VALUES ('Mantenimiento', 'mantenimiento@integracion.hidrotecnica.cl', $1, 'integrador', true, true, false)`,
+      [hash]
+    );
+    console.log('[DB] Usuario "Mantenimiento" (integrador API) creado.');
+  }
+
   // === Informe diario por correo (cotizaciones generadas + negocios ganados) ===
   // Una fila por día ya informado, para que el chequeo horario en server.js
   // (cada 15 min) no reenvíe el mismo informe dos veces si cae dentro de la
@@ -2270,6 +2283,22 @@ async function initDb() {
     await db.run(`INSERT INTO migraciones_aplicadas (nombre) VALUES ('ot_programacion_v1.40')`);
     console.log(`[DB] OT existentes exentas de las reglas de programación (${r.rowCount}).`);
   }
+
+  // Integración con la app de Mantenimiento (ver
+  // docs/HT-DO-XX-Especificacion-Integracion-Mantenimiento-v2.md): Mantenimiento
+  // se queda con toda la ejecución en terreno (decisión de Luis Devoto,
+  // 06-10-2026) — asigna sus propios técnicos y programa/ejecuta desde ahí, no
+  // desde el CRM. `mantenimiento_gestiona` marca esa OT puntual como gestionada
+  // externamente, para que el gate de técnico/horas de arriba (pensado para
+  // cuando se carga a mano en el CRM) no le aplique — las fechas igual se
+  // guardan (vienen de Mantenimiento), solo se salta la exigencia de técnico.
+  await db.run(`ALTER TABLE ordenes_trabajo ADD COLUMN IF NOT EXISTS mantenimiento_gestiona BOOLEAN NOT NULL DEFAULT false`);
+  // Vínculo con la sucursal en Mantenimiento (Cliente › Sucursal › Sala): el
+  // CRM no modela sucursales propias — consulta las de Mantenimiento en vivo
+  // por RUT de la empresa y guarda acá cuál se eligió (o el nombre, si es una
+  // sucursal nueva que todavía no existe del otro lado).
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS mantenimiento_sucursal_id INTEGER`);
+  await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS sucursal_nombre TEXT`);
 
   // Configurador de materiales/herramientas estándar — solo para los tipos
   // de trabajo que se repiten siempre igual (mantenimiento preventivo,

@@ -212,7 +212,10 @@ async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo },
     // "Aceptado": la OT se crea acá, así que hace falta el tipo de trabajo.
     if (!tipoTrabajo) throw errorValidacion(`El tipo de trabajo es obligatorio para pasar a "${etapa.nombre}"`);
   }
-  const exige = existente ? existente.exige_programacion : true;
+  // mantenimiento_gestiona: si Mantenimiento ya tomó esta OT, el técnico/horas
+  // los administra allá — el CRM no debe seguir exigiéndolos para avanzar de
+  // etapa (ver nota en db.js).
+  const exige = existente ? (existente.exige_programacion && !existente.mantenimiento_gestiona) : true;
   if (exige) {
     const tecnicoIds = normalizados.tecnico_ids ?? (existente ? await tecnicoIdsDe(existente.id, client) : []);
     const faltan = faltantesParaEtapa(etapa.nombre, {
