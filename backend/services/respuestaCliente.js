@@ -1,5 +1,5 @@
 // Respuesta del cliente por WhatsApp a un negocio en seguimiento comercial
-// (nota de cambio v1.41, 07-10-2026).
+// (nota de cambio v1.42, 07-10-2026).
 //
 // Hasta ahora solo el toque de un botón de la plantilla "Seguimiento de
 // cotización" (services/seguimientoBoton.js) hacía algo con el negocio; una

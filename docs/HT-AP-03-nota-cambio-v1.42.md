@@ -1,4 +1,4 @@
-# HT-AP-03 — Nota de cambio v1.41 (07/10/2026)
+# HT-AP-03 — Nota de cambio v1.42 (07/10/2026)
 
 > **Estado: solo en `staging`.** No promovido a `main`. Requiere el OK de
 > Luis Devoto (más confirmación adicional si el push cae en horario laboral).
