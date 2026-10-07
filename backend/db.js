@@ -263,6 +263,12 @@ async function initDb() {
   // CRM quedan con origen 'crm' y sin referencia_externa.
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS origen TEXT NOT NULL DEFAULT 'crm' CHECK (origen IN ('crm','fracttal','correo','whatsapp','otro'))`);
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS referencia_externa TEXT`);
+  // Arranque de Trabajos v2 (06-10-2026): una OT creada directo en Mantenimiento
+  // (sin pasar por "Aceptado" acá) también se registra como negocio — mismo
+  // mecanismo de idempotencia de arriba (origen, referencia_externa), con el
+  // id de la OT de Mantenimiento como referencia. Ver services/mantenimientoOT.js.
+  await db.run(`ALTER TABLE negocios DROP CONSTRAINT IF EXISTS negocios_origen_check`);
+  await db.run(`ALTER TABLE negocios ADD CONSTRAINT negocios_origen_check CHECK (origen IN ('crm','fracttal','correo','whatsapp','otro','mantenimiento'))`);
   await db.run(`ALTER TABLE negocios ADD COLUMN IF NOT EXISTS urgencia BOOLEAN NOT NULL DEFAULT false`);
   await db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_negocios_referencia_externa

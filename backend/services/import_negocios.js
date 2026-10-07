@@ -179,4 +179,4 @@ function mapearNegocios(rows) {
   return { validos, rechazos };
 }
 
-module.exports = { mapearNegocios, PLANTILLA_HEADERS, TIPOS_TRABAJO };
+module.exports = { mapearNegocios, PLANTILLA_HEADERS, TIPOS_TRABAJO, normalizarTipoTrabajo };

@@ -7,7 +7,12 @@
 // mismo camino que usa el kanban manual.
 const crypto = require('crypto');
 const { db } = require('../db');
-const { claveEtapa } = require('./ot');
+// Nombre distinto de "ot" a propósito: varias funciones de este archivo usan
+// esa variable local para la fila de ordenes_trabajo (ver
+// registrarEtapaDesdeMantenimiento) — otService evita que se tapen.
+const otService = require('./ot');
+const { claveEtapa } = otService;
+const { normalizarTipoTrabajo } = require('./import_negocios');
 // require perezoso (dentro de la función, no acá arriba): routes/negocios.js
 // ya requiere este archivo para disparar el webhook al crear una OT —
 // requerir `cambiarEtapaNegocio` a nivel de módulo crearía una dependencia
@@ -125,6 +130,69 @@ async function registrarEtapaDesdeMantenimiento(negocioId, nombreEtapa, datos) {
   return { ok: true };
 }
 
+// POST .../negocios (llamado por Mantenimiento cuando la OT nace allá, no en
+// el CRM — decisión de Luis Devoto 07-10-2026: no puede haber dos
+// numeraciones de OT independientes, así que toda OT, nazca donde nazca,
+// termina con un negocio en el CRM y se identifica por su negocio_id en los
+// dos ambientes). Crea el negocio directo en "Aceptado" y su OT, marcada
+// como gestionada por Mantenimiento desde el día uno (nunca le va a exigir
+// técnico/horas propios del CRM). Idempotente por (origen, referencia_externa)
+// — mismo mecanismo que ya usa la API de Cowork para no duplicar en un
+// reintento.
+async function crearNegocioDesdeMantenimiento({ referencia_externa, titulo, tipo_tarea, cliente, sucursal_nombre }) {
+  if (!referencia_externa) { const e = new Error('referencia_externa es obligatoria'); e.status = 400; throw e; }
+  const rut = (cliente && cliente.rut ? cliente.rut : '').trim();
+  if (!rut) { const e = new Error('El RUT del cliente es obligatorio'); e.status = 400; throw e; }
+
+  const existente = await db.get(
+    `SELECT id FROM negocios WHERE origen = 'mantenimiento' AND referencia_externa = $1`,
+    [referencia_externa]
+  );
+  if (existente) return { negocio_id: existente.id };
+
+  const pipeline = await db.get(`SELECT id FROM pipelines WHERE nombre = 'Operaciones' AND activo = true`);
+  if (!pipeline) { const e = new Error('No existe el pipeline "Operaciones"'); e.status = 503; throw e; }
+  const etapaAceptado = await db.get(
+    `SELECT id, probabilidad_cierre FROM pipeline_etapas WHERE pipeline_id = $1 AND activo = true AND lower(nombre) = 'aceptado'`,
+    [pipeline.id]
+  );
+  if (!etapaAceptado) { const e = new Error('No existe la etapa "Aceptado" en el pipeline Operaciones'); e.status = 503; throw e; }
+
+  let empresa = await db.get('SELECT id FROM empresas WHERE rut = $1', [rut]);
+  if (!empresa) {
+    empresa = (await db.run(
+      `INSERT INTO empresas (razon_social, rut) VALUES ($1,$2) RETURNING id`,
+      [(cliente && cliente.empresa) || rut, rut]
+    )).rows[0];
+  }
+
+  const email = cliente && cliente.email ? cliente.email : null;
+  let contacto = email
+    ? await db.get('SELECT id FROM contactos WHERE lower(email) = lower($1) AND activo = true', [email])
+    : null;
+  if (!contacto) {
+    contacto = (await db.run(
+      `INSERT INTO contactos (nombre, email, empresa_id, origen) VALUES ($1,$2,$3,'api') RETURNING id`,
+      [(cliente && cliente.empresa) || rut, email, empresa.id]
+    )).rows[0];
+  }
+
+  const tipoTrabajo = normalizarTipoTrabajo(tipo_tarea) || 'otro';
+  const usuarioId = await idMantenimiento();
+
+  const negocio = (await db.run(
+    `INSERT INTO negocios (contacto_id, empresa_id, vendedor_id, titulo, etapa_id, probabilidad_cierre, pipeline_id, tipo_trabajo, origen, referencia_externa, sucursal_nombre)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'mantenimiento',$9,$10) RETURNING id`,
+    [contacto.id, empresa.id, usuarioId, titulo || tipo_tarea || 'Orden de trabajo', etapaAceptado.id,
+     etapaAceptado.probabilidad_cierre, pipeline.id, tipoTrabajo, referencia_externa, sucursal_nombre || null]
+  )).rows[0];
+  await db.run('INSERT INTO negocio_etapa_historial (negocio_id, etapa_id) VALUES ($1,$2)', [negocio.id, etapaAceptado.id]);
+  await otService.crearOTSiNoExiste({ id: negocio.id, tipo_trabajo: tipoTrabajo }, db, usuarioId);
+  await db.run('UPDATE ordenes_trabajo SET mantenimiento_gestiona = true WHERE negocio_id = $1', [negocio.id]);
+
+  return { negocio_id: negocio.id };
+}
+
 // Webhook saliente al crearse una OT nueva (ver services/ot.js). Variable de
 // URL vacía = desactivado, mismo criterio que el reenvío de WhatsApp.
 async function notificarOTCreada(negocioId) {
@@ -152,5 +220,6 @@ module.exports = {
   obtenerOTParaMantenimiento,
   buscarSucursalesEnMantenimiento,
   registrarEtapaDesdeMantenimiento,
+  crearNegocioDesdeMantenimiento,
   notificarOTCreada,
 };
