@@ -111,7 +111,7 @@ function mapearFila(row) {
   n.estado = n.estado || null;
 
   // Programación de la OT (v1.40). Formato de fecha igual que fecha_cierre
-  // (DD-MM-AAAA); técnicos separados por ";" (email o nombre de usuario con
+  // (DD-MM-AAAA); técnicos separados por ";" (correo, nombre completo o nombre y apellido parcial, sin distinguir tildes, de usuario con
   // perfil técnico — se resuelven contra la BD en routes/negocios.js).
   for (const campo of ['horas_programadas', 'horas_ejecutadas']) {
     if (n[campo]) {

@@ -12,6 +12,7 @@ const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
 const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
+const { crearResolutorTecnicos } = require('../utils/tecnicos');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
 const PUEDE_REASIGNAR_VENDEDOR = ['administrador', 'jefe_comercial'];
@@ -761,27 +762,32 @@ async function resolverVendedores(client, validos) {
   return resolver;
 }
 
-// Resuelve los técnicos de cada fila (email o nombre, separados por ";" en el
-// CSV) contra usuarios activos con perfil técnico. Devuelve una función
-// fila → { ids, noEncontrados }.
+// Resuelve los técnicos de cada fila (correo, nombre completo o nombre y
+// apellido parcial, separados por ";" en el CSV, sin distinguir mayúsculas ni
+// tildes) contra usuarios activos con perfil técnico. Devuelve una función
+// fila → { ids, noEncontrados, ambiguos }.
 async function resolverTecnicos(client, validos) {
-  const valores = [...new Set(validos.flatMap(v => v.negocio.tecnicos_lista || []).map(t => t.toLowerCase()))];
-  const mapa = new Map();
-  if (valores.length) {
-    const r = await client.query(
-      `SELECT id, lower(email) AS e, lower(nombre) AS n FROM users WHERE activo = true AND rol = 'tecnico' AND (lower(email) = ANY($1) OR lower(nombre) = ANY($1))`,
-      [valores]
-    );
-    r.rows.forEach(row => { mapa.set(row.e, row.id); mapa.set(row.n, row.id); });
+  let resolver = () => null;
+  if (validos.some(v => (v.negocio.tecnicos_lista || []).length)) {
+    const r = await client.query(`SELECT id, email, nombre FROM users WHERE activo = true AND rol = 'tecnico'`);
+    resolver = crearResolutorTecnicos(r.rows);
   }
   return negocio => {
-    const ids = []; const noEncontrados = [];
+    const ids = []; const noEncontrados = []; const ambiguos = [];
     for (const t of negocio.tecnicos_lista || []) {
-      const id = mapa.get(t.toLowerCase());
-      if (id) ids.push(id); else noEncontrados.push(t);
+      const res = resolver(t);
+      if (res && res.id) ids.push(res.id); else if (res && res.ambiguo) ambiguos.push(t); else noEncontrados.push(t);
     }
-    return { ids: [...new Set(ids)], noEncontrados };
+    return { ids: [...new Set(ids)], noEncontrados, ambiguos };
   };
+}
+
+function motivoTecnicos(t) {
+  const q = l => l.map(x => `"${x}"`).join(', ');
+  const partes = [];
+  if (t.noEncontrados.length) partes.push(`técnico no encontrado (usuario activo con perfil técnico): ${q(t.noEncontrados)}`);
+  if (t.ambiguos.length) partes.push(`técnico ambiguo (coincide con más de un usuario; usa el nombre completo o el correo): ${q(t.ambiguos)}`);
+  return partes.join('; ');
 }
 
 // Resuelve (creando si hace falta) la empresa referenciada por rut/nombre.
@@ -852,7 +858,7 @@ router.post('/importar/preview', authorize(...PUEDE_IMPORTAR_NEGOCIOS), uploadCS
       const etapa = resolverEtapaFila(pipelineInfo, v.negocio.estado);
       if (!etapa) { rechazos.push({ fila: v.fila, motivo: `estado "${v.negocio.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
       const tecnicos = resolverTecnico(v.negocio);
-      if (tecnicos.noEncontrados.length) { rechazos.push({ fila: v.fila, motivo: `técnico no encontrado (usuario activo con perfil técnico): ${tecnicos.noEncontrados.map(t => `"${t}"`).join(', ')}` }); continue; }
+      if (tecnicos.noEncontrados.length || tecnicos.ambiguos.length) { rechazos.push({ fila: v.fila, motivo: motivoTecnicos(tecnicos) }); continue; }
       v.etapaNombre = etapa.nombre;
       finales.push(v);
     }
@@ -923,7 +929,7 @@ router.post('/importar/confirmar', authorize(...PUEDE_IMPORTAR_NEGOCIOS), upload
       const etapa = resolverEtapaFila(pipelineInfo, n.estado);
       if (!etapa) { omitidos.push({ fila: v.fila, motivo: `estado "${n.estado}" no es una etapa activa del pipeline Operaciones` }); continue; }
       const tecnicos = resolverTecnico(n);
-      if (tecnicos.noEncontrados.length) { omitidos.push({ fila: v.fila, motivo: `técnico no encontrado (usuario activo con perfil técnico): ${tecnicos.noEncontrados.map(t => `"${t}"`).join(', ')}` }); continue; }
+      if (tecnicos.noEncontrados.length || tecnicos.ambiguos.length) { omitidos.push({ fila: v.fila, motivo: motivoTecnicos(tecnicos) }); continue; }
 
       const empresaId = await resolverEmpresa({ empresa_rut: n.empresa_rut, empresa_nombre: n.empresa_nombre });
       const contactoId = await resolverOCrearContacto(client, n, empresaId);
