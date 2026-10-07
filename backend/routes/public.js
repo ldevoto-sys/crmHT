@@ -139,6 +139,7 @@ const r2 = require('../services/r2');
 const whatsappCuentas = require('../config/whatsappCuentas');
 const privacidad = require('../services/privacidad');
 const seguimientoBoton = require('../services/seguimientoBoton');
+const respuestaCliente = require('../services/respuestaCliente');
 
 const MEDIA_TIPOS = { image: 'imagen', video: 'video', audio: 'audio', document: 'documento' };
 
@@ -310,6 +311,16 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
     // el orden en el hilo quede bien — ver services/seguimientoBoton.js).
     const manejado = await seguimientoBoton.manejarRespuesta(m, { contacto, textoEntrante });
     if (manejado) return;
+  }
+
+  // Cualquier otra respuesta del cliente (texto libre, reacción excluida, o
+  // el botón de otra plantilla) a un negocio en "Cotizado" o con secuencia de
+  // seguimiento en curso: pausa la secuencia y mueve a Negociación o avisa al
+  // vendedor (ver services/respuestaCliente.js). Las solicitudes de
+  // eliminación de datos (Ley 21.719) las revisa una persona, no se tocan.
+  const esSolicitudPrivacidad = m.type === 'text' && privacidad.esSolicitudEliminacion(m.text.body);
+  if (cuenta.ambito === 'ventas' && m.type !== 'reaction' && !esSolicitudPrivacidad) {
+    await respuestaCliente.procesarRespuesta({ contacto, texto: textoEntrante });
   }
 
   // Cuentas que no son la de Ventas (ej. el número oficial de la empresa)
