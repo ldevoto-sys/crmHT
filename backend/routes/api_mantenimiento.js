@@ -78,4 +78,22 @@ router.patch('/ordenes-trabajo/:negocioId/programacion', registrarCambioEtapa('P
 // Body esperado: fecha_ejecucion (AAAA-MM-DD), horas_ejecutadas.
 router.patch('/ordenes-trabajo/:negocioId/ejecucion', registrarCambioEtapa('Ejecutado'));
 
+// POST /negocios — Mantenimiento avisa que creó una OT allá (no vino del
+// CRM) y necesita su negocio_id, para que los dos ambientes usen el mismo
+// número de OT (decisión de Luis Devoto 07-10-2026: nunca dos numeraciones
+// independientes). Body: { referencia_externa (obligatorio, id de la OT en
+// Mantenimiento), titulo, tipo_tarea, cliente: { empresa, rut (obligatorio),
+// email }, sucursal_nombre }. Idempotente: reintentar con la misma
+// referencia_externa devuelve el mismo negocio_id, nunca duplica.
+router.post('/negocios', async (req, res) => {
+  try {
+    const resultado = await mantenimientoOT.crearNegocioDesdeMantenimiento(req.body || {});
+    res.status(201).json(resultado);
+  } catch (err) {
+    if (err.status) return error(res, err.status, err.status === 400 ? 'datos_invalidos' : 'error', err.message);
+    console.error('[api_mantenimiento] Error al crear negocio desde Mantenimiento', err);
+    error(res, 500, 'error_interno', 'Error interno');
+  }
+});
+
 module.exports = router;
