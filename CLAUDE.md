@@ -86,6 +86,22 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
+## Pendientes (actualizado 06-10-2026)
+
+**Integración CRM ↔ app de Mantenimiento — lado CRM, en `staging` sin
+promover (06-10-2026).** Ver `docs/HT-AP-03-nota-cambio-v1.41.md` para el
+detalle completo. Resumen: Mantenimiento se queda con toda la ejecución en
+terreno (decisión de Luis Devoto) — el CRM crea la OT al entrar a "Aceptado"
+y avisa por webhook; cuando Mantenimiento programa o ejecuta, llama de
+vuelta a `/api/v1/mantenimiento/...` y el CRM mueve la etapa real del
+pipeline Operaciones. Probado end-to-end con los dos sistemas (crmHT y
+`hidrotecnica-app`) corriendo a la vez, Postgres real en ambos lados.
+Pendiente: selector de sucursal en el frontend del CRM (el endpoint
+`GET /api/negocios/sucursales-sugeridas` ya existe, falta la pantalla), y
+el CRM solo avisa al crear la OT, no en cada cambio de etapa posterior.
+Depende de que se promueva primero el resto de Operaciones (v1.34-v1.40),
+que sigue en `staging`.
+
 ## Pendientes (actualizado 01-10-2026)
 
 **Promoción a `main` del 01-10-2026 (en horario laboral, con el OK explícito
