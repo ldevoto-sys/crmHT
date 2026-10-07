@@ -22,9 +22,11 @@ seguimiento en curso**:
 
 1. **Se pausa la secuencia** de esos negocios (motivo "Cliente respondió").
 2. **Rechazo claro** ("no realizaré la compra", "ya no me interesa", "decidimos
-   no continuar", "no gracias", etc.): **no se mueve nada solo**. Se crea una
-   tarea al vendedor ("Posible rechazo del cliente por WhatsApp") para que
-   confirme y marque Perdido con su causa de no cierre.
+   no continuar", "no gracias", etc.) y **un solo negocio en seguimiento**: pasa
+   a **Perdido** automáticamente y se envía la encuesta de causa de no cierre
+   por WhatsApp (mismo camino que el botón "No realizaré la compra"). Con
+   **varios negocios** en seguimiento no se adivina cuál: tarea al vendedor
+   ("Rechazo del cliente por WhatsApp: elegir negocio").
 3. **Otra respuesta y un solo negocio en Cotizado**: pasa a **Negociación**,
    por el mismo camino que mover la tarjeta a mano (historial, línea de
    tiempo, secuencias). Si el pipeline no tiene etapa "Negociación" activa,
@@ -39,9 +41,11 @@ no impide que el mensaje se registre en la Bandeja.
 ### Alcance y límites
 - No hay cambios de schema.
 - La detección de rechazo es por frases (lista conservadora en
-  `PATRONES_RECHAZO`); solo sugiere, nunca cierra el negocio sola. Una frase
-  no cubierta se trata como respuesta normal (pasa a Negociación si hay un
-  solo negocio en Cotizado, que es el vendedor quien revisa).
+  `PATRONES_RECHAZO`), por decisión de Luis Devoto (07-10-2026) cierra el
+  negocio sin confirmación humana. Un falso positivo (frase que parece
+  rechazo y no lo es) deja un negocio abierto en Perdido; se revierte
+  moviéndolo a mano. Una frase de rechazo no cubierta se trata como respuesta
+  normal (pasa a Negociación si hay un solo negocio en Cotizado).
 - Solo aplica a la cuenta de Ventas; el número oficial no tiene este flujo.
 - La regla de "botón No realizaré la compra" de la plantilla de seguimiento
   (v1.38 y anteriores) sigue igual y tiene prioridad: pasa a Perdido y envía
@@ -50,8 +54,7 @@ no impide que el mensaje se registre en la Bandeja.
 ### Cómo se probó
 Postgres real con el schema del código, `initDb()` y seis casos: respuesta
 normal con un negocio (pasa a Negociación, secuencia pausada), rechazo
-(permanece en Cotizado, secuencia pausada, una sola tarea aunque lleguen dos
-mensajes), dos negocios en Cotizado (ninguno se mueve, una tarea), contacto
+con un negocio (pasa a Perdido, secuencia cancelada, encuesta programada una sola vez aunque lleguen dos mensajes), rechazo con dos negocios (ninguno se mueve, una tarea), dos negocios en Cotizado (ninguno se mueve, una tarea), contacto
 sin negocios, negocio ya en Negociación y negocio Perdido (sin cambios).
 Prueba de la lista de frases con 9 rechazos y 7 mensajes que no lo son.
 `routes/public.js` carga sin errores. No se probó con un webhook real de Meta.

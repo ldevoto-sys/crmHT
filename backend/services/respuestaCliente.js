@@ -12,9 +12,10 @@
 // abiertos que estén en "Cotizado" o con una secuencia de seguimiento en
 // curso:
 //   1. Se pausa la secuencia de esos negocios (el cliente respondió).
-//   2. Si el texto es un rechazo claro: NO se mueve nada solo. Se crea una
-//      tarea al vendedor para que confirme y marque "Perdido" (con la causa
-//      de no cierre) — un falso positivo no puede cerrar un negocio abierto.
+//   2. Si el texto es un rechazo claro y hay un solo negocio en seguimiento:
+//      pasa a "Perdido" y se pregunta la causa por WhatsApp (mismo camino que
+//      el botón "No realizaré la compra"). Con varios negocios no se adivina
+//      cuál: tarea al vendedor.
 //   3. Si no es rechazo y hay UN solo negocio en "Cotizado": pasa a
 //      "Negociación" (mismo camino que mover la tarjeta a mano).
 //   4. Si hay varios en "Cotizado": no se adivina cuál es — tarea al
@@ -22,6 +23,7 @@
 const { db } = require('../db');
 const timeline = require('./timeline');
 const secuencias = require('./secuencias');
+const seguimientoBoton = require('./seguimientoBoton');
 const { cambiarEtapaNegocio } = require('../routes/negocios');
 
 const MAX_TEXTO = 200;
@@ -137,13 +139,31 @@ async function procesarRespuesta({ contacto, texto }) {
           descripcion: `Respondió: "${extracto}". Revisa y avanza el negocio a mano (este pipeline no tiene una etapa "Negociación").`,
         });
       }
+    } else if (rechazo && negocios.length === 1) {
+      // Un solo negocio en seguimiento: es inequívoco cuál cerrar. Mismo
+      // camino que el botón "No realizaré la compra": pasa a Perdido y se
+      // pregunta la causa por encuesta.
+      const n = negocios[0];
+      const movido = await seguimientoBoton.marcarPerdidoPorRechazo(
+        n, `Cliente indicó por WhatsApp que no realizará la compra ("${extracto}") — motivo pendiente de encuesta automática`
+      );
+      if (movido) {
+        await nota(n, `Cliente respondió por WhatsApp con un rechazo ("${extracto}") — el negocio pasó de "${n.etapa_nombre}" a Perdido automáticamente; se le pregunta la causa por WhatsApp.`);
+      } else {
+        await nota(n, `Cliente respondió por WhatsApp con un rechazo ("${extracto}") — el pipeline no tiene una etapa "perdida", no se movió automáticamente.`);
+        await crearTarea({
+          contacto, negocios: [n], titulo: 'Rechazo del cliente por WhatsApp',
+          descripcion: `Respondió: "${extracto}". Marca el negocio como Perdido con su causa de no cierre (el pipeline no tiene una etapa "perdida" configurada para hacerlo automático).`,
+        });
+      }
     } else if (rechazo) {
+      // Varios negocios en seguimiento: no se adivina cuál cerrar.
       for (const n of negocios) {
-        await nota(n, `Cliente respondió por WhatsApp con un posible rechazo ("${extracto}") — no se movió automáticamente; se avisó al vendedor para que confirme y marque "Perdido".`);
+        await nota(n, `Cliente respondió por WhatsApp con un rechazo ("${extracto}") — tiene ${negocios.length} negocios en seguimiento, no se movió ninguno automáticamente; se avisó al vendedor.`);
       }
       await crearTarea({
-        contacto, negocios, titulo: 'Posible rechazo del cliente por WhatsApp',
-        descripcion: `Respondió: "${extracto}". Confirma con el cliente y, si no va a comprar, marca el negocio como Perdido con su causa de no cierre.`,
+        contacto, negocios, titulo: 'Rechazo del cliente por WhatsApp: elegir negocio',
+        descripcion: `Respondió: "${extracto}". Tiene más de un negocio en seguimiento; confirma cuál rechaza y márcalo como Perdido con su causa de no cierre.`,
       });
     } else if (cotizados.length > 1) {
       for (const n of cotizados) {
