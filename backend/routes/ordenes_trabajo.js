@@ -141,8 +141,9 @@ router.get('/negocio/:negocioId', async (req, res) => {
 
     const completa = await cargarOTCompleta('o.negocio_id', req.params.negocioId);
     if (!completa) return res.status(404).json({ error: 'Este negocio todavía no tiene Orden de Trabajo (se genera al entrar a "Aceptado")' });
+    const [alerta] = await otSvc.negociosConAlertas([negocio.id]);
     res.json({
-      ...completa.ot, numero: `OT-${completa.ot.negocio_id}`, tecnicos: completa.tecnicos,
+      ...completa.ot, numero: `OT-${completa.ot.negocio_id}`, tecnicos: completa.tecnicos, alertas: alerta ? alerta.alertas : [],
       items: req.user.rol === 'tecnico' ? sinPrecios(completa.items) : completa.items,
       puede_editar: puedeEditar(negocio, req.user),
     });
@@ -155,8 +156,8 @@ router.get('/negocio/:negocioId', async (req, res) => {
 // PUT /api/ordenes-trabajo/:id/programacion — horas programadas, técnicos,
 // fecha de ejecución e ID de Fracttal. Es la edición posterior a la entrada
 // a "Programado"/"Ejecutado" (ahí se piden por el Pipeline). Solo se tocan
-// las claves que vienen en el body. Si el negocio está hoy en Programado o
-// Ejecutado, no se puede dejar la OT sin lo que esa etapa exige.
+// las claves que vienen en el body. Desde v1.44 no se bloquea dejar datos en
+// blanco: lo que falte aparece como alerta (services/ot.js#alertasOT).
 router.put('/:id/programacion', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Orden de Trabajo no encontrada' });
   try {
@@ -169,18 +170,6 @@ router.put('/:id/programacion', async (req, res) => {
     if (normalizados.tecnico_ids) await otSvc.validarTecnicos(normalizados.tecnico_ids);
 
     const actual = await db.get('SELECT * FROM ordenes_trabajo WHERE id = $1', [req.params.id]);
-    const etapa = await db.get('SELECT nombre FROM pipeline_etapas WHERE id = $1', [negocio.etapa_id]);
-    if (actual.exige_programacion && etapa && otSvc.requiereDatosOT(etapa.nombre)) {
-      const tecnicoIdsAntes = await otSvc.tecnicoIdsDe(actual.id);
-      const faltan = otSvc.faltantesParaEtapa(etapa.nombre, {
-        horas: normalizados.horas_programadas !== undefined ? normalizados.horas_programadas : actual.horas_programadas,
-        tecnicoIds: normalizados.tecnico_ids ?? tecnicoIdsAntes,
-        fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : actual.fecha_ejecucion,
-        fechaProgramada: normalizados.fecha_programada !== undefined ? normalizados.fecha_programada : actual.fecha_programada,
-        horasEjecutadas: normalizados.horas_ejecutadas !== undefined ? normalizados.horas_ejecutadas : actual.horas_ejecutadas,
-      });
-      if (faltan.length) return res.status(400).json({ error: `La OT está en "${etapa.nombre}": no puede quedar sin ${faltan.join(', ')}` });
-    }
 
     const tecnicosAntes = normalizados.tecnico_ids ? await db.all(
       `SELECT u.nombre FROM ot_tecnicos t JOIN users u ON u.id = t.user_id WHERE t.ot_id = $1 ORDER BY u.nombre`, [actual.id]) : null;

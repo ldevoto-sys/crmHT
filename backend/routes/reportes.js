@@ -452,6 +452,19 @@ router.get('/export', async (req, res) => {
   }
 });
 
+// POST /api/reportes/ot-pendientes/enviar-ahora — dispara el aviso de OT con
+// datos pendientes fuera de su horario (8am), para probarlo (en staging no
+// corre solo) o reenviarlo.
+router.post('/ot-pendientes/enviar-ahora', async (req, res) => {
+  if (!['administrador', 'jefe_comercial'].includes(req.user.rol)) return res.status(403).json({ error: 'Sin permiso' });
+  try {
+    res.json(await require('../services/alertasOT').enviarAvisoOTPendientes());
+  } catch (err) {
+    console.error('[reportes/ot-pendientes]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // POST /api/reportes/informe-diario/enviar-ahora — dispara el informe diario
 // fuera de su horario programado (8am), para poder probarlo o reenviarlo tras
 // una falla. Por defecto usa el día anterior; ?fecha=YYYY-MM-DD fuerza otro día.

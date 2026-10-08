@@ -89,8 +89,8 @@ export default function ImportarNegocios() {
         (mantenimiento preventivo, lavado, impermeabilizado, mantenimiento correctivo u otro) — con eso se genera la
         Orden de Trabajo automáticamente. Las fechas van en formato <strong>DD-MM-AAAA</strong>.
         Para las filas en <strong>Programado</strong> o <strong>Ejecutado</strong> también son obligatorias{' '}
-        <strong>fecha_programada</strong>, <strong>horas_programadas</strong> (por técnico) y <strong>tecnicos</strong> (email o nombre de usuarios con perfil
-        técnico, separados por punto y coma: <code>ana@hidrotecnica.cl;Juan Pérez</code>); en <strong>Ejecutado</strong>,
+        <strong>fecha_programada</strong>, <strong>horas_programadas</strong> (por técnico) y <strong>tecnicos</strong> (correo o nombre de usuarios con perfil
+        técnico, separados por punto y coma: <code>ana@hidrotecnica.cl;Juan Pérez</code>; el nombre puede ir sin tildes y basta nombre y apellido, por ejemplo <code>Raul Ibarra</code>; si dos técnicos calzan, se rechaza la fila). Si el archivo usa <code>;</code> como separador, pon la lista entre comillas; en <strong>Ejecutado</strong>,
         además <strong>fecha_ejecucion</strong> y <strong>horas_ejecutadas</strong> (por técnico). <strong>id_fracttal</strong> es opcional. El <strong>monto</strong>{' '}
         es el valor de venta (neto) de las oportunidades sin cotización.
         La empresa y el contacto se buscan o se crean automáticamente; el vendedor debe existir ya en el sistema.

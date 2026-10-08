@@ -54,6 +54,7 @@ function construir(query, vendedorId, { conRango = true } = {}) {
   const cte = `
     WITH base AS (
       SELECT o.id AS ot_id, o.negocio_id, o.horas_programadas, o.horas_ejecutadas, o.fecha_programada, o.fecha_ejecucion, o.id_fracttal,
+             o.exige_programacion,
              n.tipo_trabajo, n.titulo, n.empresa_id, e.razon_social AS cliente, pe.nombre AS etapa_actual,
              COALESCE(cot.neto, n.monto_estimado, 0) AS valor, (cot.neto IS NULL) AS sin_cotizacion,
              (SELECT COUNT(*) FROM ot_tecnicos t WHERE t.ot_id = o.id)::int AS n_tecnicos
@@ -96,7 +97,14 @@ async function otsKpis(query, vendedorId) {
             COUNT(*) FILTER (WHERE ${c.conBrecha})::int AS con_brecha_cantidad,
             COUNT(*) FILTER (WHERE ${c.conBrecha} AND ${BRECHA} <= 0)::int AS a_tiempo_cantidad,
             ROUND(AVG(${BRECHA}) FILTER (WHERE ${c.conBrecha}), 1)::float8 AS brecha_promedio_dias,
-            COUNT(*) FILTER (WHERE (${c.progOK} OR ${c.ejecOK}) AND sin_cotizacion)::int AS sin_cotizacion_cantidad
+            COUNT(*) FILTER (WHERE (${c.progOK} OR ${c.ejecOK}) AND sin_cotizacion)::int AS sin_cotizacion_cantidad,
+            -- v1.44: OT que hoy están en Programado/Ejecutado con datos sin completar
+            -- (las mismas del aviso diario, services/ot.js#alertasOT) y ejecutadas
+            -- del período que suman 0 horas-hombre por falta de horas o técnicos.
+            COUNT(*) FILTER (WHERE lower(etapa_actual) IN ('programado', 'ejecutado') AND exige_programacion
+              AND (fecha_programada IS NULL OR COALESCE(horas_programadas, 0) <= 0 OR n_tecnicos = 0
+                   OR (lower(etapa_actual) = 'ejecutado' AND (fecha_ejecucion IS NULL OR COALESCE(horas_ejecutadas, 0) <= 0))))::int AS incompletas_cantidad,
+            COUNT(*) FILTER (WHERE ${c.ejecOK} AND (n_tecnicos = 0 OR COALESCE(horas_ejecutadas, horas_programadas, 0) <= 0))::int AS ejecutadas_sin_hh_cantidad
      FROM base`,
     c.params
   );

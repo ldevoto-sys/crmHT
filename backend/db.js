@@ -1555,6 +1555,15 @@ async function initDb() {
     )
   `);
 
+  // === Aviso diario de OT con datos pendientes (v1.44) ===
+  // Una fila por día ya procesado — mismo patrón que informe_diario_envios.
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS ot_alertas_envios (
+      fecha DATE PRIMARY KEY,
+      enviado_en TIMESTAMP DEFAULT now()
+    )
+  `);
+
   // === Reportería Comercial + Softland (HT-AP-03, acordado con Gerencia el
   // 19-08-2026) ===
   // Área comercial del vendedor (Ventas Mesón / Operaciones / V Región /

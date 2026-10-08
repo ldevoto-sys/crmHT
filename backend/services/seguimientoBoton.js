@@ -84,33 +84,42 @@ async function manejarRespuesta(m, { contacto, textoEntrante }) {
   return true;
 }
 
+// Mueve el negocio a "Perdido" porque el cliente avisó por WhatsApp que no
+// comprará, y programa la encuesta de causa de no cierre. Usado por el botón
+// "No realizaré la compra" (arriba) y por el rechazo escrito a mano
+// (services/respuestaCliente.js). Devuelve false si el pipeline no tiene una
+// etapa "perdida".
+async function marcarPerdidoPorRechazo(negocio, detalle) {
+  const etapaPerdida = await db.get(
+    `SELECT id FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'perdida' LIMIT 1`, [negocio.pipeline_id]
+  );
+  if (!etapaPerdida) {
+    console.error('[seguimientoBoton] Pipeline', negocio.pipeline_id, 'sin etapa "perdida" — no se pudo mover el negocio', negocio.id);
+    return false;
+  }
+  // Causa pendiente: se pregunta por encuesta 5 segundos después (ver
+  // enviarEncuestasPendientesSiCorresponde) — cambiarEtapaNegocio la exige
+  // por defecto, permitirPerdidaSinCausa es justo para este caso.
+  await cambiarEtapaNegocio(negocio.id, etapaPerdida.id, {
+    causa_no_cierre_detalle: detalle,
+    permitirPerdidaSinCausa: true,
+  }, null);
+  await db.run(
+    `INSERT INTO whatsapp_encuesta_no_cierre (negocio_id, contacto_id, enviar_en)
+     VALUES ($1, $2, now() + interval '5 seconds')
+     ON CONFLICT (negocio_id) DO NOTHING`,
+    [negocio.id, negocio.contacto_id]
+  );
+  return true;
+}
+
 async function manejarBotonSeguimiento(negocioId, textoBoton) {
   const negocio = await db.get('SELECT * FROM negocios WHERE id = $1', [negocioId]);
   if (!negocio) return false;
   const texto = textoBoton.trim().toLowerCase();
 
   if (texto === BOTON_NO_COMPRA) {
-    const etapaPerdida = await db.get(
-      `SELECT id FROM pipeline_etapas WHERE pipeline_id = $1 AND tipo = 'perdida' LIMIT 1`, [negocio.pipeline_id]
-    );
-    if (!etapaPerdida) {
-      console.error('[seguimientoBoton] Pipeline', negocio.pipeline_id, 'sin etapa "perdida" — no se pudo mover el negocio', negocioId);
-      return false;
-    }
-    // Causa pendiente: se pregunta por encuesta 5 segundos después (ver
-    // enviarEncuestasPendientesSiCorresponde) — cambiarEtapaNegocio la exige
-    // por defecto, permitirPerdidaSinCausa es justo para este caso.
-    await cambiarEtapaNegocio(negocio.id, etapaPerdida.id, {
-      causa_no_cierre_detalle: 'Cliente indicó por WhatsApp que no realizará la compra — motivo pendiente de encuesta automática',
-      permitirPerdidaSinCausa: true,
-    }, null);
-    await db.run(
-      `INSERT INTO whatsapp_encuesta_no_cierre (negocio_id, contacto_id, enviar_en)
-       VALUES ($1, $2, now() + interval '5 seconds')
-       ON CONFLICT (negocio_id) DO NOTHING`,
-      [negocio.id, negocio.contacto_id]
-    );
-    return true;
+    return marcarPerdidoPorRechazo(negocio, 'Cliente indicó por WhatsApp que no realizará la compra — motivo pendiente de encuesta automática');
   }
 
   if (texto === BOTON_MAS_INFO) {
@@ -225,4 +234,4 @@ async function enviarEncuestasPendientesSiCorresponde() {
   }
 }
 
-module.exports = { manejarRespuesta, enviarEncuestasPendientesSiCorresponde };
+module.exports = { manejarRespuesta, enviarEncuestasPendientesSiCorresponde, marcarPerdidoPorRechazo };
