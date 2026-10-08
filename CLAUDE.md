@@ -88,6 +88,13 @@ avise lo contrario otra vez.
 
 ## Pendientes (actualizado 08-10-2026)
 
+**"Factura sugerida" retirada (v1.45, solo en `staging`).** No funcionó
+(RUT + monto exacto repite el mismo monto en muchos negocios del mismo cliente).
+Se quitó la insignia del Pipeline, la pestaña de Reportería Softland y los
+endpoints; las columnas de `reporte_softland_facturas` se conservan. Ver
+`docs/HT-AP-03-nota-cambio-v1.45.md`. Sigue sin promover a `main` (necesita el
+OK de Luis Devoto). Siguiente: mover a Facturado desde Softland por NV/OC.
+
 **OT: de bloquear a alertar (v1.44, solo en `staging`).** Pedido de Luis
 Devoto: las exigencias de Programado/Ejecutado frenaban el uso del Pipeline.
 Ya no bloquean (solo el tipo de trabajo y la causa de no cierre); lo que falta
