@@ -132,8 +132,7 @@ async function manejarBotonSeguimiento(negocioId, textoBoton) {
       return true;
     }
     // Este pipeline no tiene una etapa "Negociación" — no se inventa una
-    // (mismo criterio que services/sugerenciasFacturacion.js con
-    // "Facturado"). Se pausa la secuencia para que no siga corriendo como si
+    // (mismo criterio que con "Facturado" en otros flujos). Se pausa la secuencia para que no siga corriendo como si
     // el cliente no hubiera respondido, y se avisa a un humano con una tarea.
     await secuencias.pausarPorRespuestaCliente(negocio);
     await timeline.registrar({

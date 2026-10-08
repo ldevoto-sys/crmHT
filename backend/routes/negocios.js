@@ -11,7 +11,6 @@ const mantenimientoOT = require('../services/mantenimientoOT');
 const { toCSV, parseCSV, fechaDDMMAAAA } = require('../utils/csv');
 const { uploadCSV } = require('../middleware/upload');
 const { mapearNegocios, PLANTILLA_HEADERS: PLANTILLA_HEADERS_NEGOCIOS, TIPOS_TRABAJO } = require('../services/import_negocios');
-const sugerenciasFacturacion = require('../services/sugerenciasFacturacion');
 const { crearResolutorTecnicos } = require('../utils/tecnicos');
 
 const PUEDE_IMPORTAR_NEGOCIOS = ['administrador', 'jefe_comercial'];
@@ -80,17 +79,6 @@ router.get('/', async (req, res) => {
        ORDER BY n.ultima_actividad DESC LIMIT 1000`,
       params
     );
-
-    // Sugerencias de facturación pendientes (v1.33): se pintan como badge en
-    // la tarjeta del Pipeline, mismas candidatas que la pestaña dedicada de
-    // Reportería Softland — ver services/sugerenciasFacturacion.js.
-    const sugerenciasPorNegocio = await sugerenciasFacturacion.candidatosPorNegocio();
-    if (sugerenciasPorNegocio.size) {
-      for (const n of negocios) {
-        const s = sugerenciasPorNegocio.get(n.id);
-        if (s) n.sugerencias_factura = s;
-      }
-    }
 
     // Alertas de OT (v1.44): qué le falta a cada negocio en Programado/Ejecutado.
     const alertasOT = await ot.negociosConAlertas(negocios.map(n => n.id));
@@ -283,11 +271,11 @@ router.put('/:id', async (req, res) => {
 // PUT /api/negocios/:id/etapa — mover de etapa (kanban)
 // Núcleo de "cambiar de etapa" (historial, timeline, secuencias, encuesta de
 // satisfacción al llegar a una etapa 'ganada') — sin el chequeo de dueño
-// (puedeEditar), que es específico de la ruta de abajo. Reutilizado por
-// /sugerencias-facturacion/:folio/confirmar (routes/softland.js, v1.33)
-// para que confirmar una sugerencia dispare exactamente lo mismo que mover
-// la tarjeta a mano en el Pipeline. Errores de validación se lanzan con
-// `.status` para que el caller los traduzca a la respuesta HTTP.
+// (puedeEditar), que es específico de la ruta de abajo. Lo reutilizan los
+// movimientos automáticos (respuesta del cliente por WhatsApp, Mantenimiento)
+// para que hagan exactamente lo mismo que mover la tarjeta a mano en el
+// Pipeline. Errores de validación se lanzan con `.status` para que el caller
+// los traduzca a la respuesta HTTP.
 async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, causa_no_cierre_detalle, tipo_trabajo, permitirPerdidaSinCausa, horas_programadas, tecnico_ids, fecha_programada, fecha_ejecucion, horas_ejecutadas, id_fracttal } = {}, usuarioId) {
   const etapa = await db.get('SELECT * FROM pipeline_etapas WHERE id = $1', [etapaId]);
   if (!etapa) { const e = new Error('Etapa inválida'); e.status = 400; throw e; }
@@ -311,8 +299,8 @@ async function cambiarEtapaNegocio(negocioId, etapaId, { causa_no_cierre_id, cau
   // "Aceptado" exige tipo de trabajo — determina cómo se prellena la OT
   // (ver services/ot.js). Puede venir recién en este request (primera vez
   // que se fija) o ya estar en el negocio de una entrada anterior. Va acá
-  // (no en la ruta) para que cualquier caller de cambiarEtapaNegocio —
-  // también /sugerencias-facturacion/:folio/confirmar — quede protegido.
+  // (no en la ruta) para que cualquier caller de cambiarEtapaNegocio
+  // quede protegido.
   const entraAAceptado = etapa.nombre.toLowerCase() === 'aceptado';
   const tipoTrabajoFinal = tipo_trabajo || negocio.tipo_trabajo;
   if (entraAAceptado) {

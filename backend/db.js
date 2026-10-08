@@ -1709,12 +1709,11 @@ async function initDb() {
   `);
   await db.run('CREATE INDEX IF NOT EXISTS idx_softland_facturas_anio_mes ON reporte_softland_facturas (anio, mes)');
 
-  // Sugerencias de facturación (nota de cambio v1.33): vínculo opcional
-  // factura Softland → negocio del CRM. negocio_id se llena solo cuando una
-  // persona confirma la sugerencia (nunca automático — ver
-  // services/sugerenciasFacturacion.js); revisado_en queda seteado tanto al
-  // confirmar como al descartar, para no volver a ofrecer una factura ya
-  // resuelta.
+  // Sugerencias de facturación (nota de cambio v1.33; funcionalidad retirada
+  // en v1.45 porque cruzar solo RUT + monto no identificaba el negocio). Las
+  // columnas se conservan: negocio_id guarda los vínculos que ya se habían
+  // confirmado a mano y revisado_* el historial de lo descartado. Ya nada las
+  // escribe ni las lee.
   await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS negocio_id INTEGER REFERENCES negocios(id)`);
   await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS revisado_por_id INTEGER REFERENCES users(id)`);
   await db.run(`ALTER TABLE reporte_softland_facturas ADD COLUMN IF NOT EXISTS revisado_en TIMESTAMP`);
