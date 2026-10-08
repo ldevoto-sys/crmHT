@@ -9,6 +9,7 @@ const { avanzarPasosPendientes } = require('./services/secuencias');
 const { enviarRecordatorios } = require('./services/encuestas');
 const { avanzarRecontactosPendientes } = require('./services/whatsapp_bot');
 const { enviarInformeDiarioSiCorresponde } = require('./services/informeDiario');
+const { enviarAvisoOTPendientesSiCorresponde } = require('./services/alertasOT');
 const { enviarPostventaVencidosSiCorresponde } = require('./services/postventaVencidos');
 const { sincronizarSiCorresponde: sincronizarSoftlandSiCorresponde } = require('./services/softlandSync');
 const { sincronizarDocumentosSiCorresponde: sincronizarCobranzaSiCorresponde } = require('./services/cobranzaSoftland');
@@ -157,6 +158,11 @@ if (require.main === module) {
       // tabla informe_diario_envios).
       setInterval(() => {
         enviarInformeDiarioSiCorresponde().catch(err => console.error('[informeDiario] Error:', err));
+      }, QUINCE_MIN);
+      // Aviso de OT con datos pendientes (v1.44): 8am hora de Chile, día hábil,
+      // una vez por día y solo si hay al menos una (ver services/alertasOT.js).
+      setInterval(() => {
+        enviarAvisoOTPendientesSiCorresponde().catch(err => console.error('[alertasOT] Error:', err));
       }, QUINCE_MIN);
       // Aviso de casos de Postventa vencidos: dispara solo entre las 8:30 y
       // las 8:44 hora de Chile (cae dentro de la ventana en algún chequeo de

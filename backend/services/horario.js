@@ -57,6 +57,14 @@ async function horarioDelDia(fechaStr, cfg) {
   return { inicio: cfg.hora_inicio.slice(0, 5), fin: cfg.hora_fin.slice(0, 5) };
 }
 
+// ¿Es laborable la fecha calendario "AAAA-MM-DD"? Respeta días hábiles y
+// feriados/excepciones cargados en Config. Sin configuración, todo día cuenta.
+async function esDiaHabil(fechaStr) {
+  const cfg = await db.get('SELECT * FROM config_horario_atencion WHERE id = 1');
+  if (!cfg) return true;
+  return !!(await horarioDelDia(fechaStr, cfg));
+}
+
 async function esHorarioHabil(fecha = new Date()) {
   const cfg = await db.get('SELECT * FROM config_horario_atencion WHERE id = 1');
   if (!cfg) return true; // sin configuración, no bloquear nada
@@ -98,4 +106,4 @@ async function minutosHabilesEntre(desde, hasta) {
   return total;
 }
 
-module.exports = { esHorarioHabil, minutosHabilesEntre };
+module.exports = { esHorarioHabil, esDiaHabil, minutosHabilesEntre };

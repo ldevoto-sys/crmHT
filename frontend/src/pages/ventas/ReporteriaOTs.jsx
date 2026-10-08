@@ -143,6 +143,12 @@ export default function ReporteriaOTs() {
         Valor de venta = neto de la cotización vigente (o el monto del negocio si no tiene cotización). Horas-hombre = horas por técnico × cantidad de técnicos; en las ejecutadas se usan las horas ejecutadas registradas (en OT anteriores, que no las tienen, se estiman con las programadas).
         Programadas se cuentan por su fecha programada; ejecutadas, por su fecha de ejecución. Brecha = fecha de ejecución − fecha programada (positiva: se ejecutó después de lo programado; "a tiempo" = brecha de 0 o menos).
         La brecha solo existe para OT con fecha programada. {kpis?.sin_cotizacion_cantidad > 0 && `${kpis.sin_cotizacion_cantidad} OT del período no tienen cotización: su valor es el monto del negocio.`}
+        {(kpis?.incompletas_cantidad > 0 || kpis?.ejecutadas_sin_hh_cantidad > 0) && (
+          <span className="block mt-1 text-red-600 font-medium">
+            {kpis.incompletas_cantidad > 0 && `${kpis.incompletas_cantidad} OT en Programado/Ejecutado tienen datos sin completar (sin fecha, horas o técnicos): no entran en las fechas o las horas-hombre de este reporte. `}
+            {kpis.ejecutadas_sin_hh_cantidad > 0 && `${kpis.ejecutadas_sin_hh_cantidad} OT ejecutadas del período suman 0 horas-hombre por falta de horas o técnicos.`}
+          </span>
+        )}
       </p>
 
       {alerta && (!alerta.pipeline_encontrado || alerta.faltantes.length > 0) && (

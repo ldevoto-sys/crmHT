@@ -409,6 +409,38 @@ module.exports = {
     );
   },
 
+  // Aviso diario de OT con datos pendientes (v1.44, services/alertasOT.js).
+  // `pendientes`: [{ negocio_id, titulo, cliente_nombre, etapa_nombre,
+  // vendedor_nombre, alertas: [...] }]. `conVendedor`: la línea de mando ve
+  // todas las OT, así que se agrega la columna del vendedor.
+  otPendientes: (usuario, pendientes, { conVendedor = false } = {}) => {
+    const celda = (txt, extra = '') => `<td style="padding:8px 10px;${extra}">${escaparHtml(txt)}</td>`;
+    const filas = pendientes.map(p => `<tr style="border-bottom:1px solid #e5e7eb;">
+        ${celda(`OT-${p.negocio_id} · ${p.titulo}`)}
+        ${celda(p.cliente_nombre || '—')}
+        ${celda(p.etapa_nombre)}
+        ${conVendedor ? celda(p.vendedor_nombre || '—') : ''}
+        ${celda(p.alertas.join(' · '), 'color:#b91c1c; font-weight:bold;')}
+      </tr>`);
+    const cab = ['OT', 'Cliente', 'Etapa', ...(conVendedor ? ['Vendedor'] : []), 'Falta'];
+    const tabla = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size:13px;">
+      <tr style="background:#112548;">${cab.map(c => `<td style="color:#FFFFFF; padding:8px 10px;">${c}</td>`).join('')}</tr>
+      ${filas.join('')}
+    </table>`;
+    return enviar(
+      usuario.email,
+      `OT con datos pendientes (${pendientes.length})`,
+      template('OT con datos pendientes', `
+        <p>Hola <strong>${escaparHtml(usuario.nombre)}</strong>,</p>
+        <p style="color:#b91c1c; font-weight:bold; font-size:15px;">
+          ${pendientes.length === 1 ? '1 OT está' : `${pendientes.length} OT están`} en Programado o Ejecutado con datos sin completar.
+        </p>
+        ${tabla}
+        ${boton(`${APP_URL}/pipeline`, 'Ir al Pipeline')}
+      `)
+    );
+  },
+
   // Alerta de respuesta por WhatsApp (15-09-2026): un cliente ya derivado a
   // un vendedor lleva sin respuesta más de lo que toca — escala en 4 niveles
   // acumulativos (ver services/alertasRespuestaWhatsapp.js). datos: {

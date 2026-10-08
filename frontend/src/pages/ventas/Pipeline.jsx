@@ -117,7 +117,7 @@ export default function Pipeline() {
     if (etapa.nombre.toLowerCase() === 'aceptado' && !negocio.tipo_trabajo) {
       setModalAceptado({ negocio, etapa }); setTipoTrabajoSel(''); return;
     }
-    // Programación de OT (v1.40): Programado exige horas y técnicos;
+    // Programación de OT (v1.40; desde v1.44 no bloquea, solo alerta): Programado pide horas y técnicos;
     // Ejecutado, además, fecha de ejecución.
     if (pideDatosOT(etapa)) { setModalProgramacion({ negocio, etapa }); return; }
     mover(negocio, etapa);
@@ -298,6 +298,9 @@ export default function Pipeline() {
                         className="inline-block mt-2 text-xs font-medium text-ht-navy border border-ht-navy/30 rounded px-2 py-1 hover:bg-ht-navy/5">
                         Ver OT
                       </Link>
+                    )}
+                    {n.ot_alertas?.length > 0 && (
+                      <div className="text-[11px] font-medium text-red-600 mt-1">{n.ot_alertas.join(' · ')}</div>
                     )}
                     {n.fecha_compromiso && (
                       <div className={`text-[11px] mt-1 ${estilo.texto}`}>{estilo.label ? `${estilo.label} · ` : 'Compromiso '}{fecha(n.fecha_compromiso)}</div>

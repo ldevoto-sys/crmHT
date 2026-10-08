@@ -92,6 +92,13 @@ router.get('/', async (req, res) => {
       }
     }
 
+    // Alertas de OT (v1.44): qué le falta a cada negocio en Programado/Ejecutado.
+    const alertasOT = await ot.negociosConAlertas(negocios.map(n => n.id));
+    if (alertasOT.length) {
+      const porNegocio = new Map(alertasOT.map(a => [a.negocio_id, a.alertas]));
+      for (const n of negocios) { const a = porNegocio.get(n.id); if (a) n.ot_alertas = a; }
+    }
+
     res.json(negocios);
   } catch (err) {
     console.error('[negocios/GET /]', err);
@@ -1116,22 +1123,14 @@ function resolverFilaActualizacion(contexto, row, fila) {
     if (!etapaNueva) return { error: { fila, motivo: `etapa "${etapaCsv}" no es una etapa activa del pipeline de este negocio` } };
   }
 
-  // Programado/Ejecutado en el pipeline Operaciones: misma regla que el
-  // kanban. Este archivo no trae horas/técnicos/fecha, así que la OT debe
-  // tenerlos ya cargados (desde la ficha de la OT o el Pipeline).
+  // Programado/Ejecutado en el pipeline Operaciones: el negocio necesita ya
+  // su OT (este archivo no trae tipo de trabajo para crearla).
   if (etapaNueva && requiereDatosOT(etapaNueva.nombre) && negocio.pipeline_id === contexto.pipelineOperacionesId) {
     const otInfo = contexto.otsPorNegocio.get(negocio.id);
     if (!otInfo) {
       return { error: { fila, motivo: `para pasar a "${etapaNueva.nombre}" el negocio necesita una Orden de Trabajo con su programación: muévelo desde el Pipeline` } };
     }
-    if (otInfo.exige_programacion) {
-      const faltan = ot.faltantesParaEtapa(etapaNueva.nombre, {
-        horas: otInfo.horas_programadas, tecnicoIds: Array.from({ length: otInfo.n_tecnicos }, () => 0), fechaEjecucion: otInfo.fecha_ejecucion, fechaProgramada: otInfo.fecha_programada, horasEjecutadas: otInfo.horas_ejecutadas,
-      });
-      if (faltan.length) {
-        return { error: { fila, motivo: `para pasar a "${etapaNueva.nombre}" a la OT le falta: ${faltan.join(', ')} (cárgalo en la ficha de la OT o desde el Pipeline)` } };
-      }
-    }
+    // v1.44: lo que falte de programación no bloquea; queda como alerta en la OT.
   }
 
   let causaId = null;

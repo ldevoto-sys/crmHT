@@ -153,13 +153,13 @@ function mapearFila(row) {
   if (Number.isNaN(n.horas_ejecutadas)) errores.push('horas_ejecutadas no es un número mayor a 0');
   if (Number.isNaN(n.fecha_programada)) errores.push('fecha_programada no tiene formato DD-MM-AAAA');
   if (Number.isNaN(n.fecha_ejecucion)) errores.push('fecha_ejecucion no tiene formato DD-MM-AAAA');
-  // Mismas reglas que el kanban (services/ot.js#faltantesParaEtapa): una
-  // fila que entra directo a Programado/Ejecutado no puede esquivarlas.
+  // Desde v1.44 los datos de Programado/Ejecutado ya no rechazan la fila: se
+  // carga igual y lo que falte queda como alerta en la OT (services/ot.js#alertasOT).
   if (ETAPAS_OT.includes(etapaClave)) {
     const faltan = faltantesParaEtapa(n.estado, {
       horas: n.horas_programadas, tecnicoIds: n.tecnicos_lista, fechaEjecucion: n.fecha_ejecucion, fechaProgramada: n.fecha_programada, horasEjecutadas: n.horas_ejecutadas,
     });
-    if (faltan.length) errores.push(`para la etapa "${n.estado}" falta: ${faltan.join(', ')}`);
+    if (faltan.length) advertencias.push(`para la etapa "${n.estado}" falta: ${faltan.join(', ')} (se carga igual; quedará como alerta)`);
   }
 
   return { negocio: n, advertencias, errores };

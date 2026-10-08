@@ -102,6 +102,18 @@ el CRM solo avisa al crear la OT, no en cada cambio de etapa posterior.
 Depende de que se promueva primero el resto de Operaciones (v1.34-v1.40),
 que sigue en `staging`.
 
+## Pendientes (actualizado 08-10-2026)
+
+**OT: de bloquear a alertar (v1.44, solo en `staging`).** Pedido de Luis
+Devoto: las exigencias de Programado/Ejecutado frenaban el uso del Pipeline.
+Ya no bloquean (solo el tipo de trabajo y la causa de no cierre); lo que falta
+se ve en rojo en la tarjeta y llega por correo diario a las 8:00 (vendedor lo
+suyo, jefe comercial todo). El reporte OT's avisa de las OT incompletas. Ver
+`docs/HT-AP-03-nota-cambio-v1.44.md`. Sigue sin promover a `main` (necesita el
+OK de Luis Devoto). Plan en curso: (1) esto, (2) leer Excel/informes de
+Fracttal para mover a Ejecutado, (3) integraciones (Softland → Facturado, sacar
+"factura sugerida" que no funcionó por cruzar solo RUT + monto).
+
 ## Pendientes (actualizado 01-10-2026)
 
 **Promoción a `main` del 01-10-2026 (en horario laboral, con el OK explícito

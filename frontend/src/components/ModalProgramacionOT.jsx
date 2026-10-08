@@ -3,9 +3,9 @@ import api from '../api';
 
 // Datos de la Orden de Trabajo que pide el paso a "Programado" y a
 // "Ejecutado" del pipeline Operaciones (v1.40). Lo usan el kanban
-// (Pipeline.jsx) y la ficha del negocio (DetalleNegocio.jsx). Las mismas
-// reglas se validan en el backend (services/ot.js): esto solo evita el viaje
-// de ida y vuelta.
+// (Pipeline.jsx) y la ficha del negocio (DetalleNegocio.jsx). Desde v1.44 solo
+// el tipo de trabajo bloquea; lo demás se puede dejar en blanco y queda como
+// alerta en rojo en la tarjeta (services/ot.js#alertasOT).
 
 const TIPOS_TRABAJO = [
   ['mantenimiento_preventivo', 'Mantenimiento preventivo'],
@@ -48,14 +48,14 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
       .catch(() => setOt(null));
   }, [negocio.id]);
 
-  // OT anteriores a v1.40 (exige_programacion=false) no se bloquean.
+  // OT anteriores a v1.40 (exige_programacion=false) no generan alerta.
   const exige = ot === null || ot?.exige_programacion !== false;
   const necesitaTipo = ot === null && !negocio.tipo_trabajo;
-  const faltan = [];
-  if (necesitaTipo && !tipoTrabajo) faltan.push('tipo de trabajo');
+  const faltaTipo = necesitaTipo && !tipoTrabajo;
+  const faltan = []; // no bloquean: se avisa que quedarán como alerta
   if (exige && !fechaProgramada) faltan.push('fecha programada');
   if (exige && !(Number(horas) > 0)) faltan.push('horas de trabajo');
-  if (exige && tecnicoIds.length === 0) faltan.push('al menos un técnico');
+  if (exige && tecnicoIds.length === 0) faltan.push('técnicos');
   if (exige && esEjecutado && !fechaEjecucion) faltan.push('fecha de ejecución');
   if (exige && esEjecutado && !(Number(horasEjecutadas) > 0)) faltan.push('horas ejecutadas');
 
@@ -85,8 +85,9 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         <h2 className="font-semibold text-ht-navy text-lg mb-1">Pasar a "{etapa.nombre}"</h2>
         <p className="text-sm text-gray-500 mb-4">
           {esEjecutado
-            ? 'Obligatorio: fecha de ejecución (la real), horas ejecutadas, fecha programada, horas programadas y técnicos.'
-            : 'Obligatorio: fecha programada para ejecutar, horas de trabajo programadas y los técnicos que ejecutan la tarea.'}
+            ? 'Se piden: fecha de ejecución (la real), horas ejecutadas, fecha programada, horas programadas y técnicos.'
+            : 'Se piden: fecha programada para ejecutar, horas de trabajo programadas y los técnicos que ejecutan la tarea.'}
+          {exige && ' Si algo no está disponible, puedes continuar: quedará una alerta en rojo hasta completarlo.'}
           {!exige && ' Esta OT es anterior a esta regla: los datos son opcionales.'}
         </p>
 
@@ -159,12 +160,13 @@ export default function ModalProgramacionOT({ negocio, etapa, onConfirmar, onCan
         )}
 
         {error && <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
-        {faltan.length > 0 && ot !== undefined && <p className="text-xs text-gray-500 mt-4">Falta: {faltan.join(', ')}.</p>}
+        {faltaTipo && ot !== undefined && <p className="text-xs text-gray-500 mt-4">Falta el tipo de trabajo: es obligatorio para crear la OT.</p>}
+        {faltan.length > 0 && ot !== undefined && <p className="text-xs text-red-600 font-medium mt-4">Quedará pendiente: {faltan.join(', ')}.</p>}
 
         <div className="flex gap-2 mt-4">
-          <button onClick={confirmar} disabled={ot === undefined || faltan.length > 0 || guardando}
+          <button onClick={confirmar} disabled={ot === undefined || faltaTipo || guardando}
             className="bg-ht-accent text-ht-navy px-4 py-2 rounded text-sm font-medium hover:bg-ht-accent/90 disabled:opacity-50">
-            {guardando ? 'Guardando…' : 'Confirmar'}
+            {guardando ? 'Guardando…' : (faltan.length > 0 ? 'Mover sin completar' : 'Confirmar')}
           </button>
           <button onClick={onCancelar} className="px-4 py-2 rounded text-sm border border-gray-300 text-gray-600 hover:bg-gray-50">Cancelar</button>
         </div>

@@ -192,13 +192,68 @@ function faltantesParaEtapa(nombreEtapa, { horas, tecnicoIds, fechaEjecucion, fe
   return faltan;
 }
 
+// Alertas de una OT (v1.44): qué le falta a un negocio que está en
+// Programado/Ejecutado. Se calculan cada vez que se piden (Pipeline, correo
+// diario) a partir de la etapa y los datos actuales — no se guardan, así que
+// desaparecen solas cuando alguien completa el dato.
+// datos: { horas, tecnicoIds | nTecnicos, fechaProgramada, fechaEjecucion, horasEjecutadas }
+function alertasOT(nombreEtapa, { horas, tecnicoIds, nTecnicos, fechaProgramada, fechaEjecucion, horasEjecutadas }) {
+  const clave = claveEtapa(nombreEtapa);
+  const out = [];
+  if (!ETAPAS_OT.includes(clave)) return out;
+  const tecnicos = nTecnicos !== undefined ? nTecnicos : (tecnicoIds || []).length;
+  if (!fechaProgramada) out.push('Sin fecha programada');
+  if (!(Number(horas) > 0)) out.push('Sin horas programadas');
+  if (!tecnicos) out.push('Sin técnicos');
+  if (clave === 'ejecutado' && !fechaEjecucion) out.push('Sin fecha de ejecución');
+  if (clave === 'ejecutado' && !(Number(horasEjecutadas) > 0)) out.push('Sin horas ejecutadas');
+  return out;
+}
+
+// Negocios de Operaciones en Programado/Ejecutado con datos pendientes.
+// Devuelve [{ negocio_id, titulo, vendedor_id, vendedor_nombre, vendedor_email,
+// etapa_nombre, cliente_nombre, fecha_programada, alertas: [...] }]. Las OT
+// anteriores a v1.40 (exige_programacion = false) y las que gestiona
+// Mantenimiento no se alertan, igual que no se bloqueaban. `ids` opcional
+// acota a esos negocios (para pintar el Pipeline).
+async function negociosConAlertas(ids = null, client = db) {
+  const rows = await filas(client,
+    `SELECT n.id AS negocio_id, n.titulo, n.vendedor_id, u.nombre AS vendedor_nombre, u.email AS vendedor_email,
+            pe.nombre AS etapa_nombre,
+            COALESCE(e.razon_social, trim(c.nombre || ' ' || COALESCE(c.apellido, ''))) AS cliente_nombre,
+            o.horas_programadas, o.horas_ejecutadas, o.fecha_programada, o.fecha_ejecucion,
+            (SELECT count(*) FROM ot_tecnicos t WHERE t.ot_id = o.id)::int AS n_tecnicos
+     FROM negocios n
+     JOIN pipelines p ON p.id = n.pipeline_id AND p.nombre = 'Operaciones'
+     JOIN pipeline_etapas pe ON pe.id = n.etapa_id
+     JOIN contactos c ON c.id = n.contacto_id
+     LEFT JOIN empresas e ON e.id = n.empresa_id
+     LEFT JOIN users u ON u.id = n.vendedor_id
+     LEFT JOIN ordenes_trabajo o ON o.negocio_id = n.id
+     WHERE lower(trim(pe.nombre)) IN ('programado', 'ejecutado')
+       AND ($1::int[] IS NULL OR n.id = ANY($1))
+       AND (o.id IS NULL OR (o.exige_programacion AND NOT o.mantenimiento_gestiona))
+     ORDER BY n.id`,
+    [ids]
+  );
+  const out = [];
+  for (const r of rows) {
+    const alertas = alertasOT(r.etapa_nombre, {
+      horas: r.horas_programadas, nTecnicos: r.n_tecnicos || 0, fechaProgramada: r.fecha_programada,
+      fechaEjecucion: r.fecha_ejecucion, horasEjecutadas: r.horas_ejecutadas,
+    });
+    if (alertas.length) out.push({ ...r, alertas });
+  }
+  return out;
+}
+
 async function tecnicoIdsDe(otId, client = db) {
   return (await filas(client, 'SELECT user_id FROM ot_tecnicos WHERE ot_id = $1', [otId])).map(r => r.user_id);
 }
 
-// Se llama ANTES de mover el negocio a `etapa`. Si la etapa pide datos de
-// OT, valida que estén (en `datos` o ya guardados) y devuelve lo que hay que
-// persistir después con aplicarEntradaAEtapa(); si no aplica, devuelve null.
+// Se llama ANTES de mover el negocio a `etapa`. Si la etapa es de OT, valida
+// el formato de los datos recibidos y devuelve lo que hay que persistir
+// después con aplicarEntradaAEtapa(); si no aplica, devuelve null.
 async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo }, client = db) {
   if (!requiereDatosOT(etapa.nombre)) return null;
   if (!(await esPipelineOperaciones(etapa.pipeline_id, client))) return null;
@@ -212,21 +267,10 @@ async function validarEntradaAEtapa({ negocio, etapa, datos = {}, tipoTrabajo },
     // "Aceptado": la OT se crea acá, así que hace falta el tipo de trabajo.
     if (!tipoTrabajo) throw errorValidacion(`El tipo de trabajo es obligatorio para pasar a "${etapa.nombre}"`);
   }
-  // mantenimiento_gestiona: si Mantenimiento ya tomó esta OT, el técnico/horas
-  // los administra allá — el CRM no debe seguir exigiéndolos para avanzar de
-  // etapa (ver nota en db.js).
-  const exige = existente ? (existente.exige_programacion && !existente.mantenimiento_gestiona) : true;
-  if (exige) {
-    const tecnicoIds = normalizados.tecnico_ids ?? (existente ? await tecnicoIdsDe(existente.id, client) : []);
-    const faltan = faltantesParaEtapa(etapa.nombre, {
-      horas: normalizados.horas_programadas !== undefined ? normalizados.horas_programadas : existente?.horas_programadas,
-      tecnicoIds,
-      fechaEjecucion: normalizados.fecha_ejecucion !== undefined ? normalizados.fecha_ejecucion : existente?.fecha_ejecucion,
-      fechaProgramada: normalizados.fecha_programada !== undefined ? normalizados.fecha_programada : existente?.fecha_programada,
-      horasEjecutadas: normalizados.horas_ejecutadas !== undefined ? normalizados.horas_ejecutadas : existente?.horas_ejecutadas,
-    });
-    if (faltan.length) throw errorValidacion(`Para pasar a "${etapa.nombre}" falta: ${faltan.join(', ')}`);
-  }
+  // Desde v1.44 los datos de programación/ejecución ya no bloquean el paso de
+  // etapa: lo que falte se ve como alerta (alertasOT) y llega por correo.
+  // Solo se rechaza un dato mal escrito (horas <= 0, fecha inválida, técnico
+  // que no es técnico) o la falta de tipo de trabajo (sin él no se arma la OT).
   return { normalizados, tipoTrabajo };
 }
 
@@ -269,6 +313,6 @@ async function etapasFlujoFaltantes(client = db) {
 module.exports = {
   crearOTSiNoExiste, cargarOTCompleta,
   ETAPAS_OT, ETAPAS_FLUJO_OT, claveEtapa, requiereDatosOT,
-  normalizarDatosProgramacion, validarTecnicos, faltantesParaEtapa, tecnicoIdsDe,
+  normalizarDatosProgramacion, validarTecnicos, faltantesParaEtapa, alertasOT, negociosConAlertas, tecnicoIdsDe,
   validarEntradaAEtapa, aplicarEntradaAEtapa, guardarProgramacion, etapasFlujoFaltantes, esPipelineOperaciones,
 };

@@ -106,7 +106,7 @@ export default function ConfigPipeline() {
       {flujoOT && (!flujoOT.pipeline_encontrado || flujoOT.faltantes.length > 0) && (
         <div className="mb-4 p-3 bg-amber-50 border border-amber-300 text-amber-900 rounded text-sm">
           {flujoOT.pipeline_encontrado
-            ? <>Al pipeline Operaciones le falta la etapa {flujoOT.faltantes.map(f => `"${f.charAt(0).toUpperCase() + f.slice(1)}"`).join(', ')}. El sistema las reconoce por su nombre: sin ella no se aplican las reglas de Órdenes de Trabajo (tipo de trabajo, horas y técnicos, fecha de ejecución) ni funciona el reporte de OT's.</>
+            ? <>Al pipeline Operaciones le falta la etapa {flujoOT.faltantes.map(f => `"${f.charAt(0).toUpperCase() + f.slice(1)}"`).join(', ')}. El sistema las reconoce por su nombre: sin ella no se aplican las reglas y alertas de Órdenes de Trabajo (tipo de trabajo, horas y técnicos, fecha de ejecución) ni funciona el reporte de OT's.</>
             : <>No se encontró el pipeline "Operaciones" (¿fue renombrado?). Sin él no se aplican las reglas de Órdenes de Trabajo ni funciona el reporte de OT's.</>}
         </div>
       )}
