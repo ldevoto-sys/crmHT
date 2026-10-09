@@ -86,6 +86,17 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
+## Pendientes (actualizado 09-10-2026)
+
+**WhatsApp sin plantilla dentro de la ventana de 24 h (v1.46, solo en rama de
+desarrollo / `staging`).** Pedido de Luis Devoto: las 3 plantillas están en
+Marketing (78,49 CLP c/u). Con cliente que escribió hace <23 h, el envío de
+cotización y los pasos de secuencia (envío, seguimiento, vencimiento) salen
+como texto libre o mensaje con botones (gratis); fuera de ventana, plantilla
+como antes. Ver `docs/HT-AP-03-nota-cambio-v1.46.md`. Falta probar con
+WhatsApp real en `staging`, documentar como instructivo, y el OK de Luis para
+`main`. Fuera del código: pasar "Seguimiento" y "Vencimiento" a Utilidad en Meta.
+
 ## Pendientes (actualizado 06-10-2026)
 
 **Integración CRM ↔ app de Mantenimiento — lado CRM, en `staging` sin

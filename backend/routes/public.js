@@ -278,7 +278,12 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   // type: 'button' es la respuesta a un botón de una PLANTILLA aprobada
   // (ej. "Seguimiento de cotización") — distinto de interactive.button_reply,
   // que es la respuesta a un botón/lista que el propio bot envía.
-  const textoEntrante = m.text?.body ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title
+  // Botón de un mensaje interactivo de seguimiento/vencimiento (enviado dentro
+  // de la ventana de 24 h en vez de la plantilla): se registra y se procesa
+  // con el texto del botón de la plantilla, para que ambos caminos se comporten
+  // igual (el título interactivo es más corto — Meta limita a 20 caracteres).
+  const textoBotonSeguimiento = m.interactive?.button_reply?.id ? whatsapp.textoCanonicoDeBoton(m.interactive.button_reply.id) : null;
+  const textoEntrante = m.text?.body ?? textoBotonSeguimiento ?? m.interactive?.list_reply?.title ?? m.interactive?.button_reply?.title
     ?? m.button?.text ?? textoReaccion
     ?? (tipoMedia ? (m[m.type]?.caption || `[${tipoMedia}]`) : `[tipo no soportado: ${m.type}]`);
   // Si el cliente respondió citando un mensaje anterior (nuestro o suyo),
@@ -306,7 +311,7 @@ async function procesarMensaje(m, cuenta = whatsappCuentas.VENTAS, nombrePerfil 
   // porque no son parte del bot de categorización de leads (ver
   // services/seguimientoBoton.js). Si no hay vínculo conocido para este
   // mensaje, sigue el flujo normal de abajo sin ningún cambio.
-  if (m.type === 'button' || (m.type === 'interactive' && m.interactive?.list_reply)) {
+  if (m.type === 'button' || (m.type === 'interactive' && (m.interactive?.list_reply || textoBotonSeguimiento))) {
     // Registra el mensaje entrante ella misma (antes de reaccionar, para que
     // el orden en el hilo quede bien — ver services/seguimientoBoton.js).
     const manejado = await seguimientoBoton.manejarRespuesta(m, { contacto, textoEntrante });

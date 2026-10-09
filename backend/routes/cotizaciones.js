@@ -10,7 +10,7 @@ const { fetchCompleta, numeroCompleto } = require('../services/cotizacion_data')
 const { generarCotizacionPDF, generarCotizacionPDFBuffer } = require('../services/pdf');
 const timeline = require('../services/timeline');
 const email = require('../services/email');
-const whatsapp = require('../services/whatsapp');
+const { enviarEnVentanaOPlantilla } = require('../services/whatsappVentana');
 const mensajes = require('../services/whatsapp_mensajes');
 const secuencias = require('../services/secuencias');
 const { obtenerUFDelDia } = require('../services/uf');
@@ -541,11 +541,21 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
 
     const nombreCompleto = [data.cliente.contacto_nombre, data.cliente.contacto_apellido].filter(Boolean).join(' ');
     const linkPublico = `${process.env.APP_URL || ''}/c/${data.cot.token_publico}`;
-    const resultado = await whatsapp.enviarPlantilla(data.cliente.contacto_telefono, PLANTILLA_ENVIO_COTIZACION, [
-      { nombre: 'customer_name', valor: nombreCompleto },
-      { nombre: 'coti_id', valor: data.cot.numero },
-      { nombre: 'link', valor: linkPublico },
-    ]);
+    // Dentro de la ventana de 24 h sale como texto libre (sin costo); fuera
+    // de ella, o si Meta lo rechaza, como plantilla (v1.45).
+    const resultado = await enviarEnVentanaOPlantilla({
+      contactoId: data.cliente.contacto_id,
+      telefono: data.cliente.contacto_telefono,
+      plantilla: PLANTILLA_ENVIO_COTIZACION,
+      parametros: [
+        { nombre: 'customer_name', valor: nombreCompleto },
+        { nombre: 'coti_id', valor: data.cot.numero },
+        { nombre: 'link', valor: linkPublico },
+      ],
+      libre: {
+        texto: `Estimado ${nombreCompleto}, te enviamos la cotización N° ${data.cot.numero} de Hidrotécnica que solicitaste. Puedes verla aquí: ${linkPublico}. Cualquier consulta, estamos atentos.`,
+      },
+    });
     if (!resultado.enviado) {
       return res.status(502).json({ error: `No se pudo enviar por WhatsApp: ${resultado.motivo || 'error desconocido'}` });
     }
@@ -554,6 +564,7 @@ router.post('/:id/enviar-whatsapp', async (req, res) => {
     await mensajes.registrar({
       contacto_id: data.cliente.contacto_id, lead_id: lead?.id ?? null,
       direccion: 'saliente', texto: `📄 Cotización ${numeroCompleto(data.cot.numero, data.cot.version)} enviada`, enviado_por_id: req.user.id,
+      canal_envio: resultado.via,
     });
     await db.run(
       `UPDATE cotizaciones SET fecha_envio = now(), estado = CASE WHEN estado = 'borrador' THEN 'enviada' ELSE estado END

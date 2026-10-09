@@ -6,12 +6,12 @@ const { db } = require('../db');
 async function registrar({
   contacto_id, lead_id = null, direccion, texto, enviado_por_id = null,
   tipo = 'texto', archivo_key = null, archivo_nombre = null, archivo_mime = null,
-  wa_message_id = null, respondido_a_id = null, wa_timestamp = null,
+  wa_message_id = null, respondido_a_id = null, wa_timestamp = null, canal_envio = null,
 }) {
   const r = await db.run(
-    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-    [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp]
+    `INSERT INTO whatsapp_mensajes (contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp, canal_envio)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+    [contacto_id, lead_id, direccion, texto, enviado_por_id, tipo, archivo_key, archivo_nombre, archivo_mime, wa_message_id, respondido_a_id, wa_timestamp, canal_envio]
   );
   // Un mensaje nuevo del cliente reabre y desarchiva la conversación, aunque
   // se hubiera cerrado o archivado a mano antes.
@@ -59,15 +59,17 @@ async function cerradaManualmente(contacto_id) {
 }
 
 // Abierta = dentro de la ventana de 24h de Meta (mensaje del cliente reciente)
-// Y no cerrada a mano por un vendedor/admin.
-async function ventanaAbierta(contacto_id) {
+// Y no cerrada a mano por un vendedor/admin. `horas` permite exigir un margen
+// (ej. 23) para los envíos automáticos, que no pueden arriesgar el rechazo de
+// Meta por llegar justo al vencer la ventana.
+async function ventanaAbierta(contacto_id, horas = 24) {
   if (await cerradaManualmente(contacto_id)) return false;
   const ultimo = await db.get(
     `SELECT created_at FROM whatsapp_mensajes WHERE contacto_id=$1 AND direccion='entrante' ORDER BY created_at DESC LIMIT 1`,
     [contacto_id]
   );
   if (!ultimo) return false;
-  return Date.now() - new Date(ultimo.created_at).getTime() < 24 * 3600000;
+  return Date.now() - new Date(ultimo.created_at).getTime() < horas * 3600000;
 }
 
 async function cerrarManual(contacto_id, usuario_id) {
