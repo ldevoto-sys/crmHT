@@ -76,8 +76,11 @@ async function manejarRespuesta(m, { contacto, textoEntrante }) {
   // pasado en verdad después.
   await mensajes.registrar({ contacto_id: contacto.id, direccion: 'entrante', texto: textoEntrante, wa_message_id: m.id });
 
-  if (correlacion.proposito === 'seguimiento_coti' && m.type === 'button') {
-    await manejarBotonSeguimiento(correlacion.negocio_id, m.button?.text || '');
+  // Botón de la plantilla (type 'button') o del mismo mensaje enviado como
+  // interactivo dentro de la ventana de 24 h (button_reply, ver
+  // whatsapp.js#BOTONES_SEGUIMIENTO) — textoEntrante ya trae el texto canónico.
+  if (correlacion.proposito === 'seguimiento_coti' && (m.type === 'button' || m.interactive?.button_reply)) {
+    await manejarBotonSeguimiento(correlacion.negocio_id, m.button?.text || textoEntrante || '');
   } else if (correlacion.proposito === 'encuesta_no_cierre' && m.type === 'interactive' && m.interactive?.list_reply) {
     await manejarRespuestaEncuesta(correlacion.negocio_id, m.interactive.list_reply.id);
   }

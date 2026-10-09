@@ -56,7 +56,7 @@ async function enviar(telefonoE164, mensaje, cuenta = VENTAS, contextMessageId =
     if (!resp.ok) {
       const err = await resp.text();
       console.error('[whatsapp] Error enviando a', telefonoE164, ':', err);
-      return { enviado: false, motivo: errorAmigable(err) };
+      return { enviado: false, motivo: errorAmigable(err), rechazado: true };
     }
     const data = await resp.json().catch(() => null);
     return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
@@ -138,6 +138,62 @@ async function enviarLista(telefonoE164, mensaje, opciones, cuenta = VENTAS) {
     return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
   } catch (e) {
     console.error('[whatsapp] Error enviando lista a', telefonoE164, ':', e.message);
+    return { enviado: false, motivo: e.message };
+  }
+}
+
+// Botones de respuesta rápida de los mensajes de seguimiento/vencimiento de
+// cotización. Dentro de la ventana de 24 h se envían como mensaje interactivo
+// (sin costo) en vez de la plantilla; Meta limita el título a 20 caracteres,
+// por eso son más cortos que los de la plantilla. `textoCanonico` es el texto
+// del botón de la plantilla: se usa al registrar y procesar la respuesta para
+// que ambos caminos se comporten igual (ver routes/public.js y
+// services/seguimientoBoton.js).
+const BOTONES_SEGUIMIENTO = [
+  { id: 'mas_info', title: 'Necesito más info', textoCanonico: 'Necesito más información' },
+  { id: 'no_compra', title: 'No compraré', textoCanonico: 'No realizaré la compra' },
+];
+function textoCanonicoDeBoton(id) {
+  return BOTONES_SEGUIMIENTO.find(b => b.id === id)?.textoCanonico || null;
+}
+
+// Mensaje interactivo con botones de respuesta rápida (hasta 3). Solo se puede
+// enviar dentro de la ventana de 24 h de servicio al cliente. Devuelve
+// `rechazado: true` si Meta respondió con error (el mensaje NO salió).
+async function enviarBotones(telefonoE164, texto, botones, { header, footer } = {}, cuenta = VENTAS) {
+  if (!cuenta?.access_token || !cuenta?.phone_number_id) {
+    console.log(`[whatsapp] Sin credenciales configuradas; no se enviaron botones a ${telefonoE164}.`);
+    return { enviado: false, motivo: 'WhatsApp no configurado' };
+  }
+  try {
+    const resp = await fetch(
+      `https://graph.facebook.com/v19.0/${cuenta.phone_number_id}/messages`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${cuenta.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: telefonoE164.replace('+', ''),
+          type: 'interactive',
+          interactive: {
+            type: 'button',
+            ...(header ? { header: { type: 'text', text: header.slice(0, 60) } } : {}),
+            body: { text: texto },
+            ...(footer ? { footer: { text: footer.slice(0, 60) } } : {}),
+            action: { buttons: botones.slice(0, 3).map(b => ({ type: 'reply', reply: { id: String(b.id), title: b.title.slice(0, 20) } })) },
+          },
+        }),
+      }
+    );
+    if (!resp.ok) {
+      const err = await resp.text();
+      console.error('[whatsapp] Error enviando botones a', telefonoE164, ':', err);
+      return { enviado: false, motivo: errorAmigable(err), rechazado: true };
+    }
+    const data = await resp.json().catch(() => null);
+    return { enviado: true, wa_message_id: data?.messages?.[0]?.id || null };
+  } catch (e) {
+    console.error('[whatsapp] Error enviando botones a', telefonoE164, ':', e.message);
     return { enviado: false, motivo: e.message };
   }
 }
@@ -296,4 +352,4 @@ async function descargarMedia(mediaId, cuenta = VENTAS) {
   }
 }
 
-module.exports = { enviar, enviarLista, enviarDocumento, enviarMedia, enviarPlantilla, enviarReaccion, descargarMedia };
+module.exports = { enviar, enviarBotones, BOTONES_SEGUIMIENTO, textoCanonicoDeBoton, enviarLista, enviarDocumento, enviarMedia, enviarPlantilla, enviarReaccion, descargarMedia };

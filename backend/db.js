@@ -1363,6 +1363,11 @@ async function initDb() {
   // respuesta confiables (auditoría 23-09-2026, pedido de Luis Devoto
   // 23-09-2026 — "cada mensaje con horario").
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS wa_timestamp TIMESTAMP`);
+  // Cómo salió un envío automático de cotización/seguimiento/vencimiento:
+  // 'libre' (texto o botones dentro de la ventana de 24 h, sin costo) o
+  // 'plantilla' (con cobro). NULL en el resto de los mensajes. Sirve para
+  // medir el ahorro (v1.45).
+  await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS canal_envio TEXT CHECK (canal_envio IN ('libre','plantilla'))`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_emoji TEXT`);
   await db.run(`ALTER TABLE whatsapp_mensajes ADD COLUMN IF NOT EXISTS reaccion_por TEXT CHECK (reaccion_por IN ('cliente','negocio'))`);
   await db.run(`CREATE INDEX IF NOT EXISTS idx_whatsapp_mensajes_wa_message_id ON whatsapp_mensajes (wa_message_id)`);

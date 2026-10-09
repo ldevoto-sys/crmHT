@@ -22,6 +22,7 @@ const { db } = require('../db');
 const timeline = require('./timeline');
 const email = require('./email');
 const whatsapp = require('./whatsapp');
+const { enviarEnVentanaOPlantilla } = require('./whatsappVentana');
 const mensajes = require('./whatsapp_mensajes');
 const { esHorarioHabil } = require('./horario');
 
@@ -38,6 +39,11 @@ function fechaVencimientoCotizacion(cot) {
   base.setDate(base.getDate() + (cot.validez_dias || 15));
   return base.toLocaleDateString('es-CL');
 }
+// `libre` arma el mismo contenido que la plantilla para enviarlo sin costo
+// como texto libre / mensaje con botones cuando el cliente escribió hace
+// menos de 23 h (ver services/whatsappVentana.js). Debe mantenerse alineado
+// con el texto de la plantilla en Meta.
+const FOOTER_HT = 'Hidrotécnica SpA · Especialistas en equipos hidráulicos';
 const PLANTILLAS_WHATSAPP = {
   // La clave quedó fija en "envio_cotizacion" (sin "_v2") aunque la
   // plantilla real en Meta es "envio_cotizacion_v2" — cambiar la clave
@@ -54,6 +60,9 @@ const PLANTILLAS_WHATSAPP = {
       { nombre: 'coti_id', valor: cot.numero },
       { nombre: 'link', valor: `${process.env.APP_URL || ''}/c/${cot.token_publico}` },
     ],
+    libre: (contacto, cot) => ({
+      texto: `Estimado ${nombreCompleto(contacto)}, te enviamos la cotización N° ${cot.numero} de Hidrotécnica que solicitaste. Puedes verla aquí: ${process.env.APP_URL || ''}/c/${cot.token_publico}. Cualquier consulta, estamos atentos.`,
+    }),
   },
   vencimiento_cotizacion: {
     label: 'Vencimiento de cotización',
@@ -62,6 +71,12 @@ const PLANTILLAS_WHATSAPP = {
       { nombre: 'coti_id', valor: cot.numero },
       { nombre: 'coti_vig', valor: fechaVencimientoCotizacion(cot) },
     ],
+    libre: (contacto, cot) => ({
+      header: 'Seguimiento de cotización',
+      texto: `Estimado ${nombreCompleto(contacto)}, tu cotización N° ${cot.numero} vence el ${fechaVencimientoCotizacion(cot)}. Si quieres avanzar o tienes dudas antes de esa fecha, escríbenos por este medio.`,
+      footer: FOOTER_HT,
+      botones: whatsapp.BOTONES_SEGUIMIENTO,
+    }),
   },
   seguimiento_coti: {
     label: 'Seguimiento de cotización',
@@ -69,6 +84,12 @@ const PLANTILLAS_WHATSAPP = {
       { nombre: 'customer_name', valor: nombreCompleto(contacto) },
       { nombre: 'coti_id', valor: cot.numero },
     ],
+    libre: (contacto, cot) => ({
+      header: 'Cotización enviada',
+      texto: `Estimado ${nombreCompleto(contacto)}, ¿pudiste revisar la cotización N° ${cot.numero} que te enviamos? Quedamos atentos si tienes alguna consulta.`,
+      footer: FOOTER_HT,
+      botones: whatsapp.BOTONES_SEGUIMIENTO,
+    }),
   },
 };
 
@@ -131,7 +152,13 @@ async function intentarEnviarWhatsapp(ns, paso) {
   if (!ultimaCot) return { enviado: false, motivo: 'el negocio no tiene ninguna cotización registrada' };
   const plantilla = PLANTILLAS_WHATSAPP[paso.whatsapp_template];
   if (!plantilla) return { enviado: false, motivo: `plantilla de WhatsApp "${paso.whatsapp_template}" desconocida` };
-  const resultado = await whatsapp.enviarPlantilla(contacto.telefono_e164, plantilla.metaTemplate || paso.whatsapp_template, plantilla.parametros(contacto, ultimaCot));
+  const resultado = await enviarEnVentanaOPlantilla({
+    contactoId: ns.contacto_id,
+    telefono: contacto.telefono_e164,
+    plantilla: plantilla.metaTemplate || paso.whatsapp_template,
+    parametros: plantilla.parametros(contacto, ultimaCot),
+    libre: plantilla.libre ? plantilla.libre(contacto, ultimaCot) : null,
+  });
   if (!resultado?.enviado) return { enviado: false, motivo: resultado?.motivo || 'error al enviar el WhatsApp' };
   if (paso.whatsapp_template === 'seguimiento_coti' && resultado.wa_message_id) {
     // Para reconocer a qué negocio corresponde si el cliente toca uno de
@@ -151,10 +178,12 @@ async function intentarEnviarWhatsapp(ns, paso) {
   const lead = await db.get('SELECT id FROM leads WHERE contacto_id = $1 ORDER BY created_at DESC LIMIT 1', [ns.contacto_id]);
   await mensajes.registrar({
     contacto_id: ns.contacto_id, lead_id: lead?.id ?? null, direccion: 'saliente',
-    texto: `📋 Plantilla "${plantilla.label}" enviada automáticamente por la secuencia de seguimiento`,
-    wa_message_id: resultado.wa_message_id || null,
+    texto: resultado.via === 'libre'
+      ? `📋 "${plantilla.label}" enviado automáticamente por la secuencia de seguimiento (mensaje libre, ventana de 24 h abierta)`
+      : `📋 Plantilla "${plantilla.label}" enviada automáticamente por la secuencia de seguimiento`,
+    wa_message_id: resultado.wa_message_id || null, canal_envio: resultado.via,
   });
-  return { enviado: true, destinatario: contacto.telefono_e164 };
+  return { enviado: true, destinatario: contacto.telefono_e164, via: resultado.via };
 }
 
 async function crearTareaSeguimiento(ns, paso, totalPasos, motivoSinEnvio, descripcionOverride) {
@@ -302,7 +331,7 @@ async function avanzarPasosPendientes() {
     } else if (paso.canal === 'whatsapp') {
       const resultado = await intentarEnviarWhatsapp(ns, paso);
       if (resultado.enviado) {
-        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" enviado por WhatsApp automáticamente a ${resultado.destinatario} (plantilla "${paso.whatsapp_template}")`;
+        descripcionTimeline = `Paso ${paso.orden} de "${ns.secuencia_nombre}" enviado por WhatsApp automáticamente a ${resultado.destinatario} (${resultado.via === 'libre' ? 'mensaje libre, sin costo' : `plantilla "${paso.whatsapp_template}"`})`;
       } else {
         const plantillaLabel = PLANTILLAS_WHATSAPP[paso.whatsapp_template]?.label || paso.whatsapp_template;
         tareaId = await crearTareaSeguimiento(ns, paso, totalPasos.n, resultado.motivo, `Enviar por WhatsApp la plantilla "${plantillaLabel}" a este contacto.`);
