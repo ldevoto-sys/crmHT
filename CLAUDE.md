@@ -86,6 +86,23 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
+## Pendientes (actualizado 10-10-2026, promoción preparada)
+
+**Promoción a `main` armada, SIN pushear (falta el OK de Luis Devoto).** Rama
+`claude/peaceful-hawking-f0xdcq`, 3 commits sobre `main` (`11dcc9a`), tomados de
+`staging` por cherry-pick: v1.45 (retirar "Factura sugerida"), v1.46 (WhatsApp
+sin plantilla en ventana de 24 h) y v1.47 (marcar como atendida sin cerrar).
+No incluye Cobranza ni la integración con Mantenimiento (v1.41), ni
+`middleware/auth.js`, `routes/auth.js`, `services/email.js` ni `Usuarios.jsx`.
+Probada según las lecciones del 23-09 y 01-10: clon limpio con el comando de
+build de `railway.json`, sin enlaces simbólicos, schema de `main` creado primero
+y el código de la rama encima, barrido de endpoints autenticados con 6 roles sin
+500 atribuibles al cambio. Migraciones: `whatsapp_mensajes.canal_envio` y
+`whatsapp_conversaciones.atendida_*` (`IF NOT EXISTS`). Tras el push, dar por
+buena la promoción solo con el estado **Success** en Railway. Falta probar
+v1.46 (fuera de ventana y botones) y v1.47 con WhatsApp real, y el instructivo
+en SharePoint.
+
 ## Pendientes (actualizado 10-10-2026)
 
 **Bandeja: "Marcar como atendida" sin cerrar (v1.47, solo en `staging`).**
