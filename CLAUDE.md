@@ -86,6 +86,17 @@ tanda, no un levantamiento general de la regla. Los próximos cambios
 vuelven a necesitar la misma confirmación de error-no-mejora salvo que se
 avise lo contrario otra vez.
 
+## Pendientes (actualizado 10-10-2026)
+
+**Bandeja: "Marcar como atendida" sin cerrar (v1.47, solo en `staging`).**
+Pedido de Luis Devoto: antes había que cerrar la conversación para sacarla de
+pendientes, lo que bloquea el texto libre. Ahora "atendida" es una marca aparte
+(`whatsapp_conversaciones.atendida_manual`): sale de pendientes y de las
+alertas, no toca la ventana de 24 h y se borra sola si el cliente escribe.
+Cerrar implica atendida, sin cambios. Ver `docs/HT-AP-03-nota-cambio-v1.47.md`.
+Falta probar en `staging` con usuarios reales, documentar como instructivo y el
+OK de Luis para `main`.
+
 ## Pendientes (actualizado 09-10-2026)
 
 **WhatsApp sin plantilla dentro de la ventana de 24 h (v1.46, solo en rama de

@@ -20,6 +20,7 @@ async function registrar({
       `INSERT INTO whatsapp_conversaciones (contacto_id, cerrada_manual, archivada) VALUES ($1, false, false)
        ON CONFLICT (contacto_id) DO UPDATE SET
          cerrada_manual = false, cerrada_en = NULL, cerrada_por_id = NULL,
+         atendida_manual = false, atendida_en = NULL, atendida_por_id = NULL,
          archivada = false, archivada_en = NULL, archivada_por_id = NULL`,
       [contacto_id]
     );
@@ -72,6 +73,16 @@ async function ventanaAbierta(contacto_id, horas = 24) {
   return Date.now() - new Date(ultimo.created_at).getTime() < horas * 3600000;
 }
 
+// Marca la conversación como atendida sin cerrarla: sale de pendientes pero la
+// ventana de 24 h (texto libre) no se toca.
+async function atenderManual(contacto_id, usuario_id) {
+  await db.run(
+    `INSERT INTO whatsapp_conversaciones (contacto_id, atendida_manual, atendida_en, atendida_por_id) VALUES ($1, true, now(), $2)
+     ON CONFLICT (contacto_id) DO UPDATE SET atendida_manual = true, atendida_en = now(), atendida_por_id = $2`,
+    [contacto_id, usuario_id]
+  );
+}
+
 async function cerrarManual(contacto_id, usuario_id) {
   await db.run(
     `INSERT INTO whatsapp_conversaciones (contacto_id, cerrada_manual, cerrada_en, cerrada_por_id) VALUES ($1, true, now(), $2)
@@ -120,7 +131,7 @@ async function limpiarAvisoFueraHorario(contacto_id) {
 }
 
 module.exports = {
-  registrar, ventanaAbierta, cerrarManual, archivarManual, desarchivarManual,
+  registrar, ventanaAbierta, cerrarManual, atenderManual, archivarManual, desarchivarManual,
   yaAvisoFueraHorario, marcarAvisoFueraHorarioEnviado, limpiarAvisoFueraHorario,
   buscarIdPorWaMessageId, marcarReaccion,
 };

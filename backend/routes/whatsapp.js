@@ -69,6 +69,7 @@ router.get('/conversaciones', async (req, res) => {
               l.id AS lead_id, l.estado AS lead_estado, l.vendedor_id, l.negocio_id, u.nombre AS vendedor_nombre,
               ult.texto AS ultimo_mensaje, ult.direccion AS ultimo_direccion, ult.created_at AS ultimo_at,
               COALESCE(abierta.abierta, false) AS abierta, COALESCE(wc.archivada, false) AS archivada,
+              COALESCE(wc.atendida_manual, false) AS atendida,
               (ult.direccion = 'entrante' AND (wl.leido_en IS NULL OR ult.created_at > wl.leido_en)) AS no_leido
        FROM (SELECT DISTINCT contacto_id FROM whatsapp_mensajes) base
        JOIN contactos c ON c.id = base.contacto_id
@@ -283,6 +284,22 @@ router.post('/conversaciones/:contactoId/mensajes/:mensajeId/reaccion', async (r
     res.json({ message: emoji ? 'Reacción enviada' : 'Reacción quitada' });
   } catch (err) {
     console.error('[whatsapp/POST /conversaciones/:id/mensajes/:id/reaccion]', err);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// POST /api/whatsapp/conversaciones/:contactoId/atender — marca como atendida
+// sin cerrar: sale de pendientes (reporte de tiempo de respuesta y alertas) y
+// se puede seguir escribiendo con texto libre. Se borra sola si el cliente
+// vuelve a escribir (ver whatsapp_mensajes.registrar).
+router.post('/conversaciones/:contactoId/atender', async (req, res) => {
+  try {
+    const { permitido } = await accesoConversacion(req, req.params.contactoId);
+    if (!permitido) return res.status(403).json({ error: 'Sin permiso para marcar esta conversación' });
+    await mensajes.atenderManual(req.params.contactoId, req.user.id);
+    res.json({ message: 'Conversación marcada como atendida' });
+  } catch (err) {
+    console.error('[whatsapp/POST /conversaciones/:id/atender]', err);
     res.status(500).json({ error: 'Error interno' });
   }
 });

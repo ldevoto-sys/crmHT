@@ -330,7 +330,7 @@ async function whatsappAbiertasAhora(req) {
                (SELECT MAX(COALESCE(wa_timestamp, created_at)) FROM whatsapp_mensajes WHERE contacto_id = c.id AND direccion = 'saliente'),
                '-infinity'::timestamp)
      ) pend ON true
-     WHERE pend.pendiente_desde IS NOT NULL AND NOT COALESCE(wc.cerrada_manual, false)
+     WHERE pend.pendiente_desde IS NOT NULL AND NOT COALESCE(wc.cerrada_manual, false) AND NOT COALESCE(wc.atendida_manual, false)
        AND ($1::int IS NULL OR l.vendedor_id = $1)
      ORDER BY pend.pendiente_desde ASC`,
     [vendedorId]
