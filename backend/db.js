@@ -1396,6 +1396,13 @@ async function initDb() {
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_en TIMESTAMP`);
   await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS archivada_por_id INTEGER REFERENCES users(id)`);
+  // "Atendida": saca la conversación de pendientes (reporte de tiempo de
+  // respuesta y alertas de escalamiento) SIN cerrarla, así se sigue pudiendo
+  // escribir con texto libre dentro de la ventana de 24 h. Se borra sola si el
+  // cliente vuelve a escribir (ver services/whatsapp_mensajes.js).
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS atendida_manual BOOLEAN NOT NULL DEFAULT false`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS atendida_en TIMESTAMP`);
+  await db.run(`ALTER TABLE whatsapp_conversaciones ADD COLUMN IF NOT EXISTS atendida_por_id INTEGER REFERENCES users(id)`);
   // Ley 21.719 — solo registro/auditoría de cuándo se mandó el aviso de
   // privacidad de primer contacto/reapertura (services/privacidad.js). No lo
   // usa la lógica para decidir si hay que reenviarlo — eso se calcula del

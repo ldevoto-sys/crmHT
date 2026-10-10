@@ -56,7 +56,7 @@ async function conversacionesPendientes() {
     ) pend ON true
     WHERE l.bot_estado = 'derivado' AND l.vendedor_id IS NOT NULL
       AND ult.direccion = 'entrante' AND pend.pendiente_desde IS NOT NULL
-      AND NOT COALESCE(wc.cerrada_manual, false)
+      AND NOT COALESCE(wc.cerrada_manual, false) AND NOT COALESCE(wc.atendida_manual, false)
   `);
 }
 

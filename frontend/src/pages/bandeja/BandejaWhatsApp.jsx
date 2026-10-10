@@ -303,10 +303,18 @@ export default function BandejaWhatsApp() {
     finally { setEnviandoPlantilla(false); }
   };
 
+  const atenderConversacion = async () => {
+    if (!window.confirm('¿Marcar esta conversación como atendida? Ya no aparecerá como pendiente en el reporte de tiempo de respuesta ni generará alertas, y podrás seguir escribiendo. Se desmarca sola si el cliente vuelve a escribir.')) return;
+    try {
+      await api.post(`/whatsapp/conversaciones/${seleccionada}/atender`);
+      cargarConversaciones();
+    } catch (err) { setError(err.response?.data?.error || 'No se pudo marcar la conversación como atendida.'); }
+  };
+
   const cerrarConversacion = async () => {
     const mensaje = conversacionActual?.abierta
-      ? '¿Cerrar esta conversación? Se reabre sola si el cliente vuelve a escribir.'
-      : '¿Marcar esta conversación como atendida? Ya no aparecerá como pendiente en el reporte de tiempo de respuesta. Se reabre sola si el cliente vuelve a escribir.';
+      ? '¿Cerrar esta conversación? Ya no se podrá escribir con texto libre hasta que el cliente vuelva a escribir, y sale de pendientes.'
+      : '¿Marcar esta conversación como cerrada? Sale de pendientes. Se reabre sola si el cliente vuelve a escribir.';
     if (!window.confirm(mensaje)) return;
     try {
       await api.post(`/whatsapp/conversaciones/${seleccionada}/cerrar`);
@@ -381,6 +389,7 @@ export default function BandejaWhatsApp() {
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${c.abierta ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                   {c.abierta ? 'abierta' : 'cerrada'}
                 </span>
+                {c.atendida && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700">atendida</span>}
               </div>
               <div className="text-xs text-gray-500">{c.telefono_e164}</div>
               <div className={`text-xs mt-1 truncate ${c.no_leido ? 'text-ht-navy font-medium' : 'text-gray-400'}`}>{c.ultimo_direccion === 'saliente' ? '↑ ' : '↓ '}{c.ultimo_mensaje}</div>
@@ -435,9 +444,20 @@ export default function BandejaWhatsApp() {
                     Crear cotización ↗
                   </a>
                   {!verArchivadas && (
-                    <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
-                      {conversacionActual?.abierta ? 'Cerrar conversación' : 'Marcar como atendida'}
-                    </button>
+                    <>
+                      {conversacionActual?.atendida ? (
+                        <span className="text-xs text-green-700 border border-green-200 bg-green-50 rounded px-2 py-1">✓ Atendida</span>
+                      ) : (
+                        <button onClick={atenderConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                          Marcar como atendida
+                        </button>
+                      )}
+                      {conversacionActual?.abierta && (
+                        <button onClick={cerrarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
+                          Cerrar conversación
+                        </button>
+                      )}
+                    </>
                   )}
                   {verArchivadas ? (
                     <button onClick={desarchivarConversacion} className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
