@@ -268,7 +268,10 @@ async function escribirFoto(negocioId, foto, hora, usuarioId) {
     poner('mant_datos', JSON.stringify(datos));
   }
   if (tiene(foto, 'sucursal_nombre') && foto.sucursal_nombre) {
-    await db.run('UPDATE negocios SET sucursal_nombre = $1 WHERE id = $2', [foto.sucursal_nombre, negocioId]);
+    // Nombre e id viajan juntos: si el id quedara de la sucursal anterior, la próxima foto del CRM devolvería la OT a ella.
+    // Una foto sin id (Mantenimiento antiguo) lo deja vacío y Mantenimiento resuelve por nombre.
+    const id = Number.isInteger(foto.mantenimiento_sucursal_id) ? foto.mantenimiento_sucursal_id : null;
+    await db.run('UPDATE negocios SET sucursal_nombre = $1, mantenimiento_sucursal_id = $2 WHERE id = $3', [foto.sucursal_nombre, id, negocioId]);
   }
 
   params.push(hora);
